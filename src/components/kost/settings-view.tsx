@@ -1,0 +1,1968 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import { toast } from "@/lib/toast";
+import { BRAND_WA_LINE } from "@/lib/brand";
+import {
+  BedDouble,
+  Building2,
+  Camera,
+  Check,
+  ImagePlus,
+  Landmark,
+  Layers3,
+  MessageSquareText,
+  Palette,
+  Pencil,
+  Plus,
+  Save,
+  Sofa,
+  Trash2,
+  TriangleAlert,
+  UserRound,
+  UsersRound,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatIDR, waLink, type Room } from "@/lib/kost-data";
+import {
+  fileToPhotoDataUrl,
+  nextSettingsId,
+  PROPERTY_TYPES,
+  PROPERTY_TYPE_META,
+  STAFF_ROLE_META,
+  STAFF_ROLES,
+  THEME_KEYS,
+  THEME_META,
+  type FacilityCatalog,
+  type FacilityItem,
+  type IndoKostSettings,
+  type PropertyEntry,
+  type PropertyProfile,
+  type PropertyType,
+  type StaffMember,
+  type StaffRole,
+  type ThemeKey,
+} from "@/lib/app-settings";
+import { cn } from "@/lib/utils";
+import { DangerZone } from "./danger-zone";
+import { WaIcon } from "./wa-icon";
+
+const inputCls =
+  "h-9 border-zinc-200 bg-white text-[13px] text-zinc-900 placeholder:text-zinc-600 focus-visible:ring-zinc-900/5";
+
+const SAMPLE = { nama: "Dimas Ardi", kamar: "102", nominal: "Rp1.750.000", tempo: "28 Sep 2025", kos: "Kost Griya Pratama" };
+
+const TOKENS = ["{nama}", "{kamar}", "{nominal}", "{tempo}"] as const;
+
+/** Static facility map per room type (fallback bila kamar belum punya fasilitas) */
+const TYPE_FACILITIES: Record<string, string[]> = {
+  "Tipe A - AC": ["AC ½ PK", "Kamar Mandi Dalam", "Kasur & Lemari"],
+  "Tipe B - Kipas": ["Kipas Angin", "Kamar Mandi Dalam", "Kasur & Lemari"],
+  "Tipe AC Deluxe": ["AC Inverter", "Kamar Mandi Dalam", "TV LED", "Meja Kerja"],
+};
+
+/* ── Navigasi sub-pengaturan ───────────────────────────────────────────────── */
+
+const NAV: {
+  key: string;
+  label: string;
+  desc: string;
+  icon: typeof Building2;
+  destructive?: boolean;
+}[] = [
+  { key: "profil-saya", label: "Profil Saya", desc: "Akun pengelola", icon: UserRound },
+  { key: "profil", label: "Profil Properti", desc: "Identitas & aturan", icon: Building2 },
+  { key: "properti-list", label: "Daftar & Kelola Properti", desc: "Multi-cabang", icon: Layers3 },
+  { key: "staf", label: "Kelola Admin & Staf", desc: "Peran & akses", icon: UsersRound },
+  { key: "rekening", label: "Rekening & Pembayaran", desc: "Bank & QRIS", icon: Landmark },
+  { key: "template", label: "Template WhatsApp", desc: "Pesan otomatis", icon: MessageSquareText },
+  { key: "tarif", label: "Tarif & Tipe Kamar", desc: "Harga & fasilitas", icon: BedDouble },
+  { key: "fasilitas", label: "Katalog Fasilitas", desc: "Unit & bersama", icon: Sofa },
+  { key: "tema", label: "Tema & Tampilan", desc: "12 tema: solid & karakter", icon: Palette },
+  { key: "danger", label: "Zona Berbahaya", desc: "Reset data", icon: TriangleAlert, destructive: true },
+];
+
+interface SettingsViewProps {
+  propertyName: string;
+  rooms: Room[];
+  /** Controlled active tab (owner dashboard keeps it across visits) */
+  tab: string;
+  onTabChange: (tab: string) => void;
+  settings: IndoKostSettings;
+  onUpdateSettings: (patch: Partial<IndoKostSettings>) => void;
+  dangerCounts: {
+    rooms: number;
+    tenants: number;
+    invoices: number;
+    cash: number;
+    tickets: number;
+  };
+  onClearDemo: () => void;
+  onFactoryReset: () => void;
+  onApplyTariff: (changes: { type: string; price: number }[]) => void;
+}
+
+export function SettingsView({
+  propertyName,
+  rooms,
+  tab,
+  onTabChange,
+  settings,
+  onUpdateSettings,
+  dangerCounts,
+  onClearDemo,
+  onFactoryReset,
+  onApplyTariff,
+}: SettingsViewProps) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-lg font-bold tracking-tight text-zinc-900">Pengaturan</h1>
+        <p className="mt-0.5 text-[12.5px] text-zinc-700">
+          Profil pengelola, properti multi-cabang, staf, pembayaran, template WhatsApp, tarif, tema, dan pengelolaan data
+        </p>
+      </div>
+
+      {/*
+        Layout: desktop 2 kolom — sub-sidebar vertikal (kiri) + konten form (kanan).
+        Mobile: deretan chip scroll-horizontal DIGANTI dropdown elegan
+        "Kategori Pengaturan:" (tanpa geser-geser samping).
+        forceMount menjaga draf form tetap hidup saat berpindah sub-menu.
+      */}
+      {/* Mobile: dropdown kategori pengaturan */}
+      <div className="rounded-lg border border-border bg-white p-2 md:hidden">
+        <Label
+          htmlFor="kategori-pengaturan"
+          className="mb-1.5 block text-[12.5px] font-medium text-zinc-700"
+        >
+          Kategori Pengaturan:
+        </Label>
+        <Select value={tab} onValueChange={onTabChange}>
+          <SelectTrigger
+            id="kategori-pengaturan"
+            aria-label="Pilih kategori pengaturan"
+            className="h-10 w-full justify-between border-zinc-200 bg-zinc-50 text-[13px] font-medium text-zinc-900 shadow-none hover:bg-zinc-100 focus-visible:ring-zinc-900/10"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper" className="max-h-[min(60vh,380px)] w-[var(--radix-select-trigger-width)]">
+            {NAV.map((item) => {
+              const Icon = item.icon;
+              return (
+                <SelectItem
+                  key={item.key}
+                  value={item.key}
+                  className={cn("text-[13px]", item.destructive && "text-red-600")}
+                >
+                  <span className="flex items-center gap-2">
+                    <Icon
+                      className={cn("size-3.5 shrink-0", item.destructive ? "text-red-500" : "text-zinc-700")}
+                      strokeWidth={1.75}
+                      aria-hidden="true"
+                    />
+                    <span>{item.label}</span>
+                  </span>
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <Tabs
+        value={tab}
+        onValueChange={onTabChange}
+        className="space-y-3 md:grid md:grid-cols-[236px_minmax(0,1fr)] md:items-start md:gap-6 md:space-y-0"
+      >
+        <TabsList className="hidden h-auto w-full items-stretch gap-1 rounded-lg border border-border bg-white p-1 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:flex md:flex-col md:h-auto md:gap-0.5 md:overflow-visible md:rounded-xl md:p-1.5">
+          {NAV.map((item) => {
+            const Icon = item.icon;
+            return (
+              <TabsTrigger
+                key={item.key}
+                value={item.key}
+                className={cn(
+                  "h-9 shrink-0 gap-2 rounded-md border-0 px-2.5 text-[12.5px] font-medium data-[state=inactive]:bg-transparent data-[state=inactive]:shadow-none md:h-auto md:w-full md:justify-start md:py-2 md:text-left",
+                  item.destructive
+                    ? "text-red-600 data-[state=active]:bg-red-600 data-[state=active]:text-white"
+                    : "text-zinc-600 hover:data-[state=inactive]:text-zinc-900 data-[state=active]:bg-[var(--ik-accent)] data-[state=active]:text-[var(--ik-accent-fg)]"
+                )}
+                title={item.label}
+              >
+                <Icon className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                <span className="min-w-0 whitespace-nowrap md:flex-1 md:whitespace-normal">
+                  <span className="block truncate leading-4">{item.label}</span>
+                  <span
+                    className={cn(
+                      "mt-0.5 hidden text-xs font-normal leading-3 opacity-70 md:block",
+                      item.destructive ? "text-red-500" : "text-current"
+                    )}
+                  >
+                    {item.desc}
+                  </span>
+                </span>
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+
+        <ProfilSayaTab
+          key={JSON.stringify(settings.owner)}
+          owner={settings.owner}
+          onSave={(owner) => onUpdateSettings({ owner })}
+        />
+        <ProfilPropertiTab
+          key={JSON.stringify(settings.propertyProfile)}
+          profile={settings.propertyProfile}
+          propertyCount={settings.properties.length}
+          onSave={(propertyProfile) => onUpdateSettings({ propertyProfile })}
+        />
+        <PropertiListTab
+          properties={settings.properties}
+          activeName={propertyName}
+          onChange={(properties) => onUpdateSettings({ properties })}
+        />
+        <StafTab
+          staff={settings.staff}
+          properties={settings.properties}
+          onChange={(staff) => onUpdateSettings({ staff })}
+        />
+        <RekeningTab
+          key={JSON.stringify(settings.rekening)}
+          rekening={settings.rekening}
+          onSave={(rekening) => onUpdateSettings({ rekening })}
+        />
+        <TemplateTab
+          key={JSON.stringify(settings.templates)}
+          propertyName={propertyName}
+          templates={settings.templates}
+          onSave={(templates) => onUpdateSettings({ templates })}
+        />
+        <TarifTab rooms={rooms} onApplyTariff={onApplyTariff} />
+        <FasilitasTab
+          catalog={settings.facilities}
+          onChange={(facilities) => onUpdateSettings({ facilities })}
+        />
+        <TemaTab theme={settings.theme} onSelect={(theme) => onUpdateSettings({ theme })} />
+        <TabsContent value="danger" forceMount className="mt-0 data-[state=inactive]:hidden">
+          <DangerZone counts={dangerCounts} onClearDemo={onClearDemo} onFactoryReset={onFactoryReset} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+/* ── Shared: pane & save row ───────────────────────────────────────────────── */
+
+function Pane({
+  value,
+  children,
+  className,
+}: {
+  value: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <TabsContent
+      value={value}
+      forceMount
+      className={cn("mt-0 min-w-0 data-[state=inactive]:hidden", className)}
+    >
+      {children}
+    </TabsContent>
+  );
+}
+
+function SaveRow({ onClick, hint, compact }: { onClick: () => void; hint?: string | undefined; compact?: boolean }) {
+  return (
+    <div className="flex items-center justify-end gap-3">
+      {hint && <p className="mr-auto text-[12.5px] text-zinc-700">{hint}</p>}
+      <Button
+        onClick={onClick}
+        className={cn(
+          "bg-[var(--ik-accent)] text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]",
+          compact ? "h-8 px-3" : "h-9 px-4"
+        )}
+      >
+        <Save className="size-3.5" strokeWidth={2} />
+        Simpan Perubahan
+      </Button>
+    </div>
+  );
+}
+
+function SectionCard({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-700">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/* ── Tab 1: Profil Saya ────────────────────────────────────────────────────── */
+
+function ProfilSayaTab({
+  owner,
+  onSave,
+}: {
+  owner: IndoKostSettings["owner"];
+  onSave: (owner: IndoKostSettings["owner"]) => void;
+}) {
+  const [nama, setNama] = useState(owner.nama);
+  const [email, setEmail] = useState(owner.email);
+  const [wa, setWa] = useState(owner.whatsapp);
+
+  const dirty = nama.trim() !== owner.nama || email.trim() !== owner.email || wa.trim() !== owner.whatsapp;
+
+  const waDigits = wa.replace(/[^0-9]/g, "");
+  const emailValid = /\S+@\S+\.\S+/.test(email);
+  const valid = nama.trim().length >= 2 && emailValid && waDigits.length >= 9;
+
+  const save = () => {
+    if (!valid) return;
+    onSave({ nama: nama.trim(), email: email.trim(), whatsapp: wa.trim() });
+    toast.success("Profil pengelola tersimpan", {
+      description: "Data dipakai pada identitas dashboard & pengirim broadcast WA.",
+    });
+  };
+
+  return (
+    <Pane value="profil-saya">
+      <div className="max-w-[640px] space-y-4">
+        <SectionCard title="Akun Pengelola">
+          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="st-me-nama" className="text-[12.5px] text-zinc-600">Nama Pengelola</Label>
+              <Input
+                id="st-me-nama"
+                value={nama}
+                onChange={(e) => setNama(e.target.value)}
+                className={inputCls}
+                placeholder="cth. Hendra Wijaya"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="st-me-email" className="text-[12.5px] text-zinc-600">Email</Label>
+              <Input
+                id="st-me-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className={cn(inputCls, !emailValid && email.length > 0 && "border-red-300 focus-visible:ring-red-900/10")}
+                placeholder="nama@email.com"
+                aria-invalid={!emailValid && email.length > 0}
+              />
+              {!emailValid && email.length > 0 && (
+                <p className="text-xs text-red-500">Format email belum valid.</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="st-me-wa" className="text-[12.5px] text-zinc-600">Nomor WhatsApp Pengelola</Label>
+              <Input
+                id="st-me-wa"
+                inputMode="tel"
+                value={wa}
+                onChange={(e) => setWa(e.target.value)}
+                className={cn(inputCls, "tabular-nums")}
+                placeholder="+62 812-xxxx-xxxx"
+              />
+              <p className="text-xs leading-4 text-zinc-700">
+                Dipakai sebagai pengirim default broadcast &amp; tautan portal penyewa.
+              </p>
+              {waDigits.length >= 9 && (
+                <a
+                  href={`${waLink(wa)}?text=${encodeURIComponent(`Halo, ini uji kirim pesan. ${BRAND_WA_LINE}.`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-emerald-700 hover:underline"
+                >
+                  <WaIcon className="size-3" />
+                  Uji tautan WA — {waDigits}
+                </a>
+              )}
+            </div>
+          </div>
+        </SectionCard>
+        <SaveRow
+          onClick={save}
+          hint={
+            !valid && dirty
+              ? "Lengkapi nama, email valid, dan nomor WA (min. 9 digit)."
+              : dirty
+                ? "Ada perubahan yang belum disimpan."
+                : undefined
+          }
+        />
+      </div>
+    </Pane>
+  );
+}
+
+/* ── Tab 2: Profil Properti ────────────────────────────────────────────────── */
+
+function ProfilPropertiTab({
+  profile,
+  propertyCount,
+  onSave,
+}: {
+  profile: PropertyProfile;
+  propertyCount: number;
+  onSave: (profile: PropertyProfile) => void;
+}) {
+  const [draft, setDraft] = useState<PropertyProfile>(profile);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [urlMode, setUrlMode] = useState(false);
+  const [urlDraft, setUrlDraft] = useState("");
+
+  const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
+
+  const set = (patch: Partial<PropertyProfile>) => {
+    setDraft((d) => ({ ...d, ...patch }));
+  };
+
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const dataUrl = await fileToPhotoDataUrl(file);
+      set({ fotoUrl: dataUrl });
+      toast.success("Foto fasad dimuat", { description: "Klik Simpan untuk menerapkan." });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal memuat foto");
+    }
+  };
+
+  const save = () => {
+    if (!draft.nama.trim()) return;
+    onSave({ ...draft, nama: draft.nama.trim() });
+    toast.success("Profil properti tersimpan", {
+      description: "Nama, tipe, foto, dan aturan langsung tampil di banner & portal.",
+    });
+  };
+
+  return (
+    <Pane value="profil">
+      <div className="max-w-[680px] space-y-4">
+        <SectionCard title="Identitas Properti">
+          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="st-nama" className="text-[12.5px] text-zinc-600">
+                Nama {PROPERTY_TYPE_META[draft.tipe].label}
+              </Label>
+              <Input id="st-nama" value={draft.nama} onChange={(e) => set({ nama: e.target.value })} className={inputCls} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="st-tipe" className="text-[12.5px] text-zinc-600">Tipe Properti</Label>
+              <Select value={draft.tipe} onValueChange={(v) => set({ tipe: v as PropertyType })}>
+                <SelectTrigger id="st-tipe" className="h-9 w-full border-zinc-200 text-[13px] focus:ring-zinc-900/5">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROPERTY_TYPES.map((t) => (
+                    <SelectItem key={t} value={t} className="text-[13px]">
+                      {PROPERTY_TYPE_META[t].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs leading-4 text-zinc-700">
+                {PROPERTY_TYPE_META[draft.tipe].hint} Label unit mengikuti tipe:{" "}
+                <span className="font-medium text-zinc-700">
+                  {PROPERTY_TYPES.map((t) => `${PROPERTY_TYPE_META[t].label} → ${PROPERTY_TYPE_META[t].unit}`).join(" · ")}
+                </span>
+              </p>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="st-alamat" className="text-[12.5px] text-zinc-600">Alamat Lengkap</Label>
+              <Textarea id="st-alamat" rows={2} value={draft.alamat} onChange={(e) => set({ alamat: e.target.value })} className="border-zinc-200 bg-white text-[13px] text-zinc-900 focus-visible:ring-zinc-900/5" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="st-lantai" className="text-[12.5px] text-zinc-600">
+                Jumlah Lantai{draft.tipe === "kontrakan" ? "/Petak" : draft.tipe === "rusun" ? "/Tower" : ""}
+              </Label>
+              <Input id="st-lantai" type="number" min={1} max={50} value={draft.lantai} onChange={(e) => set({ lantai: e.target.value })} className={cn(inputCls, "tabular-nums")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="st-jam" className="text-[12.5px] text-zinc-600">Jam Malam</Label>
+              <Input id="st-jam" type="time" value={draft.jamMalam} onChange={(e) => set({ jamMalam: e.target.value })} className={cn(inputCls, "tabular-nums")} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="st-aturan" className="text-[12.5px] text-zinc-600">Aturan Kost</Label>
+              <Textarea id="st-aturan" rows={5} value={draft.aturan} onChange={(e) => set({ aturan: e.target.value })} className="border-zinc-200 bg-white text-[12.5px] leading-5 text-zinc-900 focus-visible:ring-zinc-900/5" />
+              <p className="text-xs text-zinc-700">Aturan tampil pada portal penyewa &amp; pesan WhatsApp otomatis.</p>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Foto Bangunan / Fasad"
+          action={
+            draft.fotoUrl ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700"
+                onClick={() => set({ fotoUrl: undefined })}
+              >
+                <X className="mr-1 size-3" strokeWidth={1.75} />
+                Hapus Foto
+              </Button>
+            ) : undefined
+          }
+        >
+          <div className="space-y-3 p-4">
+            {draft.fotoUrl ? (
+              <div className="flex items-start gap-3">
+                <img
+                  src={draft.fotoUrl}
+                  alt={`Foto fasad ${draft.nama}`}
+                  className="h-28 w-full max-w-[220px] rounded-lg border border-border object-cover"
+                />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <p className="text-[12.5px] font-medium text-zinc-700">Foto aktif</p>
+                  <p className="text-xs leading-4 text-zinc-700">
+                    Tampil pada banner identitas properti ({propertyCount > 1 ? "properti aktif" : "dashboard"}) &amp; kartu properti.
+                    Disimpan terkompresi agar ringan di perangkat.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 py-7 text-center transition-colors hover:border-zinc-400 hover:bg-white"
+              >
+                <ImagePlus className="size-5 text-zinc-700" strokeWidth={1.5} aria-hidden="true" />
+                <span className="text-[12.5px] font-medium text-zinc-600">Unggah Foto Bangunan / Fasad</span>
+                <span className="text-xs text-zinc-700">PNG/JPG · otomatis dikompresi</span>
+              </button>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => fileRef.current?.click()}
+                className="h-8 border-zinc-200 bg-white px-3 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+              >
+                <Camera className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+                {draft.fotoUrl ? "Ganti dari File" : "Pilih File"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => { setUrlMode((m) => !m); setUrlDraft(""); }}
+                className="h-8 border-zinc-200 bg-white px-3 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                aria-expanded={urlMode}
+              >
+                Gunakan URL Gambar
+              </Button>
+              {urlMode && (
+                <div className="flex min-w-[240px] flex-1 items-center gap-1.5">
+                  <Input
+                    value={urlDraft}
+                    onChange={(e) => setUrlDraft(e.target.value)}
+                    placeholder="https://…/foto-fasad.jpg"
+                    className={inputCls}
+                    aria-label="URL gambar fasad"
+                  />
+                  <Button
+                    variant="outline"
+                    disabled={!urlDraft.trim()}
+                    onClick={() => { set({ fotoUrl: urlDraft.trim() }); setUrlMode(false); setUrlDraft(""); }}
+                    className="h-9 shrink-0 border-zinc-200 bg-white px-3 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                  >
+                    Pakai
+                  </Button>
+                </div>
+              )}
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => { void pickPhoto(e.target.files?.[0]); e.target.value = ""; }}
+              aria-label="Unggah foto bangunan/fasad"
+            />
+          </div>
+        </SectionCard>
+
+        <SaveRow
+          onClick={save}
+          hint={
+            !draft.nama.trim()
+              ? "Nama properti wajib diisi."
+              : dirty
+                ? "Perubahan nama langsung tampil di sidebar, banner & portal."
+                : undefined
+          }
+        />
+      </div>
+    </Pane>
+  );
+}
+
+/* ── Tab 3: Daftar & Kelola Properti (multi-cabang) ───────────────────────── */
+
+const emptyPropDraft = { name: "", type: "kost" as PropertyType, unitCount: "8", address: "", photoUrl: "" };
+
+function PropertiListTab({
+  properties,
+  activeName,
+  onChange,
+}: {
+  properties: PropertyEntry[];
+  activeName: string;
+  onChange: (properties: PropertyEntry[]) => void;
+}) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [draft, setDraft] = useState(emptyPropDraft);
+  const [confirmDelete, setConfirmDelete] = useState<PropertyEntry | null>(null);
+
+  const openAdd = () => {
+    setEditId(null);
+    setDraft(emptyPropDraft);
+    setModalOpen(true);
+  };
+
+  const openEdit = (p: PropertyEntry) => {
+    setEditId(p.id);
+    setDraft({ name: p.name, type: p.type, unitCount: String(p.unitCount), address: p.address, photoUrl: p.photoUrl ?? "" });
+    setModalOpen(true);
+  };
+
+  const nameTaken = properties.some(
+    (p) => p.id !== editId && p.name.trim().toLowerCase() === draft.name.trim().toLowerCase()
+  );
+  const unitCount = Number(draft.unitCount);
+  const valid = draft.name.trim().length >= 3 && !nameTaken && unitCount >= 1;
+
+  const submit = () => {
+    if (!valid) return;
+    if (editId) {
+      onChange(
+        properties.map((p) =>
+          p.id === editId
+            ? { ...p, name: draft.name.trim(), type: draft.type, unitCount, address: draft.address.trim(), photoUrl: draft.photoUrl.trim() || undefined }
+            : p
+        )
+      );
+      toast.success("Properti diperbarui", { description: draft.name.trim() });
+    } else {
+      onChange([
+        ...properties,
+        {
+          id: nextSettingsId("prop"),
+          name: draft.name.trim(),
+          type: draft.type,
+          unitCount,
+          address: draft.address.trim(),
+          photoUrl: draft.photoUrl.trim() || undefined,
+        },
+      ]);
+      toast.success("Properti baru ditambahkan", {
+        description: `${draft.name.trim()} · ${unitCount} ${PROPERTY_TYPE_META[draft.type].unit}`,
+      });
+    }
+    setModalOpen(false);
+  };
+
+  const doDelete = (p: PropertyEntry) => {
+    onChange(properties.filter((x) => x.id !== p.id));
+    setConfirmDelete(null);
+    toast.success("Properti dihapus", { description: `${p.name} dikeluarkan dari daftar.` });
+  };
+
+  return (
+    <Pane value="properti-list">
+      <div className="max-w-[860px] space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[12.5px] text-zinc-700">
+            <span className="font-semibold tabular-nums text-zinc-700">{properties.length}</span> properti terdaftar —
+            kelola semua cabang dari satu akun owner.
+          </p>
+          <Button
+            onClick={openAdd}
+            className="h-9 bg-[var(--ik-accent)] px-3 text-[12.5px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]"
+          >
+            <Plus className="size-4" strokeWidth={2} />
+            Tambah Properti Baru
+          </Button>
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden overflow-x-auto rounded-lg border border-border bg-white md:block">
+          <table className="w-full min-w-[640px] border-collapse text-[13px]">
+            <caption className="sr-only">Daftar properti multi-cabang</caption>
+            <thead>
+              <tr>
+                <th className={`${HEAD_CELL} pl-4 text-left`}>Properti</th>
+                <th className={`${HEAD_CELL} text-left`}>Tipe</th>
+                <th className={`${HEAD_CELL} text-center`}>Unit</th>
+                <th className={`${HEAD_CELL} text-left`}>Status</th>
+                <th className={`${HEAD_CELL} pr-4 text-right`}>Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {properties.map((p) => {
+                const isActive = p.name === activeName;
+                return (
+                  <tr key={p.id} className="border-b border-border last:border-0 hover:bg-zinc-50/70">
+                    <td className="max-w-[280px] py-2.5 pl-4 pr-3">
+                      <p className="truncate font-semibold text-zinc-900">{p.name}</p>
+                      <p className="truncate text-[12.5px] text-zinc-700">{p.address || "Alamat belum diisi"}</p>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <Badge variant="outline" className="h-5 border-zinc-200 bg-zinc-50 px-1.5 text-xs font-semibold text-zinc-600">
+                        {PROPERTY_TYPE_META[p.type].label}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2.5 text-center tabular-nums text-zinc-700">
+                      {p.unitCount} {PROPERTY_TYPE_META[p.type].unit}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {isActive ? (
+                        <span className="inline-flex h-5 items-center rounded-full bg-[var(--ik-accent)] px-2 text-xs font-semibold text-[var(--ik-accent-fg)]">
+                          Aktif — dikelola
+                        </span>
+                      ) : (
+                        <span className="inline-flex h-5 items-center rounded-full border border-border bg-zinc-50 px-2 text-xs font-medium text-zinc-700">
+                          Cadangan
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 pl-3 pr-4">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEdit(p)}
+                          className="h-7 gap-1 px-2 text-[12.5px] text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                          aria-label={`Edit ${p.name}`}
+                        >
+                          <Pencil className="size-3" strokeWidth={1.75} />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isActive}
+                          title={isActive ? "Properti yang sedang dikelola tidak dapat dihapus" : undefined}
+                          onClick={() => setConfirmDelete(p)}
+                          className="h-7 gap-1 px-2 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label={`Hapus ${p.name}`}
+                        >
+                          <Trash2 className="size-3" strokeWidth={1.75} />
+                          Hapus
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="space-y-2.5 md:hidden">
+          {properties.map((p) => {
+            const isActive = p.name === activeName;
+            return (
+              <div key={p.id} className="rounded-lg border border-border bg-white p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-semibold text-zinc-900">{p.name}</p>
+                    <p className="mt-0.5 truncate text-[12.5px] text-zinc-700">{p.address || "Alamat belum diisi"}</p>
+                  </div>
+                  {isActive && (
+                    <span className="shrink-0 rounded-full bg-[var(--ik-accent)] px-2 py-0.5 text-xs font-semibold text-[var(--ik-accent-fg)]">
+                      Aktif
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <Badge variant="outline" className="h-5 border-zinc-200 bg-zinc-50 px-1.5 text-xs font-semibold text-zinc-600">
+                    {PROPERTY_TYPE_META[p.type].label}
+                  </Badge>
+                  <span className="text-[12.5px] tabular-nums text-zinc-700">
+                    {p.unitCount} {PROPERTY_TYPE_META[p.type].unit}
+                  </span>
+                </div>
+                <div className="mt-2.5 flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => openEdit(p)}
+                    className="h-8 flex-1 border-zinc-200 bg-white text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                  >
+                    <Pencil className="size-3" strokeWidth={1.75} />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={isActive}
+                    onClick={() => setConfirmDelete(p)}
+                    className="h-8 flex-1 border-red-200 bg-white text-[12.5px] font-medium text-red-600 shadow-none hover:bg-red-50 disabled:opacity-40"
+                  >
+                    <Trash2 className="size-3" strokeWidth={1.75} />
+                    Hapus
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="rounded-md border border-border bg-zinc-50 px-3 py-2.5 text-[12.5px] leading-5 text-zinc-700">
+          Gunakan pemilih properti di sidebar untuk berpindah cabang yang sedang dikelola. Data kamar per cabang
+          mengikuti dataset aktif.
+        </p>
+      </div>
+
+      {/* Modal tambah/edit */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="flex max-h-[85dvh] w-[calc(100%-1.5rem)] max-w-md flex-col gap-0 overflow-hidden rounded-2xl bg-white p-0 sm:max-w-[480px]">
+          <DialogHeader className="flex shrink-0 flex-row items-center justify-between border-b border-border bg-white px-4 py-3.5 text-left">
+            <div className="min-w-0 space-y-1">
+              <DialogTitle className="text-[15px] font-bold text-zinc-900">
+                {editId ? "Edit Properti" : "Tambah Properti Baru"}
+              </DialogTitle>
+              <DialogDescription className="text-[12.5px] text-zinc-700">
+                Cabang kedua & seterusnya memakai dataset demo saat diaktifkan.
+              </DialogDescription>
+            </div>
+            <DialogClose className="ml-2" />
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 touch-pan-y">
+            <div className="space-y-1.5">
+              <Label htmlFor="pr-nama" className="text-[12.5px] text-zinc-600">Nama Properti</Label>
+              <Input id="pr-nama" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} className={inputCls} placeholder="cth. Kost Melati Indah" />
+              {nameTaken && <p className="text-xs text-red-500">Nama properti sudah dipakai.</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="pr-tipe" className="text-[12.5px] text-zinc-600">Tipe Properti</Label>
+                <Select value={draft.type} onValueChange={(v) => setDraft((d) => ({ ...d, type: v as PropertyType }))}>
+                  <SelectTrigger id="pr-tipe" className="h-9 w-full border-zinc-200 text-[13px] focus:ring-zinc-900/5">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PROPERTY_TYPES.map((t) => (
+                      <SelectItem key={t} value={t} className="text-[13px]">
+                        {PROPERTY_TYPE_META[t].label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pr-unit" className="text-[12.5px] text-zinc-600">
+                  Jumlah {PROPERTY_TYPE_META[draft.type].unit}
+                </Label>
+                <Input
+                  id="pr-unit"
+                  type="number"
+                  min={1}
+                  max={999}
+                  value={draft.unitCount}
+                  onChange={(e) => setDraft((d) => ({ ...d, unitCount: e.target.value.replace(/\D/g, "") }))}
+                  className={cn(inputCls, "tabular-nums")}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pr-alamat" className="text-[12.5px] text-zinc-600">Alamat</Label>
+              <Textarea id="pr-alamat" rows={2} value={draft.address} onChange={(e) => setDraft((d) => ({ ...d, address: e.target.value }))} className="border-zinc-200 bg-white text-[13px] text-zinc-900 focus-visible:ring-zinc-900/5" placeholder="Jl. …" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pr-foto" className="text-[12.5px] text-zinc-600">URL Foto Fasad (opsional)</Label>
+              <Input id="pr-foto" value={draft.photoUrl} onChange={(e) => setDraft((d) => ({ ...d, photoUrl: e.target.value }))} className={inputCls} placeholder="https://…/fasad.jpg" />
+            </div>
+          </div>
+          <DialogFooter className="shrink-0 flex-row items-center justify-end gap-2 border-t border-border bg-white px-4 py-3">
+            <DialogClose asChild>
+              <Button variant="outline" className="h-9 border-zinc-200 bg-white px-3.5 text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50">
+                Batal
+              </Button>
+            </DialogClose>
+            <Button
+              onClick={submit}
+              disabled={!valid}
+              className="h-9 bg-[var(--ik-accent)] px-4 text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)] disabled:opacity-40"
+            >
+              {editId ? "Simpan Perubahan" : "Tambah Properti"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Konfirmasi hapus */}
+      <AlertDialog open={confirmDelete !== null} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+        <AlertDialogContent className="max-w-[calc(100%-1.5rem)] rounded-2xl sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-[15px] text-zinc-900">Hapus {confirmDelete?.name}?</AlertDialogTitle>
+            <AlertDialogDescription className="text-[12.5px] text-zinc-700">
+              Properti akan dikeluarkan dari daftar multi-cabang UnitKu. Riwayat data properti ini tidak ikut terhapus.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row justify-end gap-2">
+            <AlertDialogCancel className="h-9 border-zinc-200 bg-white px-3.5 text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50">
+              Batal
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => confirmDelete && doDelete(confirmDelete)}
+              className="h-9 bg-red-600 px-3.5 text-[13px] font-semibold text-white shadow-none hover:bg-red-700"
+            >
+              Ya, Hapus Properti
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Pane>
+  );
+}
+
+/* ── Tab 4: Kelola Admin & Staf ────────────────────────────────────────────── */
+
+const emptyStaffDraft = { nama: "", peran: "Penjaga" as StaffRole, whatsapp: "", cabang: [] as string[] };
+
+function StafTab({
+  staff,
+  properties,
+  onChange,
+}: {
+  staff: StaffMember[];
+  properties: PropertyEntry[];
+  onChange: (staff: StaffMember[]) => void;
+}) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [draft, setDraft] = useState(emptyStaffDraft);
+  const [confirmDelete, setConfirmDelete] = useState<StaffMember | null>(null);
+
+  const openAdd = () => {
+    setEditId(null);
+    setDraft(emptyStaffDraft);
+    setModalOpen(true);
+  };
+
+  const openEdit = (s: StaffMember) => {
+    setEditId(s.id);
+    setDraft({ nama: s.nama, peran: s.peran, whatsapp: s.whatsapp, cabang: [...s.cabang] });
+    setModalOpen(true);
+  };
+
+  const waDigits = draft.whatsapp.replace(/[^0-9]/g, "");
+  const nameTaken = staff.some((s) => s.id !== editId && s.nama.trim().toLowerCase() === draft.nama.trim().toLowerCase());
+  const valid = draft.nama.trim().length >= 3 && !nameTaken && waDigits.length >= 9;
+
+  const toggleCabang = (id: string) => {
+    setDraft((d) => ({
+      ...d,
+      cabang: d.cabang.includes(id) ? d.cabang.filter((c) => c !== id) : [...d.cabang, id],
+    }));
+  };
+
+  const submit = () => {
+    if (!valid) return;
+    const payload: StaffMember = {
+      id: editId ?? nextSettingsId("stf"),
+      nama: draft.nama.trim(),
+      peran: draft.peran,
+      whatsapp: draft.whatsapp.trim(),
+      cabang: draft.cabang,
+    };
+    onChange(editId ? staff.map((s) => (s.id === editId ? payload : s)) : [...staff, payload]);
+    toast.success(editId ? "Data staf diperbarui" : "Staf baru ditambahkan", {
+      description: `${payload.nama} · ${payload.peran}`,
+    });
+    setModalOpen(false);
+  };
+
+  const doDelete = (s: StaffMember) => {
+    onChange(staff.filter((x) => x.id !== s.id));
+    setConfirmDelete(null);
+    toast.success("Staf dihapus", { description: `${s.nama} dikeluarkan dari daftar akses.` });
+  };
+
+  return (
+    <Pane value="staf">
+      <div className="max-w-[860px] space-y-4">
+        {/* Penjelasan peran */}
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+          {STAFF_ROLES.map((r) => (
+            <div key={r} className="rounded-lg border border-border bg-white p-3">
+              <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-xs font-semibold", STAFF_ROLE_META[r].pill)}>
+                {r}
+              </span>
+              <p className="mt-1.5 text-[12.5px] leading-4 text-zinc-700">{STAFF_ROLE_META[r].desc}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[12.5px] text-zinc-700">
+            <span className="font-semibold tabular-nums text-zinc-700">{staff.length}</span> anggota tim punya akses dashboard.
+          </p>
+          <Button
+            onClick={openAdd}
+            className="h-9 bg-[var(--ik-accent)] px-3 text-[12.5px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]"
+          >
+            <Plus className="size-4" strokeWidth={2} />
+            Tambah Staf
+          </Button>
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden overflow-x-auto rounded-lg border border-border bg-white md:block">
+          <table className="w-full min-w-[680px] border-collapse text-[13px]">
+            <caption className="sr-only">Daftar admin & staf</caption>
+            <thead>
+              <tr>
+                <th className={`${HEAD_CELL} pl-4 text-left`}>Nama</th>
+                <th className={`${HEAD_CELL} text-left`}>Peran</th>
+                <th className={`${HEAD_CELL} text-left`}>No. WhatsApp</th>
+                <th className={`${HEAD_CELL} text-left`}>Akses Cabang</th>
+                <th className={`${HEAD_CELL} pr-4 text-right`}>Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {staff.map((s) => {
+                const isOwner = s.peran === "Owner";
+                const cabangLabel =
+                  s.cabang.length === 0
+                    ? "Semua cabang"
+                    : s.cabang
+                        .map((id) => properties.find((p) => p.id === id)?.name ?? id)
+                        .join(", ");
+                return (
+                  <tr key={s.id} className="border-b border-border last:border-0 hover:bg-zinc-50/70">
+                    <td className="py-2.5 pl-4 pr-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-xs font-bold text-zinc-600">
+                          {s.nama.split(" ").slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
+                        </span>
+                        <span className="font-semibold text-zinc-900">{s.nama}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-xs font-semibold", STAFF_ROLE_META[s.peran].pill)}>
+                        {s.peran}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <a
+                        href={`${waLink(s.whatsapp)}?text=${encodeURIComponent(`Halo ${s.nama}, ini pesan dari UnitKu.`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-[12.5px] font-medium tabular-nums text-emerald-700 hover:underline"
+                      >
+                        <WaIcon className="size-3.5" />
+                        {s.whatsapp}
+                      </a>
+                    </td>
+                    <td className="max-w-[220px] px-3 py-2.5">
+                      <p className="truncate text-[12.5px] text-zinc-600" title={cabangLabel}>{cabangLabel}</p>
+                    </td>
+                    <td className="py-2.5 pl-3 pr-4">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEdit(s)}
+                          className="h-7 gap-1 px-2 text-[12.5px] text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                          aria-label={`Edit ${s.nama}`}
+                        >
+                          <Pencil className="size-3" strokeWidth={1.75} />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isOwner}
+                          title={isOwner ? "Owner utama tidak dapat dihapus" : undefined}
+                          onClick={() => setConfirmDelete(s)}
+                          className="h-7 gap-1 px-2 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label={`Hapus ${s.nama}`}
+                        >
+                          <Trash2 className="size-3" strokeWidth={1.75} />
+                          Hapus
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="space-y-2.5 md:hidden">
+          {staff.map((s) => (
+            <div key={s.id} className="rounded-lg border border-border bg-white p-3">
+              <div className="flex items-center gap-2.5">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-xs font-bold text-zinc-600">
+                  {s.nama.split(" ").slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-semibold text-zinc-900">{s.nama}</p>
+                  <span className={cn("mt-0.5 inline-flex h-4.5 items-center rounded-full px-1.5 text-xs font-semibold", STAFF_ROLE_META[s.peran].pill)}>
+                    {s.peran}
+                  </span>
+                </div>
+              </div>
+              <p className="mt-2 truncate text-[12.5px] text-zinc-700">
+                Akses: {s.cabang.length === 0 ? "Semua cabang" : s.cabang.map((id) => properties.find((p) => p.id === id)?.name ?? id).join(", ")}
+              </p>
+              <div className="mt-2.5 flex items-center gap-2">
+                <a
+                  href={`${waLink(s.whatsapp)}?text=${encodeURIComponent(`Halo ${s.nama}, ini pesan dari UnitKu.`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-white text-[12.5px] font-medium text-emerald-700 hover:bg-emerald-50"
+                >
+                  <WaIcon className="size-3.5" />
+                  Chat WA
+                </a>
+                <Button
+                  variant="outline"
+                  onClick={() => openEdit(s)}
+                  className="h-8 flex-1 border-zinc-200 bg-white text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                >
+                  <Pencil className="size-3" strokeWidth={1.75} />
+                  Edit
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={s.peran === "Owner"}
+                  onClick={() => setConfirmDelete(s)}
+                  className="h-8 shrink-0 border-red-200 bg-white px-2.5 text-[12.5px] font-medium text-red-600 shadow-none hover:bg-red-50 disabled:opacity-40"
+                  aria-label={`Hapus ${s.nama}`}
+                >
+                  <Trash2 className="size-3.5" strokeWidth={1.75} />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Modal tambah/edit staf */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="flex max-h-[85dvh] w-[calc(100%-1.5rem)] max-w-md flex-col gap-0 overflow-hidden rounded-2xl bg-white p-0 sm:max-w-[480px]">
+          <DialogHeader className="flex shrink-0 flex-row items-center justify-between border-b border-border bg-white px-4 py-3.5 text-left">
+            <div className="min-w-0 space-y-1">
+              <DialogTitle className="text-[15px] font-bold text-zinc-900">
+                {editId ? "Edit Staf" : "Tambah Staf Baru"}
+              </DialogTitle>
+              <DialogDescription className="text-[12.5px] text-zinc-700">
+                Peran menentukan menu yang bisa diakses; owner selalu punya akses penuh.
+              </DialogDescription>
+            </div>
+            <DialogClose className="ml-2" />
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 touch-pan-y">
+            <div className="space-y-1.5">
+              <Label htmlFor="sf-nama" className="text-[12.5px] text-zinc-600">Nama Staf</Label>
+              <Input id="sf-nama" value={draft.nama} onChange={(e) => setDraft((d) => ({ ...d, nama: e.target.value }))} className={inputCls} placeholder="cth. Ratna Sari" />
+              {nameTaken && <p className="text-xs text-red-500">Nama staf sudah terdaftar.</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="sf-peran" className="text-[12.5px] text-zinc-600">Peran</Label>
+                <Select value={draft.peran} onValueChange={(v) => setDraft((d) => ({ ...d, peran: v as StaffRole }))}>
+                  <SelectTrigger id="sf-peran" className="h-9 w-full border-zinc-200 text-[13px] focus:ring-zinc-900/5">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STAFF_ROLES.map((r) => (
+                      <SelectItem key={r} value={r} className="text-[13px]">
+                        {r}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sf-wa" className="text-[12.5px] text-zinc-600">No. WhatsApp</Label>
+                <Input
+                  id="sf-wa"
+                  inputMode="tel"
+                  value={draft.whatsapp}
+                  onChange={(e) => setDraft((d) => ({ ...d, whatsapp: e.target.value }))}
+                  className={cn(inputCls, "tabular-nums")}
+                  placeholder="+62 8xx-xxxx-xxxx"
+                />
+                {draft.whatsapp.length > 0 && waDigits.length < 9 && (
+                  <p className="text-xs text-red-500">Nomor WA minimal 9 digit.</p>
+                )}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[12.5px] text-zinc-600">Akses Cabang</Label>
+              <div className="space-y-2 rounded-md border border-border bg-zinc-50 p-3">
+                {properties.map((p) => (
+                  <label key={p.id} className="flex cursor-pointer items-center gap-2.5 text-[12.5px] text-zinc-700">
+                    <Checkbox
+                      checked={draft.cabang.includes(p.id)}
+                      onCheckedChange={() => toggleCabang(p.id)}
+                      aria-label={`Akses ${p.name}`}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-zinc-700">
+                      {p.unitCount} {PROPERTY_TYPE_META[p.type].unit}
+                    </span>
+                  </label>
+                ))}
+                <p className="border-t border-border pt-2 text-xs text-zinc-700">
+                  Kosongkan semua → akses seluruh cabang.
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="shrink-0 flex-row items-center justify-end gap-2 border-t border-border bg-white px-4 py-3">
+            <DialogClose asChild>
+              <Button variant="outline" className="h-9 border-zinc-200 bg-white px-3.5 text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50">
+                Batal
+              </Button>
+            </DialogClose>
+            <Button
+              onClick={submit}
+              disabled={!valid}
+              className="h-9 bg-[var(--ik-accent)] px-4 text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)] disabled:opacity-40"
+            >
+              {editId ? "Simpan Perubahan" : "Tambah Staf"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Konfirmasi hapus staf */}
+      <AlertDialog open={confirmDelete !== null} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+        <AlertDialogContent className="max-w-[calc(100%-1.5rem)] rounded-2xl sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-[15px] text-zinc-900">Hapus akses {confirmDelete?.nama}?</AlertDialogTitle>
+            <AlertDialogDescription className="text-[12.5px] text-zinc-700">
+              Staf tidak lagi bisa masuk dashboard UnitKu dengan peran {confirmDelete?.peran.toLowerCase()}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row justify-end gap-2">
+            <AlertDialogCancel className="h-9 border-zinc-200 bg-white px-3.5 text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50">
+              Batal
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => confirmDelete && doDelete(confirmDelete)}
+              className="h-9 bg-red-600 px-3.5 text-[13px] font-semibold text-white shadow-none hover:bg-red-700"
+            >
+              Ya, Hapus Staf
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Pane>
+  );
+}
+
+/* ── Tab 5: Rekening & Pembayaran ──────────────────────────────────────────── */
+
+const BANKS = ["BCA", "Mandiri", "BRI", "BNI", "CIMB Niaga", "Permata"];
+
+function RekeningTab({
+  rekening,
+  onSave,
+}: {
+  rekening: IndoKostSettings["rekening"];
+  onSave: (rekening: IndoKostSettings["rekening"]) => void;
+}) {
+  const [bank, setBank] = useState(rekening.bank);
+  const [noRek, setNoRek] = useState(rekening.noRek);
+  const [atasNama, setAtasNama] = useState(rekening.atasNama);
+  const [qris, setQris] = useState<{ name: string; url: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const pick = (file: File | undefined) => {
+    if (!file) return;
+    if (qris) URL.revokeObjectURL(qris.url);
+    setQris({ name: file.name, url: URL.createObjectURL(file) });
+  };
+
+  const save = () => {
+    if (!noRek.trim() || !atasNama.trim()) return;
+    onSave({ bank, noRek: noRek.trim(), atasNama: atasNama.trim() });
+    toast.success("Rekening tersimpan", {
+      description: "Instruksi transfer pada invoice & pengingat WA ikut diperbarui.",
+    });
+  };
+
+  return (
+    <Pane value="rekening">
+      <div className="grid max-w-[860px] grid-cols-1 gap-4 lg:grid-cols-2">
+        <SectionCard title="Rekening Bank">
+          <div className="space-y-3 p-4">
+            <div className="space-y-1.5">
+              <Label className="text-[12.5px] text-zinc-600">Nama Bank</Label>
+              <Select value={bank} onValueChange={setBank}>
+                <SelectTrigger className="h-9 w-full border-zinc-200 text-[13px] focus:ring-zinc-900/5" aria-label="Nama bank">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {BANKS.map((b) => (
+                    <SelectItem key={b} value={b} className="text-[13px]">
+                      {b}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="st-rek" className="text-[12.5px] text-zinc-600">Nomor Rekening</Label>
+              <Input id="st-rek" inputMode="numeric" value={noRek} onChange={(e) => setNoRek(e.target.value.replace(/\D/g, "").slice(0, 18))} className={cn(inputCls, "tabular-nums")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="st-an" className="text-[12.5px] text-zinc-600">Atas Nama Penerima</Label>
+              <Input id="st-an" value={atasNama} onChange={(e) => setAtasNama(e.target.value)} className={inputCls} />
+            </div>
+            <div className="rounded-md border border-border bg-zinc-50 px-3 py-2.5">
+              <p className="text-[12.5px] leading-5 text-zinc-700">
+                Rekening ini otomatis muncul pada template pengingat WA &amp; instruksi transfer invoice.
+              </p>
+            </div>
+            <SaveRow onClick={save} hint={undefined} compact />
+          </div>
+        </SectionCard>
+
+        <SectionCard title="QRIS Manual">
+          <div className="space-y-3 p-4">
+            <div className="flex items-start gap-2.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-2.5">
+              <Landmark className="mt-0.5 size-4 shrink-0 text-violet-500" strokeWidth={1.75} aria-hidden="true" />
+              <p className="text-[12.5px] leading-5 text-violet-800">
+                Unggah gambar QRIS statis sebagai alternatif pembayaran sebelum payment gateway otomatis aktif.
+              </p>
+            </div>
+            {qris ? (
+              <div className="flex items-center gap-3 rounded-md border border-border bg-zinc-50 p-3">
+                <img src={qris.url} alt={`QRIS ${qris.name}`} className="size-20 rounded border border-border bg-white object-contain p-1" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[12.5px] font-medium text-zinc-800">{qris.name}</p>
+                  <p className="text-xs text-zinc-700">Aktif · ditampilkan di portal penyewa</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-1 h-7 px-2 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={() => {
+                      URL.revokeObjectURL(qris.url);
+                      setQris(null);
+                    }}
+                  >
+                    <X className="mr-1 size-3" strokeWidth={1.75} />
+                    Hapus QRIS
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-3 py-8 text-center transition-colors hover:border-zinc-400 hover:bg-white"
+              >
+                <ImagePlus className="size-5 text-zinc-700" strokeWidth={1.5} aria-hidden="true" />
+                <span className="text-[12.5px] font-medium text-zinc-600">Unggah Gambar QRIS</span>
+                <span className="text-xs text-zinc-700">PNG/JPG · rasio 1:1 disarankan</span>
+              </button>
+            )}
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pick(e.target.files?.[0])} aria-label="Unggah gambar QRIS" />
+            <p className="text-xs text-zinc-700">Preview QRIS bersifat sesi — tersimpan otomatis pada rilis integrasi pembayaran.</p>
+          </div>
+        </SectionCard>
+      </div>
+    </Pane>
+  );
+}
+
+/* ── Tab 6: Template WhatsApp ──────────────────────────────────────────────── */
+
+function renderPreview(text: string): string {
+  return text
+    .replaceAll("{nama}", SAMPLE.nama)
+    .replaceAll("{kamar}", SAMPLE.kamar)
+    .replaceAll("{nominal}", SAMPLE.nominal)
+    .replaceAll("{tempo}", SAMPLE.tempo)
+    .replaceAll("{kos}", SAMPLE.kos);
+}
+
+function TemplateTab({
+  propertyName,
+  templates,
+  onSave,
+}: {
+  propertyName: string;
+  templates: IndoKostSettings["templates"];
+  onSave: (templates: IndoKostSettings["templates"]) => void;
+}) {
+  const [draft, setDraft] = useState<IndoKostSettings["templates"]>(templates);
+  const refs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+
+  const dirty =
+    draft.h3 !== templates.h3 || draft.hariH !== templates.hariH || draft.lunas !== templates.lunas;
+
+  const insertToken = (key: keyof IndoKostSettings["templates"], token: string) => {
+    const el = refs.current[key];
+    const ta = draft[key];
+    if (!el) {
+      setDraft((t) => ({ ...t, [key]: t[key] + token }));
+      return;
+    }
+    const start = el.selectionStart ?? ta.length;
+    const end = el.selectionEnd ?? ta.length;
+    const next = ta.slice(0, start) + token + ta.slice(end);
+    setDraft((t) => ({ ...t, [key]: next }));
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + token.length, start + token.length);
+    });
+  };
+
+  const save = () => {
+    onSave(draft);
+    toast.success("Template WhatsApp tersimpan", {
+      description: "Dipakai pada pengingat tagihan berikutnya & tombol kirim WA.",
+    });
+  };
+
+  const FIELDS: { key: keyof IndoKostSettings["templates"]; label: string; hint: string }[] = [
+    { key: "h3", label: "Template Tagihan H-3", hint: "Dikirim otomatis 3 hari sebelum jatuh tempo." },
+    { key: "hariH", label: "Template Tagihan Hari H", hint: "Dikirim pada tanggal jatuh tempo." },
+    { key: "lunas", label: "Template Kwitansi Lunas", hint: "Dikirim setelah pembayaran terverifikasi." },
+  ];
+
+  return (
+    <Pane value="template">
+      <div className="max-w-[720px] space-y-4">
+        <div className="flex items-center justify-between rounded-lg border border-border bg-white px-4 py-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-xs font-bold uppercase tracking-wider text-zinc-700">Placeholder</span>
+            {TOKENS.map((t) => (
+              <span key={t} className="rounded border border-border bg-zinc-50 px-1.5 py-0.5 font-mono text-xs text-zinc-600">
+                {t}
+              </span>
+            ))}
+            <span className="rounded border border-border bg-zinc-50 px-1.5 py-0.5 font-mono text-xs text-zinc-600">
+              {"{kos}"}
+            </span>
+          </div>
+          <p className="hidden text-xs text-zinc-700 sm:block">Klik token pada tiap editor untuk menyisipkan</p>
+        </div>
+
+        {FIELDS.map((f) => (
+          <section key={f.key} className="rounded-lg border border-border bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+              <div>
+                <h3 className="text-[12.5px] font-bold text-zinc-800">{f.label}</h3>
+                <p className="text-xs text-zinc-700">{f.hint}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                {TOKENS.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => insertToken(f.key, t)}
+                    className="rounded border border-border bg-zinc-50 px-1.5 py-0.5 font-mono text-xs text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-white hover:text-zinc-800"
+                    aria-label={`Sisipkan ${t} ke ${f.label}`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="p-4">
+              <Textarea
+                ref={(el) => {
+                  refs.current[f.key] = el;
+                }}
+                rows={6}
+                value={draft[f.key]}
+                onChange={(e) => setDraft((t) => ({ ...t, [f.key]: e.target.value }))}
+                className="border-zinc-200 bg-white text-[12.5px] leading-5 text-zinc-900 focus-visible:ring-zinc-900/5"
+                aria-label={f.label}
+              />
+              <div className="mt-3 rounded-md border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2.5">
+                <p className="mb-1 text-xs font-bold uppercase tracking-wider text-zinc-700">
+                  Pratinjau · {propertyName}
+                </p>
+                <p className="whitespace-pre-wrap text-[12.5px] leading-5 text-zinc-600">{renderPreview(draft[f.key])}</p>
+              </div>
+            </div>
+          </section>
+        ))}
+
+        <SaveRow
+          onClick={save}
+          hint={dirty ? "Perubahan template belum disimpan." : undefined}
+        />
+      </div>
+    </Pane>
+  );
+}
+
+/* ── Tab 7: Tarif & Tipe Kamar ─────────────────────────────────────────────── */
+
+function TarifTab({ rooms, onApplyTariff }: { rooms: Room[]; onApplyTariff: (c: { type: string; price: number }[]) => void }) {
+  const typeRows = useMemo(() => {
+    const map = new Map<string, { type: string; count: number; price: number; occupied: number }>();
+    rooms.forEach((r) => {
+      const row = map.get(r.type) ?? { type: r.type, count: 0, price: r.price, occupied: 0 };
+      row.count += 1;
+      if (r.status !== "kosong") row.occupied += 1;
+      map.set(r.type, row);
+    });
+    return [...map.values()];
+  }, [rooms]);
+
+  const [prices, setPrices] = useState<Record<string, string>>(() =>
+    Object.fromEntries(typeRows.map((r) => [r.type, String(r.price)]))
+  );
+
+  const dirty = typeRows.filter((r) => Number(prices[r.type] ?? r.price) !== r.price && Number(prices[r.type]) > 0);
+
+  const save = () => {
+    if (dirty.length === 0) return;
+    onApplyTariff(dirty.map((r) => ({ type: r.type, price: Number(prices[r.type]) })));
+    toast.success("Tarif diperbarui", {
+      description: `${dirty.length} tipe kamar — berlaku untuk tagihan periode berikutnya.`,
+    });
+  };
+
+  if (typeRows.length === 0) {
+    return (
+      <Pane value="tarif">
+        <div className="max-w-[820px]">
+          <div className="rounded-lg border border-dashed border-zinc-200 bg-white px-6 py-10 text-center">
+            <p className="text-[13px] font-semibold text-zinc-700">Belum ada tipe kamar</p>
+            <p className="mt-1 text-[12.5px] text-zinc-700">
+              Tambahkan kamar terlebih dahulu pada halaman Denah Kamar — tarif per tipe akan muncul di sini.
+            </p>
+          </div>
+        </div>
+      </Pane>
+    );
+  }
+
+  return (
+    <Pane value="tarif">
+      <div className="max-w-[820px] space-y-4">
+        <div className="rounded-lg border border-border bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+            <div>
+              <h3 className="text-[12.5px] font-bold text-zinc-800">Tipe Kamar, Harga &amp; Fasilitas Default</h3>
+              <p className="text-xs text-zinc-700">
+                Perubahan berlaku untuk tagihan periode berikutnya — invoice berjalan tidak berubah.
+              </p>
+            </div>
+            <span className="text-xs tabular-nums text-zinc-700">{typeRows.length} tipe · {rooms.length} kamar</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] border-collapse text-[13px]">
+              <caption className="sr-only">Daftar tipe kamar dan tarif</caption>
+              <thead>
+                <tr>
+                  <th className={`${HEAD_CELL} pl-4 text-left`}>Tipe Kamar</th>
+                  <th className={`${HEAD_CELL} text-left`}>Fasilitas</th>
+                  <th className={`${HEAD_CELL} text-center`}>Jumlah</th>
+                  <th className={`${HEAD_CELL} text-left`}>Terisi</th>
+                  <th className={`${HEAD_CELL} pr-4 text-left`}>Harga Sewa Dasar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {typeRows.map((row) => {
+                  const current = Number(prices[row.type] ?? row.price);
+                  const changed = current !== row.price;
+                  const facilities =
+                    rooms.find((r) => r.type === row.type)?.facilities ?? TYPE_FACILITIES[row.type] ?? [];
+                  return (
+                    <tr key={row.type} className="border-b border-border last:border-0 hover:bg-zinc-50/70">
+                      <td className="py-2.5 pl-4 pr-3">
+                        <p className="text-[13px] font-semibold text-zinc-900">{row.type}</p>
+                        {changed && (
+                          <p className="text-xs font-medium text-amber-600 tabular-nums">
+                            sebelumnya {formatIDR(row.price)}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex max-w-[280px] flex-wrap gap-1">
+                          {facilities.map((f) => (
+                            <span key={f} className="rounded-full border border-border bg-zinc-50 px-1.5 py-0.5 text-xs font-medium text-zinc-600">
+                              {f}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-center text-[13px] tabular-nums text-zinc-700">{row.count}</td>
+                      <td className="px-3 py-2.5">
+                        <span className="inline-flex h-5 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 text-xs font-semibold tabular-nums text-emerald-700">
+                          {row.occupied}/{row.count}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pl-3 pr-4">
+                        <div
+                          className={cn(
+                            "flex h-9 w-[190px] items-center rounded-md border bg-white transition-colors focus-within:border-zinc-300 focus-within:ring-2 focus-within:ring-zinc-900/5",
+                            changed ? "border-amber-300" : "border-border"
+                          )}
+                        >
+                          <span className="select-none border-r border-border px-2 text-[12.5px] font-medium text-zinc-700">Rp</span>
+                          <input
+                            inputMode="numeric"
+                            value={prices[row.type] ? Number(prices[row.type]).toLocaleString("id-ID") : ""}
+                            onChange={(e) => {
+                              const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                              setPrices((p) => ({ ...p, [row.type]: digits }));
+                            }}
+                            aria-label={`Harga sewa dasar ${row.type}`}
+                            className="h-full w-full min-w-0 px-2 text-[13px] font-medium tabular-nums text-zinc-900 focus:outline-none"
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <SaveRow
+          onClick={save}
+          hint={dirty.length ? `${dirty.length} tipe tarif akan diperbarui.` : "Belum ada perubahan tarif."}
+        />
+      </div>
+    </Pane>
+  );
+}
+
+const HEAD_CELL =
+  "h-9 bg-white px-3 text-xs font-semibold uppercase tracking-wide text-zinc-700 shadow-[inset_0_-1px_0_var(--border)]";
+
+/* ── Tab 8: Katalog Fasilitas ───────────────────────────────────────────────── */
+
+/** Editor satu grup fasilitas — tambah, edit nama (inline), hapus. */
+function FacilityGroupEditor({
+  title,
+  hint,
+  items,
+  onUpdate,
+}: {
+  title: string;
+  hint: string;
+  items: FacilityItem[];
+  onUpdate: (items: FacilityItem[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+
+  const labelsLower = items.map((i) => i.label.toLowerCase());
+  const dup = draft.trim().length > 0 && labelsLower.includes(draft.trim().toLowerCase());
+  const editDup =
+    editDraft.trim().length > 0 &&
+    items.some((i) => i.id !== editId && i.label.toLowerCase() === editDraft.trim().toLowerCase());
+
+  const add = () => {
+    const label = draft.trim();
+    if (!label || dup) return;
+    onUpdate([...items, { id: nextSettingsId("fac"), label, custom: true }]);
+    setDraft("");
+    toast.success(`Fasilitas "${label}" ditambahkan`, {
+      description: `Masuk katalog ${title} — langsung tersedia di pilihan fasilitas kamar.`,
+    });
+  };
+
+  const rename = () => {
+    const label = editDraft.trim();
+    if (!label || editDup || !editId) return;
+    onUpdate(items.map((i) => (i.id === editId ? { ...i, label } : i)));
+    toast.success("Nama fasilitas diperbarui", { description: `"${label}" — katalog ${title}.` });
+    setEditId(null);
+  };
+
+  const remove = (item: FacilityItem) => {
+    onUpdate(items.filter((i) => i.id !== item.id));
+    toast.info(`Fasilitas "${item.label}" dihapus dari katalog`, {
+      description: "Kamar yang sudah memilikinya tidak berubah.",
+    });
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-white">
+      <div className="border-b border-border px-4 py-2.5">
+        <h3 className="text-[12.5px] font-bold text-zinc-800">{title}</h3>
+        <p className="mt-0.5 text-xs text-zinc-700">{hint}</p>
+      </div>
+
+      {/* Tambah */}
+      <div className="flex items-center gap-2 border-b border-border bg-zinc-50 px-4 py-2.5">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="Tambah fasilitas baru…"
+          aria-label={`Tambah fasilitas pada ${title}`}
+          aria-invalid={dup}
+          className={cn(inputCls, "flex-1", dup && "border-red-300")}
+        />
+        <Button
+          onClick={add}
+          disabled={!draft.trim() || dup}
+          className="h-9 shrink-0 bg-[var(--ik-accent)] px-3 text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)] disabled:opacity-50"
+        >
+          <Plus className="size-3.5" strokeWidth={2} />
+          Tambah
+        </Button>
+      </div>
+      {dup && (
+        <p className="px-4 pt-2 text-xs font-medium text-red-600">
+          Fasilitas "{draft.trim()}" sudah ada di katalog ini.
+        </p>
+      )}
+
+      {/* Daftar item */}
+      <ul className="p-2">
+        {items.map((item) => (
+          <li
+            key={item.id}
+            className="flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 transition-colors hover:bg-zinc-50"
+          >
+            {editId === item.id ? (
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <Input
+                  autoFocus
+                  value={editDraft}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      rename();
+                    }
+                    if (e.key === "Escape") setEditId(null);
+                  }}
+                  aria-label="Nama fasilitas"
+                  aria-invalid={editDup}
+                  className={cn(inputCls, "h-8 flex-1", editDup && "border-red-300")}
+                />
+                <Button
+                  size="icon"
+                  onClick={rename}
+                  disabled={editDup || !editDraft.trim()}
+                  className="size-8 shrink-0 bg-emerald-600 text-white shadow-none hover:bg-emerald-700 disabled:opacity-40"
+                  aria-label="Simpan nama fasilitas"
+                >
+                  <Check className="size-3.5" strokeWidth={2.5} />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => setEditId(null)}
+                  className="size-8 shrink-0 border-zinc-200 bg-white text-zinc-700 shadow-none hover:bg-zinc-50"
+                  aria-label="Batal edit nama"
+                >
+                  <X className="size-3.5" strokeWidth={2.25} />
+                </Button>
+              </div>
+            ) : (
+              <>
+                <span className="flex min-w-0 items-center gap-2">
+                  <Check className="size-3 shrink-0 text-emerald-600" strokeWidth={2.25} aria-hidden="true" />
+                  <span className="truncate text-[13px] font-medium text-zinc-800">{item.label}</span>
+                  {item.custom && (
+                    <span className="shrink-0 rounded-full border border-border bg-zinc-50 px-1.5 py-px text-xs font-semibold text-zinc-700">
+                      custom
+                    </span>
+                  )}
+                </span>
+                <span className="flex shrink-0 items-center gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 text-zinc-700 hover:bg-zinc-100 hover:text-zinc-700"
+                    onClick={() => {
+                      setEditId(item.id);
+                      setEditDraft(item.label);
+                    }}
+                    aria-label={`Edit nama ${item.label}`}
+                  >
+                    <Pencil className="size-3.5" strokeWidth={1.75} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={() => remove(item)}
+                    aria-label={`Hapus ${item.label}`}
+                  >
+                    <Trash2 className="size-3.5" strokeWidth={1.75} />
+                  </Button>
+                </span>
+              </>
+            )}
+          </li>
+        ))}
+        {items.length === 0 && (
+          <li className="px-2.5 py-3 text-[12.5px] text-zinc-700">
+            Belum ada fasilitas pada katalog ini — tambahkan lewat kolom di atas.
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+function FasilitasTab({
+  catalog,
+  onChange,
+}: {
+  catalog: FacilityCatalog;
+  onChange: (catalog: FacilityCatalog) => void;
+}) {
+  return (
+    <Pane value="fasilitas">
+      <div className="max-w-[820px] space-y-4">
+        <div className="rounded-lg border border-border bg-white px-4 py-3">
+          <h2 className="text-[13px] font-bold text-zinc-900">Katalog Fasilitas</h2>
+          <p className="mt-0.5 text-[12.5px] leading-5 text-zinc-700">
+            Master pilihan fasilitas untuk modal Tambah/Kelola Kamar dan tampilan fasilitas di
+            Detail Kamar &amp; Portal Penyewa. Fasilitas custom yang ditambahkan lewat modal
+            otomatis masuk ke katalog di sini.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <FacilityGroupEditor
+            title="Fasilitas Unit"
+            hint="Fasilitas default unit (milik kamar) — dipilih saat tambah/kelola kamar."
+            items={catalog.unit}
+            onUpdate={(unit) => onChange({ ...catalog, unit })}
+          />
+          <FacilityGroupEditor
+            title="Fasilitas Bersama"
+            hint="Fasilitas bersama properti — tampil di Portal Penyewa."
+            items={catalog.shared}
+            onUpdate={(shared) => onChange({ ...catalog, shared })}
+          />
+        </div>
+
+        <p className="rounded-md border border-border bg-zinc-50 px-3 py-2.5 text-[12.5px] leading-5 text-zinc-700">
+          Perubahan katalog tersimpan otomatis &amp; langsung berlaku. Menghapus fasilitas tidak
+          mengubah kamar yang sudah memilikinya.
+        </p>
+      </div>
+    </Pane>
+  );
+}
+
+/* ── Tab 9: Tema & Tampilan ────────────────────────────────────────────────── */
+
+function TemaTab({ theme, onSelect }: { theme: ThemeKey; onSelect: (t: ThemeKey) => void }) {
+  return (
+    <Pane value="tema">
+      <div className="max-w-[820px] space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {THEME_KEYS.map((key) => {
+            const meta = THEME_META[key];
+            const active = theme === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => onSelect(key)}
+                aria-pressed={active}
+                className={cn(
+                  "flex flex-col items-start gap-3 rounded-xl border-2 bg-white p-3.5 text-left transition-colors hover:bg-zinc-50/60",
+                  active ? "border-[var(--ik-accent)]" : "border-border"
+                )}
+              >
+                <div className="flex w-full items-center justify-between">
+                  <div className="flex items-center gap-1.5" aria-hidden="true">
+                    <span className={cn("size-6 rounded-full ring-1 ring-zinc-950/10", meta.dot)} />
+                    <span className={cn("size-6 rounded-full ring-1 ring-zinc-950/10", meta.softDot)} />
+                    <span className={cn("flex size-6 items-center justify-center rounded-full text-xs font-bold ring-1 ring-zinc-950/10", meta.softDot, meta.text)}>
+                      Aa
+                    </span>
+                  </div>
+                  {active ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ik-accent)] px-2 py-0.5 text-xs font-semibold text-[var(--ik-accent-fg)]">
+                      <Check className="size-3" strokeWidth={2.5} />
+                      Aktif
+                    </span>
+                  ) : (
+                    <span className="text-xs text-zinc-700">Pilih</span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[13px] font-bold text-zinc-900">{meta.label}</p>
+                  <p className="mt-0.5 text-[12.5px] leading-4 text-zinc-700">{meta.desc}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <p className="rounded-md border border-border bg-zinc-50 px-3 py-2.5 text-[12.5px] leading-5 text-zinc-700">
+          12 tema: 5 palet solid (warna menu aktif, tombol utama &amp; badge) dan 7 tema berkarakter — Industrial
+          Utility (struk kasir brutalis), Retro Ledger (kartu arsip &amp; cap karet), Blueprint Studio (cetak biru
+          arsitek), Pastel Macaron (estetika Korea), Matcha Sanctuary (zen villa), Cyber Terminal (OLED neon)
+          &amp; Coffee Roastery (espresso hangat) — yang turut mengubah latar, kartu denah, metrik, banner, modal
+          &amp; tipografi. Pilihan tersimpan otomatis di perangkat ini &amp; langsung berlaku tanpa refresh.
+        </p>
+      </div>
+    </Pane>
+  );
+}

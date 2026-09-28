@@ -1,0 +1,250 @@
+"use client";
+
+import { ChevronsUpDown, DatabaseBackup, LayoutGrid, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Smartphone, Users, Wallet, Wrench } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { PROPERTY_TYPE_META, type PropertyEntry } from "@/lib/app-settings";
+import { BRAND_NAME, BRAND_TAGLINE } from "@/lib/brand";
+
+interface SidebarProps {
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
+  property: string;
+  /** Daftar properti dari Pengaturan (multi-cabang) */
+  properties: PropertyEntry[];
+  onPropertyChange: (name: string) => void;
+  invoiceAlerts: number;
+  ticketAlerts: number;
+  activeKey: string;
+  onNavigate: (key: string) => void;
+  /** Opens Pengaturan → tab "Zona Berbahaya" (Kelola Data / Reset Demo) */
+  onOpenDangerZone: () => void;
+}
+
+const NAV_ITEMS: { key: string; label: string; icon: typeof LayoutGrid }[] = [
+  { key: "denah", label: "Denah Kamar", icon: LayoutGrid },
+  { key: "tagihan", label: "Tagihan & Invoice", icon: ReceiptText },
+  { key: "komplain", label: "Komplain & Pemeliharaan", icon: Wrench },
+  { key: "pengumuman", label: "Pengumuman & Broadcast", icon: Megaphone },
+  { key: "portal", label: "Portal Penyewa", icon: Smartphone },
+  { key: "penghuni", label: "Data Penghuni", icon: Users },
+  { key: "kas", label: "Buku Kas", icon: Wallet },
+  { key: "pengaturan", label: "Pengaturan", icon: Settings },
+];
+
+export function Sidebar({
+  collapsed,
+  onToggleCollapse,
+  mobileOpen,
+  onMobileClose,
+  property,
+  properties = [],
+  onPropertyChange,
+  invoiceAlerts,
+  ticketAlerts,
+  activeKey,
+  onNavigate,
+  onOpenDangerZone,
+}: SidebarProps) {
+  return (
+    <>
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          aria-hidden="true"
+          onClick={onMobileClose}
+          className="fixed inset-0 z-40 bg-zinc-950/30 lg:hidden"
+        />
+      )}
+
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex h-screen shrink-0 flex-col border-r border-border bg-white transition-[width,transform] duration-200 ease-in-out",
+          collapsed ? "w-[64px]" : "w-[240px]",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+          "lg:static lg:translate-x-0"
+        )}
+      >
+        {/* Brand — UnitKu */}
+        <div
+          className={cn(
+            "flex min-h-14 items-center gap-2.5 border-b border-border px-3 py-2",
+            collapsed && "justify-center px-0 py-0"
+          )}
+        >
+          <div
+            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--ik-accent)] text-[13px] font-extrabold text-[var(--ik-accent-fg)]"
+            title={`${BRAND_NAME} — ${BRAND_TAGLINE}`}
+          >
+            U
+          </div>
+          {!collapsed && (
+            <span className="min-w-0 leading-tight">
+              <span className="block text-[15px] font-extrabold tracking-tight text-zinc-900">{BRAND_NAME}</span>
+              <span className="mt-0.5 block text-[12.5px] leading-4 text-zinc-700">{BRAND_TAGLINE}</span>
+            </span>
+          )}
+        </div>
+
+        {/* Property switcher */}
+        <div className={cn("border-b border-border p-2", collapsed && "px-1.5")}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md border border-transparent p-2 text-left transition-colors hover:border-border hover:bg-zinc-50",
+                  collapsed && "justify-center p-1.5"
+                )}
+                aria-label="Ganti properti"
+              >
+                <span
+                  className={cn(
+                    "flex size-6 shrink-0 items-center justify-center rounded bg-zinc-100 text-zinc-600",
+                    collapsed && "hidden"
+                  )}
+                >
+                  <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01" strokeLinecap="round" />
+                  </svg>
+                </span>
+                {!collapsed && (
+                  <>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold leading-4 text-zinc-900">{property}</span>
+                      <span className="block truncate text-xs leading-4 text-zinc-700">
+                      {(() => {
+                        const active = properties.find((p) => p.name === property);
+                        return active
+                          ? `${active.unitCount} ${PROPERTY_TYPE_META[active.type].unit} · Owner`
+                          : "Owner";
+                      })()}
+                    </span>
+                    </span>
+                    <ChevronsUpDown className="size-3.5 shrink-0 text-zinc-700" />
+                  </>
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel className="text-xs text-zinc-700">Properti Saya</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {properties.map((p) => (
+                <DropdownMenuItem
+                  key={p.id}
+                  onClick={() => onPropertyChange(p.name)}
+                  className="justify-between text-[13px]"
+                >
+                  <span className="truncate">{p.name}</span>
+                  <span className="text-xs tabular-nums text-zinc-700">
+                    {p.unitCount} {PROPERTY_TYPE_META[p.type].unit}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {/* Nav */}
+        <nav className={cn("flex-1 space-y-0.5 overflow-y-auto p-2 scrollbar-thin", collapsed && "px-1.5")} aria-label="Navigasi utama">
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const active = activeKey === item.key;
+            return (
+              <button
+                key={item.key}
+                title={collapsed ? item.label : undefined}
+                onClick={() => onNavigate(item.key)}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
+                  collapsed && "justify-center px-0",
+                  active
+                    ? "bg-[var(--ik-accent)] text-[var(--ik-accent-fg)]"
+                    : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                )}
+              >
+                <Icon className="size-[18px] shrink-0" strokeWidth={1.75} />
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 text-left">{item.label}</span>
+                    {item.key === "tagihan" && invoiceAlerts > 0 && (
+                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1 text-xs font-semibold tabular-nums text-amber-700">
+                        {invoiceAlerts}
+                      </span>
+                    )}
+                    {item.key === "komplain" && ticketAlerts > 0 && (
+                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1 text-xs font-semibold tabular-nums text-amber-700">
+                        {ticketAlerts}
+                      </span>
+                    )}
+                  </>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Footer: data management + profile + collapse */}
+        <div className={cn("border-t border-border p-2", collapsed && "px-1.5")}>
+          <Button
+            variant="ghost"
+            size={collapsed ? "icon" : "sm"}
+            onClick={onOpenDangerZone}
+            title={collapsed ? "Kelola Data / Reset Demo" : undefined}
+            className={cn(
+              "h-8 w-full justify-start gap-2 text-zinc-700 hover:bg-zinc-100 hover:text-zinc-800",
+              collapsed && "justify-center"
+            )}
+            aria-label="Kelola Data / Reset Demo"
+          >
+            <DatabaseBackup className="size-[18px] shrink-0" strokeWidth={1.75} />
+            {!collapsed && <span className="text-[12.5px]">Kelola Data / Reset Demo</span>}
+          </Button>
+          <div className={cn("flex items-center gap-2 rounded-md p-1.5", collapsed && "justify-center p-1")}>
+            <span
+              className="flex size-7 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-xs font-bold text-zinc-600"
+              aria-hidden="true"
+            >
+              HW
+            </span>
+            {!collapsed && (
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block truncate text-[12.5px] font-semibold text-zinc-800">Hendra Wijaya</span>
+                <span className="block text-xs text-zinc-700">Owner · Admin</span>
+              </span>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size={collapsed ? "icon" : "sm"}
+            onClick={onToggleCollapse}
+            className={cn(
+              "mt-1 h-8 w-full justify-start gap-2 text-zinc-700 hover:bg-zinc-100 hover:text-zinc-800",
+              collapsed && "justify-center"
+            )}
+            aria-label={collapsed ? "Buka sidebar" : "Ciutkan sidebar"}
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="size-[18px]" strokeWidth={1.75} />
+            ) : (
+              <>
+                <PanelLeftClose className="size-[18px]" strokeWidth={1.75} />
+                <span className="text-[12.5px]">Ciutkan</span>
+              </>
+            )}
+          </Button>
+        </div>
+      </aside>
+    </>
+  );
+}

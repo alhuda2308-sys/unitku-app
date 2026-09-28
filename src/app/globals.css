@@ -1,0 +1,1288 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-jakarta);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* Task 30 — baseline keterbacaan global (HP & PC):
+   text-xs dinaikkan dari 12px → 12.5px; seluruh ukuran mikro
+   (text-[9.5px]/[10px]/[10.5px]/[11px]) telah dihapus dari kode. */
+@theme {
+  --text-xs: 0.78125rem;
+}
+
+:root {
+  --radius: 0.5rem;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #18181b;
+  --primary-foreground: #fafafa;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #475569;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+  --destructive: #dc2626;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #94a3b8;
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+  }
+}
+
+/* Dense dashboard scrollbars (Linear-style, thin & neutral) */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+/* Hide scrollbar entirely but keep scrolling (mobile tab strips & filter rails) */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── UnitKu theme accents — 12 tema (5 palet solid + 7 tema karakter) ────────
+   Aktif via [data-ik-theme] di <html>, disetel dari Pengaturan/Navbar → Tema.
+   --ik-accent-* : warna solid utama (nav aktif, tombol simpan, badge banner)
+   --ik-card-*   : warna blok SOLID penuh untuk kartu kamar & kartu metrik
+                   (paid = lunas/terisi, due = jatuh tempo, late = menunggak,
+                    vacant = kosong) — latar kartu WAJIB terisi warna blok,
+                   bukan putih bergaris tipis.
+   --ik-font-head/--ik-head-case/--ik-head-tracking : tipografi judul per tema
+   --ik-font-num : font angka/label status (monospace pada tema karakter)
+   --ik-page-grid: pola latar halaman (kisi teknis Blueprint)
+   --primary/--ring : mengikuti tema agar seluruh tombol shadcn solid ikut berganti */
+:root,
+[data-ik-theme="zinc"] {
+  --ik-accent: #18181b;
+  --ik-accent-hover: #3f3f46;
+  --ik-accent-soft: #f4f4f5;
+  --ik-accent-fg: #fafafa;
+  --ik-accent-border: #e4e4e7;
+  --ik-accent-text: #18181b;
+  --ik-card-paid-bg: #d1fae5;
+  --ik-card-paid-fg: #064e3b;
+  --ik-card-paid-muted: #047857;
+  --ik-card-paid-line: #a7f3d0;
+  --ik-card-paid-pill-bg: #064e3b;
+  --ik-card-paid-pill-fg: #d1fae5;
+  --ik-card-due-bg: #fef3c7;
+  --ik-card-due-fg: #92400e;
+  --ik-card-due-muted: #b45309;
+  --ik-card-due-line: #fde68a;
+  --ik-card-due-pill-bg: #92400e;
+  --ik-card-due-pill-fg: #fef3c7;
+  --ik-card-late-bg: #ea580c;
+  --ik-card-late-fg: #ffffff;
+  --ik-card-late-muted: #ffedd5;
+  --ik-card-late-line: #c2410c;
+  --ik-card-late-pill-bg: #ffffff;
+  --ik-card-late-pill-fg: #c2410c;
+  --ik-card-vacant-bg: #f4f4f5;
+  --ik-card-vacant-fg: #3f3f46;
+  --ik-card-vacant-muted: #71717a;
+  --ik-card-vacant-line: #d4d4d8;
+  --ik-card-vacant-pill-bg: #52525b;
+  --ik-card-vacant-pill-fg: #f4f4f5;
+  /* Var struktural default — no-op di tema solid; terisi penuh di tema karakter */
+  --ik-font-head: inherit;
+  --ik-font-num: inherit;
+  --ik-head-case: none;
+  --ik-head-tracking: 0em;
+  --ik-page-grid: none;
+}
+/* Ocean Blue — kartu lunas solid cyan #65D0F4, menunggak #F2F7A0 aksen #2373F4 */
+[data-ik-theme="teal"] {
+  --ik-accent: #2373f4;
+  --ik-accent-hover: #1b5cd6;
+  --ik-accent-soft: #eff6ff;
+  --ik-accent-fg: #ffffff;
+  --ik-accent-border: #bfdbfe;
+  --ik-accent-text: #1d4ed8;
+  --ik-card-paid-bg: #65d0f4;
+  --ik-card-paid-fg: #082f49;
+  --ik-card-paid-muted: #0c4a6e;
+  --ik-card-paid-line: #34b3e4;
+  --ik-card-paid-pill-bg: #082f49;
+  --ik-card-paid-pill-fg: #65d0f4;
+  --ik-card-due-bg: #f2f7a0;
+  --ik-card-due-fg: #4a5210;
+  --ik-card-due-muted: #6b7318;
+  --ik-card-due-line: #dde488;
+  --ik-card-due-pill-bg: #4a5210;
+  --ik-card-due-pill-fg: #f2f7a0;
+  --ik-card-late-bg: #f2f7a0;
+  --ik-card-late-fg: #1e40af;
+  --ik-card-late-muted: #2373f4;
+  --ik-card-late-line: #2373f4;
+  --ik-card-late-pill-bg: #2373f4;
+  --ik-card-late-pill-fg: #f2f7a0;
+  --ik-card-vacant-bg: #e0f2fe;
+  --ik-card-vacant-fg: #0c4a6e;
+  --ik-card-vacant-muted: #0369a1;
+  --ik-card-vacant-line: #bae6fd;
+  --ik-card-vacant-pill-bg: #0c4a6e;
+  --ik-card-vacant-pill-fg: #e0f2fe;
+  --primary: #2373f4;
+  --primary-foreground: #ffffff;
+  --ring: #2373f4;
+}
+/* Fresh Forest — lunas solid #76C457, menunggak amber #FBE6C2, tombol #2A7C13 */
+[data-ik-theme="emerald"] {
+  --ik-accent: #2a7c13;
+  --ik-accent-hover: #226810;
+  --ik-accent-soft: #f0fdf4;
+  --ik-accent-fg: #ffffff;
+  --ik-accent-border: #bbf7d0;
+  --ik-accent-text: #1a5c0b;
+  --ik-card-paid-bg: #76c457;
+  --ik-card-paid-fg: #143a08;
+  --ik-card-paid-muted: #1f5312;
+  --ik-card-paid-line: #62b23c;
+  --ik-card-paid-pill-bg: #fff8cf;
+  --ik-card-paid-pill-fg: #1a5c0b;
+  --ik-card-due-bg: #fff8cf;
+  --ik-card-due-fg: #5a5410;
+  --ik-card-due-muted: #6b6210;
+  --ik-card-due-line: #ede3a8;
+  --ik-card-due-pill-bg: #5a5410;
+  --ik-card-due-pill-fg: #fff8cf;
+  --ik-card-late-bg: #fbe6c2;
+  --ik-card-late-fg: #7c2d12;
+  --ik-card-late-muted: #9a3412;
+  --ik-card-late-line: #f0d0a0;
+  --ik-card-late-pill-bg: #7c2d12;
+  --ik-card-late-pill-fg: #fbe6c2;
+  --ik-card-vacant-bg: #e8f3e2;
+  --ik-card-vacant-fg: #1f5312;
+  --ik-card-vacant-muted: #33631f;
+  --ik-card-vacant-line: #cfe4c4;
+  --ik-card-vacant-pill-bg: #1f5312;
+  --ik-card-vacant-pill-fg: #e8f3e2;
+  --primary: #2a7c13;
+  --primary-foreground: #ffffff;
+  --ring: #3fa02a;
+}
+/* Warm Terracotta — lunas biscuit #FCF2E5, menunggak #EC5B38 teks putih, tombol #524646 */
+[data-ik-theme="amber"] {
+  --ik-accent: #524646;
+  --ik-accent-hover: #3f3535;
+  --ik-accent-soft: #fcf2e5;
+  --ik-accent-fg: #ffffff;
+  --ik-accent-border: #ecd9c3;
+  --ik-accent-text: #524646;
+  --ik-card-paid-bg: #fcf2e5;
+  --ik-card-paid-fg: #4a3f35;
+  --ik-card-paid-muted: #63543f;
+  --ik-card-paid-line: #eeddc4;
+  --ik-card-paid-pill-bg: #524646;
+  --ik-card-paid-pill-fg: #fcf2e5;
+  --ik-card-due-bg: #fae3cc;
+  --ik-card-due-fg: #8a4b18;
+  --ik-card-due-muted: #8a4b18;
+  --ik-card-due-line: #f0cfa8;
+  --ik-card-due-pill-bg: #8a4b18;
+  --ik-card-due-pill-fg: #fae3cc;
+  --ik-card-late-bg: #ec5b38;
+  --ik-card-late-fg: #ffffff;
+  --ik-card-late-muted: #ffe1d6;
+  --ik-card-late-line: #d1482a;
+  --ik-card-late-pill-bg: #ffffff;
+  --ik-card-late-pill-fg: #d1482a;
+  --ik-card-vacant-bg: #ece7e1;
+  --ik-card-vacant-fg: #524646;
+  --ik-card-vacant-muted: #5d534e;
+  --ik-card-vacant-line: #d8cfc6;
+  --ik-card-vacant-pill-bg: #524646;
+  --ik-card-vacant-pill-fg: #ece7e1;
+  --primary: #524646;
+  --primary-foreground: #ffffff;
+  --ring: #ec5b38;
+}
+/* Nordic Slate — lunas soft teal #B8CFCE, menunggak slate #7F8CAA, surface #333446 */
+[data-ik-theme="rose"] {
+  --ik-accent: #333446;
+  --ik-accent-hover: #2a2b3a;
+  --ik-accent-soft: #e8eaf0;
+  --ik-accent-fg: #ffffff;
+  --ik-accent-border: #c9cdd8;
+  --ik-accent-text: #333446;
+  --ik-card-paid-bg: #b8cfce;
+  --ik-card-paid-fg: #333446;
+  --ik-card-paid-muted: #46586d;
+  --ik-card-paid-line: #9db8b7;
+  --ik-card-paid-pill-bg: #333446;
+  --ik-card-paid-pill-fg: #b8cfce;
+  --ik-card-due-bg: #dfe6ee;
+  --ik-card-due-fg: #3d4a63;
+  --ik-card-due-muted: #46547a;
+  --ik-card-due-line: #c3cfdf;
+  --ik-card-due-pill-bg: #3d4a63;
+  --ik-card-due-pill-fg: #dfe6ee;
+  --ik-card-late-bg: #7f8caa;
+  --ik-card-late-fg: #ffffff;
+  --ik-card-late-muted: #e2e8f0;
+  --ik-card-late-line: #5f7091;
+  --ik-card-late-pill-bg: #ffffff;
+  --ik-card-late-pill-fg: #46587a;
+  --ik-card-vacant-bg: #eef0f4;
+  --ik-card-vacant-fg: #333446;
+  --ik-card-vacant-muted: #475569;
+  --ik-card-vacant-line: #d5dae3;
+  --ik-card-vacant-pill-bg: #333446;
+  --ik-card-vacant-pill-fg: #eef0f4;
+  --primary: #333446;
+  --primary-foreground: #ffffff;
+  --ring: #7f8caa;
+}
+
+/* ── Hook kelas struktural (semua tema — default no-op) ────────────────────
+   .ik-shell : root halaman (pola latar via --ik-page-grid)
+   .ik-card  : kartu besar (kartu kamar, kartu metrik, banner properti)
+   .ik-head  : judul/nama properti (font + uppercase + tracking per tema)
+   .ik-num   : angka, nominal Rp, label status (monospace di tema karakter) */
+.ik-shell {
+  background-image: var(--ik-page-grid, none);
+}
+.ik-card {
+  position: relative;
+}
+.ik-head {
+  font-family: var(--ik-font-head, inherit);
+  text-transform: var(--ik-head-case, none);
+  letter-spacing: var(--ik-head-tracking, 0em);
+}
+.ik-num {
+  font-family: var(--ik-font-num, inherit);
+}
+
+/* Industrial Utility — soft brutalism / struk tiket kasir (POS ticket):
+   kertas krem hangat, border hitam kaku 2px, hard offset shadow tanpa blur,
+   label & angka monospace, judul uppercase, tombol aksi crimson #B91C1C. */
+[data-ik-theme="industrial"] {
+  --ik-accent: #b91c1c;
+  --ik-accent-hover: #991b1b;
+  --ik-accent-soft: #f5efe6;
+  --ik-accent-fg: #ffffff;
+  --ik-accent-border: #18181b;
+  --ik-accent-text: #b91c1c;
+  --ik-card-paid-bg: #15803d;
+  --ik-card-paid-fg: #ffffff;
+  --ik-card-paid-muted: #dcfce7;
+  --ik-card-paid-line: #18181b;
+  --ik-card-paid-pill-bg: #ffffff;
+  --ik-card-paid-pill-fg: #15803d;
+  --ik-card-due-bg: #fde68a;
+  --ik-card-due-fg: #78350f;
+  --ik-card-due-muted: #92400e;
+  --ik-card-due-line: #18181b;
+  --ik-card-due-pill-bg: #78350f;
+  --ik-card-due-pill-fg: #fde68a;
+  --ik-card-late-bg: #c2410c;
+  --ik-card-late-fg: #ffffff;
+  --ik-card-late-muted: #ffedd5;
+  --ik-card-late-line: #18181b;
+  --ik-card-late-pill-bg: #fee2e2;
+  --ik-card-late-pill-fg: #b91c1c;
+  --ik-card-vacant-bg: #faf7f2;
+  --ik-card-vacant-fg: #292524;
+  --ik-card-vacant-muted: #78716c;
+  --ik-card-vacant-line: #18181b;
+  --ik-card-vacant-pill-bg: #18181b;
+  --ik-card-vacant-pill-fg: #faf7f2;
+  --ik-font-head: inherit;
+  --ik-font-num: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --ik-head-case: uppercase;
+  --ik-head-tracking: 0.02em;
+  --background: #f5efe6;
+  --foreground: #1c1917;
+  --card: #faf7f2;
+  --card-foreground: #1c1917;
+  --popover: #faf7f2;
+  --popover-foreground: #1c1917;
+  --primary: #b91c1c;
+  --primary-foreground: #ffffff;
+  --secondary: #f0e8da;
+  --secondary-foreground: #1c1917;
+  --muted: #f0e8da;
+  --muted-foreground: #57534e;
+  --accent: #f0e8da;
+  --accent-foreground: #1c1917;
+  --destructive: #b91c1c;
+  --border: #18181b;
+  --input: #a8a29e;
+  --ring: #b91c1c;
+  --radius: 0.1875rem;
+}
+[data-ik-theme="industrial"] .ik-card {
+  border-width: 2px;
+  border-color: #18181b;
+  border-radius: 3px;
+  box-shadow: 3px 3px 0 #18181b;
+}
+[data-ik-theme="industrial"] .ik-card.bg-white {
+  background-color: #faf7f2;
+}
+[data-ik-theme="industrial"] button.ik-card:hover {
+  box-shadow: 5px 5px 0 #18181b;
+}
+[data-ik-theme="industrial"] button.ik-card:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #18181b;
+}
+[data-ik-theme="industrial"] aside {
+  background-color: #faf7f2;
+  border-right-width: 2px;
+  border-right-color: #18181b;
+}
+[data-ik-theme="industrial"] aside .hover\:bg-zinc-50:hover {
+  background-color: #f0e8da;
+}
+[data-ik-theme="industrial"] header {
+  background-color: #faf7f2;
+  border-bottom-width: 2px;
+  border-bottom-color: #18181b;
+}
+[data-ik-theme="industrial"] header .bg-zinc-50 {
+  background-color: #f0e8da;
+}
+[data-ik-theme="industrial"] header .focus\:bg-white:focus {
+  background-color: #fffdf8;
+}
+[data-ik-theme="industrial"] header .border-zinc-200,
+[data-ik-theme="industrial"] [data-slot="dialog-content"] .border-zinc-200,
+[data-ik-theme="industrial"] [data-slot="dialog-content"] .border-border,
+[data-ik-theme="industrial"] [data-slot="dialog-content"] .border-zinc-100 {
+  border-color: #18181b;
+}
+[data-ik-theme="industrial"] [data-slot="dialog-content"] {
+  background-color: #faf7f2;
+  border: 2px solid #18181b;
+  border-radius: 4px;
+  box-shadow: 5px 5px 0 #18181b;
+}
+[data-ik-theme="industrial"] [data-slot="dialog-content"] .bg-zinc-50 {
+  background-color: #f0e8da;
+}
+[data-ik-theme="industrial"] [data-slot="dropdown-menu-content"],
+[data-ik-theme="industrial"] [data-slot="popover-content"],
+[data-ik-theme="industrial"] [data-slot="select-content"] {
+  border: 2px solid #18181b;
+  border-radius: 4px;
+  box-shadow: 4px 4px 0 #18181b;
+}
+[data-ik-theme="industrial"] [data-slot="button"].bg-primary,
+[data-ik-theme="industrial"] [data-slot="button"].bg-\[var\(--ik-accent\)\] {
+  box-shadow: 2px 2px 0 #18181b;
+  border-radius: 3px;
+}
+[data-ik-theme="industrial"] [data-slot="button"].bg-primary:active,
+[data-ik-theme="industrial"] [data-slot="button"].bg-\[var\(--ik-accent\)\]:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 #18181b;
+}
+
+/* Retro Ledger — buku kas & kartu arsip klasik: kertas manila vintage,
+   kartu bergaya index-card dengan tab kecil di atas, border cokelat kayu,
+   cap karet (rubber stamp) untuk status, serif untuk nama properti,
+   monospace untuk nominal rupiah. */
+[data-ik-theme="retro"] {
+  --ik-accent: #7c2d12;
+  --ik-accent-hover: #64230d;
+  --ik-accent-soft: #fdf6e3;
+  --ik-accent-fg: #fff7e8;
+  --ik-accent-border: #e2d3b3;
+  --ik-accent-text: #7c2d12;
+  --ik-card-paid-bg: #ecf3e1;
+  --ik-card-paid-fg: #3f4a2e;
+  --ik-card-paid-muted: #5b6b3f;
+  --ik-card-paid-line: #d8e2c4;
+  --ik-card-paid-pill-bg: rgba(209, 250, 229, 0.6);
+  --ik-card-paid-pill-fg: #065f46;
+  --ik-card-due-bg: #f6efd4;
+  --ik-card-due-fg: #5f5314;
+  --ik-card-due-muted: #8a7a2e;
+  --ik-card-due-line: #e7ddaf;
+  --ik-card-due-pill-bg: rgba(255, 228, 230, 0.6);
+  --ik-card-due-pill-fg: #9f1239;
+  --ik-card-late-bg: #f5e4de;
+  --ik-card-late-fg: #7c2d12;
+  --ik-card-late-muted: #9a3412;
+  --ik-card-late-line: #e8cfc5;
+  --ik-card-late-pill-bg: rgba(255, 228, 230, 0.6);
+  --ik-card-late-pill-fg: #9f1239;
+  --ik-card-vacant-bg: #f2edde;
+  --ik-card-vacant-fg: #57534e;
+  --ik-card-vacant-muted: #78716c;
+  --ik-card-vacant-line: #e0d8c2;
+  --ik-card-vacant-pill-bg: rgba(231, 229, 228, 0.6);
+  --ik-card-vacant-pill-fg: #57534e;
+  --ik-font-head: Georgia, "Times New Roman", "Noto Serif", serif;
+  --ik-font-num: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --background: #f7f4eb;
+  --foreground: #292524;
+  --card: #fffdf5;
+  --card-foreground: #292524;
+  --popover: #fffdf5;
+  --popover-foreground: #292524;
+  --primary: #7c2d12;
+  --primary-foreground: #fff7e8;
+  --secondary: #f3eddc;
+  --secondary-foreground: #292524;
+  --muted: #f3eddc;
+  --muted-foreground: #57534e;
+  --accent: #f3eddc;
+  --accent-foreground: #292524;
+  --destructive: #b91c1c;
+  --border: #e5d9bd;
+  --input: #dccfb0;
+  --ring: #b45309;
+  --radius: 0.375rem;
+}
+[data-ik-theme="retro"] .ik-card {
+  border-color: rgba(146, 64, 14, 0.22);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(120, 53, 15, 0.07);
+}
+[data-ik-theme="retro"] .ik-card.bg-white {
+  background-color: #fffdf5;
+}
+/* tab arsip kecil di atas kartu (gaya index-card) */
+[data-ik-theme="retro"] .ik-card::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 14px;
+  width: 54px;
+  height: 8px;
+  background: #efe7d0;
+  border: 1px solid rgba(146, 64, 14, 0.25);
+  border-bottom: none;
+  border-radius: 3px 3px 0 0;
+}
+[data-ik-theme="retro"] aside,
+[data-ik-theme="retro"] header {
+  background-color: #fbf7ea;
+  border-color: #e5d9bd;
+}
+[data-ik-theme="retro"] header .bg-zinc-50 {
+  background-color: #f4eeda;
+}
+[data-ik-theme="retro"] aside .hover\:bg-zinc-50:hover {
+  background-color: #f4eeda;
+}
+[data-ik-theme="retro"] [data-slot="dialog-content"] {
+  background-color: #fffdf5;
+  border-color: rgba(146, 64, 14, 0.28);
+  box-shadow: 0 8px 24px rgba(120, 53, 15, 0.12);
+}
+[data-ik-theme="retro"] [data-slot="dialog-content"] .bg-zinc-50 {
+  background-color: #f6f0dd;
+}
+[data-ik-theme="retro"] [data-slot="dialog-content"] .border-zinc-100 {
+  border-color: #e5d9bd;
+}
+[data-ik-theme="retro"] [data-slot="dropdown-menu-content"],
+[data-ik-theme="retro"] [data-slot="popover-content"],
+[data-ik-theme="retro"] [data-slot="select-content"] {
+  border-color: rgba(146, 64, 14, 0.28);
+}
+/* cap karet / rubber stamp untuk badge status — LUNAS hijau stempel,
+   TEMPO/NUNGGAK merah tinta, dikemiringan seperti cap basah */
+[data-ik-theme="retro"] .ik-pill {
+  border: 2px solid currentColor;
+  border-radius: 2px;
+  text-transform: uppercase;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  font-size: 11px;
+  line-height: 1;
+  transform: rotate(-2deg);
+}
+[data-ik-theme="retro"] .ik-pill[data-status="jatuhTempo"],
+[data-ik-theme="retro"] .ik-pill[data-status="menunggak"] {
+  transform: rotate(2deg);
+}
+[data-ik-theme="retro"] .ik-pill[data-status="kosong"] {
+  transform: rotate(-1.5deg);
+}
+
+/* Blueprint Studio — cetak biru denah arsitek: navy teknis gelap dengan
+   kisi-kisi cyan 20px, kartu outline putih-cyan transparan + backdrop blur,
+   tipografi drafting monospace uppercase, aksen garis ukur teknis. */
+[data-ik-theme="blueprint"] {
+  color-scheme: dark;
+  --ik-accent: #38bdf8;
+  --ik-accent-hover: #7dd3fc;
+  --ik-accent-soft: rgba(56, 189, 248, 0.12);
+  --ik-accent-fg: #062033;
+  --ik-accent-border: rgba(56, 189, 248, 0.4);
+  --ik-accent-text: #7dd3fc;
+  --ik-card-paid-bg: rgba(56, 189, 248, 0.13);
+  --ik-card-paid-fg: #e0f2fe;
+  --ik-card-paid-muted: #7dd3fc;
+  --ik-card-paid-line: rgba(56, 189, 248, 0.45);
+  --ik-card-paid-pill-bg: #38bdf8;
+  --ik-card-paid-pill-fg: #062033;
+  --ik-card-due-bg: rgba(251, 191, 36, 0.12);
+  --ik-card-due-fg: #fde68a;
+  --ik-card-due-muted: #fbbf24;
+  --ik-card-due-line: rgba(251, 191, 36, 0.4);
+  --ik-card-due-pill-bg: #fbbf24;
+  --ik-card-due-pill-fg: #422006;
+  --ik-card-late-bg: rgba(251, 113, 133, 0.16);
+  --ik-card-late-fg: #fecdd3;
+  --ik-card-late-muted: #fb7185;
+  --ik-card-late-line: rgba(251, 113, 133, 0.45);
+  --ik-card-late-pill-bg: #fb7185;
+  --ik-card-late-pill-fg: #4c0519;
+  --ik-card-vacant-bg: rgba(148, 163, 184, 0.1);
+  --ik-card-vacant-fg: #cbd5e1;
+  --ik-card-vacant-muted: #94a3b8;
+  --ik-card-vacant-line: rgba(148, 163, 184, 0.32);
+  --ik-card-vacant-pill-bg: rgba(148, 163, 184, 0.25);
+  --ik-card-vacant-pill-fg: #e2e8f0;
+  --ik-font-head: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --ik-font-num: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --ik-head-case: uppercase;
+  --ik-head-tracking: 0.05em;
+  --background: #0b1727;
+  --foreground: #dbeafe;
+  --card: #0f1e36;
+  --card-foreground: #e0f2fe;
+  --popover: #0f1e36;
+  --popover-foreground: #e0f2fe;
+  --primary: #38bdf8;
+  --primary-foreground: #062033;
+  --secondary: rgba(56, 189, 248, 0.12);
+  --secondary-foreground: #e0f2fe;
+  --muted: rgba(56, 189, 248, 0.1);
+  --muted-foreground: #8fb3d9;
+  --accent: rgba(56, 189, 248, 0.15);
+  --accent-foreground: #e0f2fe;
+  --destructive: #fb7185;
+  --border: rgba(56, 189, 248, 0.25);
+  --input: rgba(56, 189, 248, 0.3);
+  --ring: #38bdf8;
+  --radius: 0.25rem;
+}
+[data-ik-theme="blueprint"] .ik-shell {
+  background-color: #0b1727;
+  background-image:
+    linear-gradient(rgba(56, 189, 248, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.05) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+[data-ik-theme="blueprint"] .ik-card {
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.06),
+    0 8px 24px rgba(2, 8, 20, 0.35);
+}
+[data-ik-theme="blueprint"] button.ik-card:hover {
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.55),
+    0 0 28px rgba(56, 189, 248, 0.18);
+}
+[data-ik-theme="blueprint"] aside,
+[data-ik-theme="blueprint"] header {
+  background-color: #0f1e36;
+  border-color: rgba(56, 189, 248, 0.22);
+}
+[data-ik-theme="blueprint"] aside .text-zinc-900 {
+  color: #f0f9ff;
+}
+[data-ik-theme="blueprint"] aside .text-zinc-800 {
+  color: #dbeafe;
+}
+[data-ik-theme="blueprint"] aside .text-zinc-700,
+[data-ik-theme="blueprint"] aside .text-zinc-600 {
+  color: #9db4d6;
+}
+[data-ik-theme="blueprint"] aside .bg-zinc-100 {
+  background-color: rgba(56, 189, 248, 0.14);
+}
+[data-ik-theme="blueprint"] aside .border-zinc-200 {
+  border-color: rgba(56, 189, 248, 0.3);
+}
+[data-ik-theme="blueprint"] aside .hover\:bg-zinc-100:hover {
+  background-color: rgba(56, 189, 248, 0.2);
+}
+[data-ik-theme="blueprint"] aside .hover\:bg-zinc-50:hover {
+  background-color: rgba(56, 189, 248, 0.12);
+}
+[data-ik-theme="blueprint"] header .text-zinc-900 {
+  color: #f0f9ff;
+}
+[data-ik-theme="blueprint"] header .text-zinc-700 {
+  color: #9db4d6;
+}
+[data-ik-theme="blueprint"] header .text-zinc-300 {
+  color: #5e7ca3;
+}
+[data-ik-theme="blueprint"] header .bg-zinc-50 {
+  background-color: rgba(56, 189, 248, 0.08);
+}
+[data-ik-theme="blueprint"] header .bg-white {
+  background-color: rgba(15, 30, 54, 0.65);
+}
+[data-ik-theme="blueprint"] header .focus\:bg-white:focus {
+  background-color: rgba(56, 189, 248, 0.14);
+}
+[data-ik-theme="blueprint"] header .border-zinc-200 {
+  border-color: rgba(56, 189, 248, 0.3);
+}
+[data-ik-theme="blueprint"] header .focus\:border-zinc-300:focus {
+  border-color: rgba(56, 189, 248, 0.5);
+}
+[data-ik-theme="blueprint"] header input::placeholder {
+  color: #64809f;
+}
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] {
+  background-color: #0f1e36;
+  border-color: rgba(56, 189, 248, 0.35);
+  color: #dbeafe;
+  box-shadow: 0 24px 64px rgba(2, 8, 20, 0.6);
+}
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .bg-white,
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .bg-zinc-50 {
+  background-color: rgba(56, 189, 248, 0.06);
+}
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .text-zinc-900,
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .text-zinc-800 {
+  color: #f0f9ff;
+}
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .text-zinc-700,
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .text-zinc-600 {
+  color: #9db4d6;
+}
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .border-zinc-200,
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .border-border,
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .border-zinc-100 {
+  border-color: rgba(56, 189, 248, 0.26);
+}
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] input::placeholder {
+  color: #64809f;
+}
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .bg-zinc-900,
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .hover\:bg-zinc-800:hover {
+  background-color: #38bdf8;
+}
+[data-ik-theme="blueprint"] [data-slot="dialog-content"] .bg-zinc-900 {
+  color: #062033;
+}
+[data-ik-theme="blueprint"] [data-slot="dropdown-menu-content"],
+[data-ik-theme="blueprint"] [data-slot="popover-content"],
+[data-ik-theme="blueprint"] [data-slot="select-content"] {
+  border-color: rgba(56, 189, 248, 0.3);
+}
+[data-ik-theme="blueprint"] [data-slot="dropdown-menu-content"] .text-zinc-700,
+[data-ik-theme="blueprint"] [data-slot="select-content"] .text-zinc-700 {
+  color: #9db4d6;
+}
+[data-ik-theme="blueprint"] [data-slot="dropdown-menu-content"] .text-zinc-900 {
+  color: #f0f9ff;
+}
+/* Blueprint: teks zinc gelap di area konten utama → terang agar terbaca di navy */
+[data-ik-theme="blueprint"] main .text-zinc-900 {
+  color: #f0f9ff;
+}
+[data-ik-theme="blueprint"] main .text-zinc-800 {
+  color: #dbeafe;
+}
+[data-ik-theme="blueprint"] main .text-zinc-700,
+[data-ik-theme="blueprint"] main .text-zinc-600 {
+  color: #9db4d6;
+}
+[data-ik-theme="blueprint"] main .border-zinc-200,
+[data-ik-theme="blueprint"] main .border-zinc-100 {
+  border-color: rgba(56, 189, 248, 0.28);
+}
+/* Blueprint: permukaan putih hardcoded di area konten utama (banner, strip tab,
+   tombol sekunder) → panel navy agar konsisten dengan latar cetak biru.
+   Catatan: kelas pecahan (bg-white/50, bg-white/60) TIDAK terkena selector ini. */
+[data-ik-theme="blueprint"] main .bg-white {
+  background-color: #0f1e36;
+}
+[data-ik-theme="blueprint"] main .bg-zinc-50 {
+  background-color: rgba(56, 189, 248, 0.08);
+}
+[data-ik-theme="blueprint"] main .hover\:bg-zinc-50:hover {
+  background-color: rgba(56, 189, 248, 0.14);
+}
+
+/* Pastel Macaron — Korean studio aesthetic: krem susu lembut, kartu putih
+   vanilla cloud dengan sudut ekstra bulat & border pink pastel, lunas mint
+   sorbet, menunggak peach cream dengan badge strawberry rose, kosong lilac,
+   tombol utama barbie rose berbentuk pill penuh. */
+[data-ik-theme="macaron"] {
+  --ik-accent: #fb7185;
+  --ik-accent-hover: #f43f5e;
+  --ik-accent-soft: #fff1f2;
+  --ik-accent-fg: #ffffff;
+  --ik-accent-border: #fecdd3;
+  --ik-accent-text: #e11d48;
+  --ik-card-paid-bg: #d1fae5;
+  --ik-card-paid-fg: #065f46;
+  --ik-card-paid-muted: #047857;
+  --ik-card-paid-line: #a7f3d0;
+  --ik-card-paid-pill-bg: #065f46;
+  --ik-card-paid-pill-fg: #d1fae5;
+  --ik-card-due-bg: #fef3c7;
+  --ik-card-due-fg: #92400e;
+  --ik-card-due-muted: #b45309;
+  --ik-card-due-line: #fde68a;
+  --ik-card-due-pill-bg: #92400e;
+  --ik-card-due-pill-fg: #fef3c7;
+  --ik-card-late-bg: #ffe4e6;
+  --ik-card-late-fg: #9f1239;
+  --ik-card-late-muted: #be123c;
+  --ik-card-late-line: #fecdd3;
+  --ik-card-late-pill-bg: #e11d48;
+  --ik-card-late-pill-fg: #ffffff;
+  --ik-card-vacant-bg: #f3e8ff;
+  --ik-card-vacant-fg: #6b21a8;
+  --ik-card-vacant-muted: #7e22ce;
+  --ik-card-vacant-line: #e9d5ff;
+  --ik-card-vacant-pill-bg: #6b21a8;
+  --ik-card-vacant-pill-fg: #f3e8ff;
+  --background: #fffdf7;
+  --foreground: #44403c;
+  --card: #ffffff;
+  --card-foreground: #44403c;
+  --popover: #ffffff;
+  --popover-foreground: #44403c;
+  --primary: #fb7185;
+  --primary-foreground: #ffffff;
+  --secondary: #fdf2f8;
+  --secondary-foreground: #9f1239;
+  --muted: #fdf4ff;
+  --muted-foreground: #78716c;
+  --accent: #fdf2f8;
+  --accent-foreground: #9f1239;
+  --destructive: #e11d48;
+  --border: #fce7f3;
+  --input: #fbcfe8;
+  --ring: #fb7185;
+  --radius: 1rem;
+}
+/* kartu vanilla cloud: rounded-2xl → sm:rounded-3xl, border pink pastel halus */
+[data-ik-theme="macaron"] .ik-card {
+  border-color: #fce7f3;
+  border-radius: 1rem;
+  box-shadow: 0 4px 18px rgba(236, 72, 153, 0.09);
+}
+@media (min-width: 640px) {
+  [data-ik-theme="macaron"] .ik-card {
+    border-radius: 1.5rem;
+  }
+}
+[data-ik-theme="macaron"] aside,
+[data-ik-theme="macaron"] header {
+  border-color: #fce7f3;
+}
+[data-ik-theme="macaron"] aside .hover\:bg-zinc-50:hover {
+  background-color: #fdf2f8;
+}
+/* tombol utama pill penuh (rounded-full) — khas Korean studio aesthetic */
+[data-ik-theme="macaron"] [data-slot="button"] {
+  border-radius: 9999px;
+}
+[data-ik-theme="macaron"] [data-slot="dialog-content"] {
+  border-color: #fce7f3;
+  box-shadow: 0 12px 44px rgba(236, 72, 153, 0.13);
+}
+
+/* Matcha Sanctuary — zen villa & organic stone: latar greige hangat, kartu
+   krem matcha lembut dengan border sage tipis, lunas moss green solid teks
+   putih tebal, menunggak oker emas tanah kering teks gelap, tombol deep
+   forest clay, sudut membulat lembut di seluruh kontainer. */
+[data-ik-theme="matcha"] {
+  --ik-accent: #2c3e2d;
+  --ik-accent-hover: #223122;
+  --ik-accent-soft: #ecefe0;
+  --ik-accent-fg: #ffffff;
+  --ik-accent-border: #cdd8c0;
+  --ik-accent-text: #2c3e2d;
+  --ik-card-paid-bg: #3f5e4d;
+  --ik-card-paid-fg: #ffffff;
+  --ik-card-paid-muted: #d7e4d5;
+  --ik-card-paid-line: #33503f;
+  --ik-card-paid-pill-bg: #edf3e6;
+  --ik-card-paid-pill-fg: #2f4739;
+  --ik-card-due-bg: #f1e5cb;
+  --ik-card-due-fg: #6d5320;
+  --ik-card-due-muted: #86682c;
+  --ik-card-due-line: #e2d0a9;
+  --ik-card-due-pill-bg: #6d5320;
+  --ik-card-due-pill-fg: #f1e5cb;
+  --ik-card-late-bg: #c28e47;
+  --ik-card-late-fg: #2f2410;
+  --ik-card-late-muted: #5f451a;
+  --ik-card-late-line: #a97a38;
+  --ik-card-late-pill-bg: #2f2410;
+  --ik-card-late-pill-fg: #eecf9a;
+  --ik-card-vacant-bg: #e7e3d8;
+  --ik-card-vacant-fg: #57534e;
+  --ik-card-vacant-muted: #6b675f;
+  --ik-card-vacant-line: #d5d0c2;
+  --ik-card-vacant-pill-bg: #57534e;
+  --ik-card-vacant-pill-fg: #e7e3d8;
+  --background: #efece6;
+  --foreground: #2b2b26;
+  --card: #e2e8d5;
+  --card-foreground: #2f3a2b;
+  --popover: #f6f4ec;
+  --popover-foreground: #2f3a2b;
+  --primary: #2c3e2d;
+  --primary-foreground: #ffffff;
+  --secondary: #e6e3d8;
+  --secondary-foreground: #3c4a38;
+  --muted: #e6e3d8;
+  --muted-foreground: #5d6657;
+  --accent: #e6e3d8;
+  --accent-foreground: #3c4a38;
+  --destructive: #b45309;
+  --border: rgba(6, 78, 59, 0.12);
+  --input: rgba(6, 78, 59, 0.18);
+  --ring: #3f5e4d;
+  --radius: 1rem;
+}
+/* banner & kontainer putih → krem matcha; kartu status tetap pakai line color per status */
+[data-ik-theme="matcha"] .ik-card.bg-white {
+  background-color: #e2e8d5;
+}
+[data-ik-theme="matcha"] aside,
+[data-ik-theme="matcha"] header {
+  background-color: #ebe8de;
+  border-color: rgba(6, 78, 59, 0.12);
+}
+[data-ik-theme="matcha"] aside .hover\:bg-zinc-50:hover {
+  background-color: #e4e1d5;
+}
+[data-ik-theme="matcha"] [data-slot="dialog-content"] {
+  background-color: #f1f3e6;
+  border-color: rgba(6, 78, 59, 0.16);
+  box-shadow: 0 16px 44px rgba(44, 62, 45, 0.16);
+}
+[data-ik-theme="matcha"] [data-slot="dialog-content"] .bg-zinc-50 {
+  background-color: #e8ebd9;
+}
+[data-ik-theme="matcha"] [data-slot="dropdown-menu-content"],
+[data-ik-theme="matcha"] [data-slot="popover-content"],
+[data-ik-theme="matcha"] [data-slot="select-content"] {
+  border-color: rgba(6, 78, 59, 0.16);
+}
+
+/* Cyber Terminal — OLED obsidian & neon high-contrast: hitam murni #09090B,
+   permukaan charcoal #121215 ber-border hairline zinc-800, status neon
+   (lunas emerald glow + titik LED menyala, menunggak rose laser, kosong
+   slate redup border putus-putus), tombol utama putih monospace kontras
+   tinggi, tipografi terminal uppercase. */
+[data-ik-theme="cyber"] {
+  color-scheme: dark;
+  --ik-accent: #f4f4f5;
+  --ik-accent-hover: #e4e4e7;
+  --ik-accent-soft: rgba(244, 244, 245, 0.08);
+  --ik-accent-fg: #09090b;
+  --ik-accent-border: #3f3f46;
+  --ik-accent-text: #fafafa;
+  --ik-card-paid-bg: rgba(6, 78, 59, 0.6);
+  --ik-card-paid-fg: #34d399;
+  --ik-card-paid-muted: #6ee7b7;
+  --ik-card-paid-line: rgba(16, 185, 129, 0.4);
+  --ik-card-paid-pill-bg: rgba(2, 44, 34, 0.9);
+  --ik-card-paid-pill-fg: #6ee7b7;
+  --ik-card-due-bg: rgba(66, 32, 6, 0.6);
+  --ik-card-due-fg: #fbbf24;
+  --ik-card-due-muted: #fcd34d;
+  --ik-card-due-line: rgba(245, 158, 11, 0.4);
+  --ik-card-due-pill-bg: rgba(66, 32, 6, 0.9);
+  --ik-card-due-pill-fg: #fcd34d;
+  --ik-card-late-bg: rgba(76, 5, 25, 0.6);
+  --ik-card-late-fg: #fb7185;
+  --ik-card-late-muted: #fda4af;
+  --ik-card-late-line: rgba(244, 63, 94, 0.5);
+  --ik-card-late-pill-bg: rgba(76, 5, 25, 0.9);
+  --ik-card-late-pill-fg: #fda4af;
+  --ik-card-vacant-bg: rgba(24, 24, 27, 0.55);
+  --ik-card-vacant-fg: #a1a1aa;
+  --ik-card-vacant-muted: #71717a;
+  --ik-card-vacant-line: #3f3f46;
+  --ik-card-vacant-pill-bg: rgba(24, 24, 27, 0.9);
+  --ik-card-vacant-pill-fg: #a1a1aa;
+  --ik-font-head: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --ik-font-num: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --ik-head-case: uppercase;
+  --ik-head-tracking: 0.04em;
+  --background: #09090b;
+  --foreground: #e4e4e7;
+  --card: #121215;
+  --card-foreground: #e4e4e7;
+  --popover: #121215;
+  --popover-foreground: #e4e4e7;
+  --primary: #f4f4f5;
+  --primary-foreground: #09090b;
+  --secondary: #1c1c1f;
+  --secondary-foreground: #e4e4e7;
+  --muted: #1c1c1f;
+  --muted-foreground: #a1a1aa;
+  --accent: #1c1c1f;
+  --accent-foreground: #e4e4e7;
+  --destructive: #f43f5e;
+  --border: #27272a;
+  --input: #3f3f46;
+  --ring: #34d399;
+  --radius: 0.375rem;
+}
+[data-ik-theme="cyber"] .ik-card {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+/* titik LED menyala pada badge lunas — aksen khas terminal */
+[data-ik-theme="cyber"] .ik-pill[data-status="lunas"]::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow: 0 0 6px 1px currentColor;
+}
+/* tombol utama monospace bold kontras tinggi (bg-zinc-100 → hover zinc-200) */
+[data-ik-theme="cyber"] [data-slot="button"].bg-primary,
+[data-ik-theme="cyber"] [data-slot="button"].bg-\[var\(--ik-accent\)\] {
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+[data-ik-theme="cyber"] [data-slot="button"].bg-primary:hover,
+[data-ik-theme="cyber"] [data-slot="button"].bg-\[var\(--ik-accent\)\]:hover {
+  background-color: #e4e4e7;
+}
+[data-ik-theme="cyber"] aside,
+[data-ik-theme="cyber"] header {
+  background-color: #0c0c0e;
+  border-color: #27272a;
+}
+[data-ik-theme="cyber"] aside .text-zinc-900 {
+  color: #fafafa;
+}
+[data-ik-theme="cyber"] aside .text-zinc-800 {
+  color: #e4e4e7;
+}
+[data-ik-theme="cyber"] aside .text-zinc-700,
+[data-ik-theme="cyber"] aside .text-zinc-600 {
+  color: #a1a1aa;
+}
+[data-ik-theme="cyber"] aside .bg-zinc-100 {
+  background-color: #1c1c1f;
+}
+[data-ik-theme="cyber"] aside .border-zinc-200 {
+  border-color: #27272a;
+}
+[data-ik-theme="cyber"] aside .hover\:bg-zinc-100:hover {
+  background-color: #27272a;
+}
+[data-ik-theme="cyber"] aside .hover\:bg-zinc-50:hover {
+  background-color: #18181b;
+}
+[data-ik-theme="cyber"] header .text-zinc-900 {
+  color: #fafafa;
+}
+[data-ik-theme="cyber"] header .text-zinc-700 {
+  color: #a1a1aa;
+}
+[data-ik-theme="cyber"] header .text-zinc-300 {
+  color: #52525b;
+}
+[data-ik-theme="cyber"] header .bg-zinc-50 {
+  background-color: #131316;
+}
+[data-ik-theme="cyber"] header .bg-white {
+  background-color: #0c0c0e;
+}
+[data-ik-theme="cyber"] header .focus\:bg-white:focus {
+  background-color: #1c1c1f;
+}
+[data-ik-theme="cyber"] header .border-zinc-200 {
+  border-color: #27272a;
+}
+[data-ik-theme="cyber"] header .focus\:border-zinc-300:focus {
+  border-color: #3f3f46;
+}
+[data-ik-theme="cyber"] header input::placeholder {
+  color: #71717a;
+}
+[data-ik-theme="cyber"] [data-slot="dialog-content"] {
+  background-color: #121215;
+  border-color: #3f3f46;
+  color: #e4e4e7;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+}
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .bg-white {
+  background-color: #18181b;
+}
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .bg-zinc-50 {
+  background-color: #0e0e10;
+}
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .text-zinc-900,
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .text-zinc-800 {
+  color: #fafafa;
+}
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .text-zinc-700,
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .text-zinc-600 {
+  color: #a1a1aa;
+}
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .border-zinc-200,
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .border-border,
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .border-zinc-100 {
+  border-color: #27272a;
+}
+[data-ik-theme="cyber"] [data-slot="dialog-content"] input::placeholder {
+  color: #71717a;
+}
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .bg-zinc-900,
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .hover\:bg-zinc-800:hover {
+  background-color: #f4f4f5;
+}
+[data-ik-theme="cyber"] [data-slot="dialog-content"] .bg-zinc-900 {
+  color: #09090b;
+}
+[data-ik-theme="cyber"] [data-slot="dropdown-menu-content"],
+[data-ik-theme="cyber"] [data-slot="popover-content"],
+[data-ik-theme="cyber"] [data-slot="select-content"] {
+  border-color: #3f3f46;
+}
+[data-ik-theme="cyber"] [data-slot="dropdown-menu-content"] .text-zinc-700,
+[data-ik-theme="cyber"] [data-slot="select-content"] .text-zinc-700 {
+  color: #a1a1aa;
+}
+[data-ik-theme="cyber"] [data-slot="dropdown-menu-content"] .text-zinc-900 {
+  color: #fafafa;
+}
+/* Cyber: teks zinc gelap di area konten utama → terang agar terbaca di OLED black */
+[data-ik-theme="cyber"] main .text-zinc-900 {
+  color: #fafafa;
+}
+[data-ik-theme="cyber"] main .text-zinc-800 {
+  color: #e4e4e7;
+}
+[data-ik-theme="cyber"] main .text-zinc-700,
+[data-ik-theme="cyber"] main .text-zinc-600 {
+  color: #a1a1aa;
+}
+[data-ik-theme="cyber"] main .border-zinc-200,
+[data-ik-theme="cyber"] main .border-zinc-100 {
+  border-color: #27272a;
+}
+[data-ik-theme="cyber"] main .bg-white {
+  background-color: #121215;
+}
+[data-ik-theme="cyber"] main .bg-zinc-50 {
+  background-color: #131316;
+}
+[data-ik-theme="cyber"] main .hover\:bg-zinc-50:hover {
+  background-color: #1c1c1f;
+}
+
+/* Coffee Roastery — espresso & warm oat milk: latar krim oat hangat, kartu
+   putih creamy dengan border moka halus, lunas olive cream teks olive pekat,
+   menunggak karamel toffee dengan badge oranye karamel, kosong krem netral
+   border putus-putus cokelat susu, tombol deep roasted coffee. */
+[data-ik-theme="coffee"] {
+  --ik-accent: #362217;
+  --ik-accent-hover: #241710;
+  --ik-accent-soft: #f1e8dc;
+  --ik-accent-fg: #ffffff;
+  --ik-accent-border: #e2d5c2;
+  --ik-accent-text: #362217;
+  --ik-card-paid-bg: #dce8d5;
+  --ik-card-paid-fg: #2d4a22;
+  --ik-card-paid-muted: #46603a;
+  --ik-card-paid-line: #c4d8b8;
+  --ik-card-paid-pill-bg: #2d4a22;
+  --ik-card-paid-pill-fg: #dce8d5;
+  --ik-card-due-bg: #f5e6cd;
+  --ik-card-due-fg: #7a4a12;
+  --ik-card-due-muted: #8f5c1e;
+  --ik-card-due-line: #ebd5ae;
+  --ik-card-due-pill-bg: #7a4a12;
+  --ik-card-due-pill-fg: #f5e6cd;
+  --ik-card-late-bg: #f8d7b0;
+  --ik-card-late-fg: #5f3a0e;
+  --ik-card-late-muted: #7a4a1a;
+  --ik-card-late-line: #e8c18c;
+  --ik-card-late-pill-bg: #b45309;
+  --ik-card-late-pill-fg: #ffffff;
+  --ik-card-vacant-bg: #f1eadf;
+  --ik-card-vacant-fg: #6b5744;
+  --ik-card-vacant-muted: #7d6a55;
+  --ik-card-vacant-line: #d8c9b4;
+  --ik-card-vacant-pill-bg: #6b5744;
+  --ik-card-vacant-pill-fg: #f1eadf;
+  --background: #f7f3ec;
+  --foreground: #33261a;
+  --card: #ffffff;
+  --card-foreground: #33261a;
+  --popover: #fffdf9;
+  --popover-foreground: #33261a;
+  --primary: #362217;
+  --primary-foreground: #ffffff;
+  --secondary: #f0e9dc;
+  --secondary-foreground: #4a3a28;
+  --muted: #f0e9dc;
+  --muted-foreground: #6b5744;
+  --accent: #f0e9dc;
+  --accent-foreground: #4a3a28;
+  --destructive: #b45309;
+  --border: rgba(69, 26, 3, 0.15);
+  --input: rgba(69, 26, 3, 0.22);
+  --ring: #8a5a2a;
+}
+/* kartu creamy: hanya bayangan halus — border kartu status tetap dari var per status
+   (banner memakai --ik-accent-border moka via utility border-2) */
+[data-ik-theme="coffee"] .ik-card {
+  box-shadow: 0 1px 3px rgba(87, 52, 26, 0.08);
+}
+[data-ik-theme="coffee"] aside,
+[data-ik-theme="coffee"] header {
+  background-color: #f3ede1;
+  border-color: rgba(69, 26, 3, 0.15);
+}
+[data-ik-theme="coffee"] aside .hover\:bg-zinc-50:hover {
+  background-color: #ece4d4;
+}
+[data-ik-theme="coffee"] [data-slot="dialog-content"] {
+  border-color: rgba(69, 26, 3, 0.18);
+  box-shadow: 0 16px 44px rgba(54, 34, 23, 0.16);
+}
+[data-ik-theme="coffee"] [data-slot="dialog-content"] .bg-zinc-50 {
+  background-color: #f4eee2;
+}
+[data-ik-theme="coffee"] [data-slot="dropdown-menu-content"],
+[data-ik-theme="coffee"] [data-slot="popover-content"],
+[data-ik-theme="coffee"] [data-slot="select-content"] {
+  border-color: rgba(69, 26, 3, 0.18);
+}
+
+/* task34 cache-bust */
