@@ -62,8 +62,6 @@ import {
   nextSettingsId,
   PROPERTY_TYPES,
   PROPERTY_TYPE_META,
-  STAFF_ROLE_META,
-  STAFF_ROLES,
   THEME_KEYS,
   THEME_META,
   type FacilityCatalog,
@@ -72,13 +70,18 @@ import {
   type PropertyEntry,
   type PropertyProfile,
   type PropertyType,
-  type StaffMember,
-  type StaffRole,
   type ThemeKey,
 } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
 import { DangerZone } from "./danger-zone";
 import { WaIcon } from "./wa-icon";
+import { StaffAccessManager } from "./staff-access-manager";
+import {
+  STAFF_ROLE_META as ACCESS_ROLE_META,
+  clearStaffSession,
+  type StaffAccessRole,
+} from "@/lib/staff-access";
+import { LogOut } from "lucide-react";
 
 const inputCls =
   "h-9 border-zinc-200 bg-white text-[13px] text-zinc-900 placeholder:text-zinc-600 focus-visible:ring-zinc-900/5";
@@ -106,7 +109,7 @@ const NAV: {
   { key: "profil-saya", label: "Profil Saya", desc: "Akun pengelola", icon: UserRound },
   { key: "profil", label: "Profil Properti", desc: "Identitas & aturan", icon: Building2 },
   { key: "properti-list", label: "Daftar & Kelola Properti", desc: "Multi-cabang", icon: Layers3 },
-  { key: "staf", label: "Kelola Admin & Staf", desc: "Peran & akses", icon: UsersRound },
+  { key: "staf", label: "Kelola Staf", desc: "Link akses & peran", icon: UsersRound },
   { key: "rekening", label: "Rekening & Pembayaran", desc: "Bank & QRIS", icon: Landmark },
   { key: "template", label: "Template WhatsApp", desc: "Pesan otomatis", icon: MessageSquareText },
   { key: "tarif", label: "Tarif & Tipe Kamar", desc: "Harga & fasilitas", icon: BedDouble },
@@ -123,6 +126,9 @@ interface SettingsViewProps {
   onTabChange: (tab: string) => void;
   settings: IndoKostSettings;
   onUpdateSettings: (patch: Partial<IndoKostSettings>) => void;
+  /** Sesi staf aktif (dari /staff?token=…) — membatasi tab & menyembunyikan zona sensitif */
+  staffSession: { name: string; role: StaffAccessRole } | null;
+  onStaffLogout: () => void;
   dangerCounts: {
     rooms: number;
     tenants: number;
@@ -142,11 +148,25 @@ export function SettingsView({
   onTabChange,
   settings,
   onUpdateSettings,
+  staffSession,
+  onStaffLogout,
   dangerCounts,
   onClearDemo,
   onFactoryReset,
   onApplyTariff,
 }: SettingsViewProps) {
+  // ── RBAC staf: tab tersembunyi + snap tab terlarang ke yang diizinkan ──
+  const allowedKeys = useMemo(() => {
+    if (!staffSession) return NAV.map((n) => n.key);
+    return staffSession.role === "ADMIN_OPERASIONAL" ? ["tarif", "fasilitas", "tema"] : ["tema"];
+  }, [staffSession]);
+  const visibleNav = useMemo(
+    () => NAV.filter((n) => allowedKeys.includes(n.key)),
+    [allowedKeys],
+  );
+  const effectiveTab = allowedKeys.includes(tab) ? tab : allowedKeys[0]!;
+  const staffMeta = staffSession ? ACCESS_ROLE_META[staffSession.role] : null;
+
   return (
     <div className="space-y-4">
       <div>
@@ -155,6 +175,48 @@ export function SettingsView({
           Profil pengelola, properti multi-cabang, staf, pembayaran, template WhatsApp, tarif, tema, dan pengelolaan data
         </p>
       </div>
+
+      {/* Kartu sesi staf — identitas & keluar (hanya saat akses via link staf) */}
+      {staffSession && staffMeta && (
+        <section
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-[var(--ik-accent-soft)] p-3.5 [border-color:var(--ik-accent-border)]"
+          aria-label="Sesi staf aktif"
+        >
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span
+              className={cn(
+                "flex size-9 shrink-0 items-center justify-center rounded-full text-[12px] font-bold text-white",
+                staffMeta.pill,
+              )}
+              aria-hidden="true"
+            >
+              {staffSession.name.trim().charAt(0).toUpperCase() || "S"}
+            </span>
+            <div className="min-w-0">
+              <p className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold leading-4 text-zinc-900">
+                <span className="truncate">{staffSession.name}</span>
+                <span className={cn("inline-flex h-[18px] items-center rounded-full px-2 text-[11px] font-semibold leading-none", staffMeta.pill)}>
+                  {staffMeta.label}
+                </span>
+              </p>
+              <p className="mt-0.5 text-[11px] font-medium leading-3 text-zinc-600">
+                Sesi staf aktif — menu sensitif owner disembunyikan otomatis
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              clearStaffSession();
+              onStaffLogout();
+            }}
+            className="h-8 gap-1.5 border-zinc-300 bg-white px-3 text-[12.5px] font-semibold text-zinc-700 shadow-none hover:bg-zinc-100"
+          >
+            <LogOut className="size-3.5 text-zinc-600" strokeWidth={1.75} aria-hidden="true" />
+            Keluar Sesi Staf
+          </Button>
+        </section>
+      )}
 
       {/*
         Layout: desktop 2 kolom — sub-sidebar vertikal (kiri) + konten form (kanan).
@@ -170,7 +232,7 @@ export function SettingsView({
         >
           Kategori Pengaturan:
         </Label>
-        <Select value={tab} onValueChange={onTabChange}>
+        <Select value={effectiveTab} onValueChange={onTabChange}>
           <SelectTrigger
             id="kategori-pengaturan"
             aria-label="Pilih kategori pengaturan"
@@ -179,7 +241,7 @@ export function SettingsView({
             <SelectValue />
           </SelectTrigger>
           <SelectContent position="popper" className="max-h-[min(60vh,380px)] w-[var(--radix-select-trigger-width)]">
-            {NAV.map((item) => {
+            {visibleNav.map((item) => {
               const Icon = item.icon;
               return (
                 <SelectItem
@@ -203,12 +265,12 @@ export function SettingsView({
       </div>
 
       <Tabs
-        value={tab}
+        value={effectiveTab}
         onValueChange={onTabChange}
         className="space-y-3 md:grid md:grid-cols-[236px_minmax(0,1fr)] md:items-start md:gap-6 md:space-y-0"
       >
         <TabsList className="hidden h-auto w-full items-stretch gap-1 rounded-lg border border-border bg-white p-1 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:flex md:flex-col md:h-auto md:gap-0.5 md:overflow-visible md:rounded-xl md:p-1.5">
-          {NAV.map((item) => {
+          {visibleNav.map((item) => {
             const Icon = item.icon;
             return (
               <TabsTrigger
@@ -255,10 +317,9 @@ export function SettingsView({
           activeName={propertyName}
           onChange={(properties) => onUpdateSettings({ properties })}
         />
-        <StafTab
-          staff={settings.staff}
+        <StaffAccessTab
           properties={settings.properties}
-          onChange={(staff) => onUpdateSettings({ staff })}
+          activePropertyName={propertyName}
         />
         <RekeningTab
           key={JSON.stringify(settings.rekening)}
@@ -966,344 +1027,20 @@ function PropertiListTab({
   );
 }
 
-/* ── Tab 4: Kelola Admin & Staf ────────────────────────────────────────────── */
+/* ── Tab 4: Kelola Staf — akses mandiri via link undangan ──────────────────── */
 
-const emptyStaffDraft = { nama: "", peran: "Penjaga" as StaffRole, whatsapp: "", cabang: [] as string[] };
-
-function StafTab({
-  staff,
+function StaffAccessTab({
   properties,
-  onChange,
+  activePropertyName,
 }: {
-  staff: StaffMember[];
   properties: PropertyEntry[];
-  onChange: (staff: StaffMember[]) => void;
+  activePropertyName: string;
 }) {
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [draft, setDraft] = useState(emptyStaffDraft);
-  const [confirmDelete, setConfirmDelete] = useState<StaffMember | null>(null);
-
-  const openAdd = () => {
-    setEditId(null);
-    setDraft(emptyStaffDraft);
-    setModalOpen(true);
-  };
-
-  const openEdit = (s: StaffMember) => {
-    setEditId(s.id);
-    setDraft({ nama: s.nama, peran: s.peran, whatsapp: s.whatsapp, cabang: [...s.cabang] });
-    setModalOpen(true);
-  };
-
-  const waDigits = draft.whatsapp.replace(/[^0-9]/g, "");
-  const nameTaken = staff.some((s) => s.id !== editId && s.nama.trim().toLowerCase() === draft.nama.trim().toLowerCase());
-  const valid = draft.nama.trim().length >= 3 && !nameTaken && waDigits.length >= 9;
-
-  const toggleCabang = (id: string) => {
-    setDraft((d) => ({
-      ...d,
-      cabang: d.cabang.includes(id) ? d.cabang.filter((c) => c !== id) : [...d.cabang, id],
-    }));
-  };
-
-  const submit = () => {
-    if (!valid) return;
-    const payload: StaffMember = {
-      id: editId ?? nextSettingsId("stf"),
-      nama: draft.nama.trim(),
-      peran: draft.peran,
-      whatsapp: draft.whatsapp.trim(),
-      cabang: draft.cabang,
-    };
-    onChange(editId ? staff.map((s) => (s.id === editId ? payload : s)) : [...staff, payload]);
-    toast.success(editId ? "Data staf diperbarui" : "Staf baru ditambahkan", {
-      description: `${payload.nama} · ${payload.peran}`,
-    });
-    setModalOpen(false);
-  };
-
-  const doDelete = (s: StaffMember) => {
-    onChange(staff.filter((x) => x.id !== s.id));
-    setConfirmDelete(null);
-    toast.success("Staf dihapus", { description: `${s.nama} dikeluarkan dari daftar akses.` });
-  };
-
+  const activePropertyId =
+    properties.find((p) => p.name === activePropertyName)?.id ?? properties[0]?.id ?? "";
   return (
     <Pane value="staf">
-      <div className="max-w-[860px] space-y-4">
-        {/* Penjelasan peran */}
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-          {STAFF_ROLES.map((r) => (
-            <div key={r} className="rounded-lg border border-border bg-white p-3">
-              <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-xs font-semibold", STAFF_ROLE_META[r].pill)}>
-                {r}
-              </span>
-              <p className="mt-1.5 text-[12.5px] leading-4 text-zinc-700">{STAFF_ROLE_META[r].desc}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[12.5px] text-zinc-700">
-            <span className="font-semibold tabular-nums text-zinc-700">{staff.length}</span> anggota tim punya akses dashboard.
-          </p>
-          <Button
-            onClick={openAdd}
-            className="h-9 bg-[var(--ik-accent)] px-3 text-[12.5px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]"
-          >
-            <Plus className="size-4" strokeWidth={2} />
-            Tambah Staf
-          </Button>
-        </div>
-
-        {/* Desktop table */}
-        <div className="hidden overflow-x-auto rounded-lg border border-border bg-white md:block">
-          <table className="w-full min-w-[680px] border-collapse text-[13px]">
-            <caption className="sr-only">Daftar admin & staf</caption>
-            <thead>
-              <tr>
-                <th className={`${HEAD_CELL} pl-4 text-left`}>Nama</th>
-                <th className={`${HEAD_CELL} text-left`}>Peran</th>
-                <th className={`${HEAD_CELL} text-left`}>No. WhatsApp</th>
-                <th className={`${HEAD_CELL} text-left`}>Akses Cabang</th>
-                <th className={`${HEAD_CELL} pr-4 text-right`}>Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {staff.map((s) => {
-                const isOwner = s.peran === "Owner";
-                const cabangLabel =
-                  s.cabang.length === 0
-                    ? "Semua cabang"
-                    : s.cabang
-                        .map((id) => properties.find((p) => p.id === id)?.name ?? id)
-                        .join(", ");
-                return (
-                  <tr key={s.id} className="border-b border-border last:border-0 hover:bg-zinc-50/70">
-                    <td className="py-2.5 pl-4 pr-3">
-                      <div className="flex items-center gap-2.5">
-                        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-xs font-bold text-zinc-600">
-                          {s.nama.split(" ").slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
-                        </span>
-                        <span className="font-semibold text-zinc-900">{s.nama}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-xs font-semibold", STAFF_ROLE_META[s.peran].pill)}>
-                        {s.peran}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <a
-                        href={`${waLink(s.whatsapp)}?text=${encodeURIComponent(`Halo ${s.nama}, ini pesan dari UnitKu.`)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-[12.5px] font-medium tabular-nums text-emerald-700 hover:underline"
-                      >
-                        <WaIcon className="size-3.5" />
-                        {s.whatsapp}
-                      </a>
-                    </td>
-                    <td className="max-w-[220px] px-3 py-2.5">
-                      <p className="truncate text-[12.5px] text-zinc-600" title={cabangLabel}>{cabangLabel}</p>
-                    </td>
-                    <td className="py-2.5 pl-3 pr-4">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openEdit(s)}
-                          className="h-7 gap-1 px-2 text-[12.5px] text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-                          aria-label={`Edit ${s.nama}`}
-                        >
-                          <Pencil className="size-3" strokeWidth={1.75} />
-                          Edit
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={isOwner}
-                          title={isOwner ? "Owner utama tidak dapat dihapus" : undefined}
-                          onClick={() => setConfirmDelete(s)}
-                          className="h-7 gap-1 px-2 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-                          aria-label={`Hapus ${s.nama}`}
-                        >
-                          <Trash2 className="size-3" strokeWidth={1.75} />
-                          Hapus
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile cards */}
-        <div className="space-y-2.5 md:hidden">
-          {staff.map((s) => (
-            <div key={s.id} className="rounded-lg border border-border bg-white p-3">
-              <div className="flex items-center gap-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-xs font-bold text-zinc-600">
-                  {s.nama.split(" ").slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-semibold text-zinc-900">{s.nama}</p>
-                  <span className={cn("mt-0.5 inline-flex h-4.5 items-center rounded-full px-1.5 text-xs font-semibold", STAFF_ROLE_META[s.peran].pill)}>
-                    {s.peran}
-                  </span>
-                </div>
-              </div>
-              <p className="mt-2 truncate text-[12.5px] text-zinc-700">
-                Akses: {s.cabang.length === 0 ? "Semua cabang" : s.cabang.map((id) => properties.find((p) => p.id === id)?.name ?? id).join(", ")}
-              </p>
-              <div className="mt-2.5 flex items-center gap-2">
-                <a
-                  href={`${waLink(s.whatsapp)}?text=${encodeURIComponent(`Halo ${s.nama}, ini pesan dari UnitKu.`)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-white text-[12.5px] font-medium text-emerald-700 hover:bg-emerald-50"
-                >
-                  <WaIcon className="size-3.5" />
-                  Chat WA
-                </a>
-                <Button
-                  variant="outline"
-                  onClick={() => openEdit(s)}
-                  className="h-8 flex-1 border-zinc-200 bg-white text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
-                >
-                  <Pencil className="size-3" strokeWidth={1.75} />
-                  Edit
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={s.peran === "Owner"}
-                  onClick={() => setConfirmDelete(s)}
-                  className="h-8 shrink-0 border-red-200 bg-white px-2.5 text-[12.5px] font-medium text-red-600 shadow-none hover:bg-red-50 disabled:opacity-40"
-                  aria-label={`Hapus ${s.nama}`}
-                >
-                  <Trash2 className="size-3.5" strokeWidth={1.75} />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Modal tambah/edit staf */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="flex max-h-[85dvh] w-[calc(100%-1.5rem)] max-w-md flex-col gap-0 overflow-hidden rounded-2xl bg-white p-0 sm:max-w-[480px]">
-          <DialogHeader className="flex shrink-0 flex-row items-center justify-between border-b border-border bg-white px-4 py-3.5 text-left">
-            <div className="min-w-0 space-y-1">
-              <DialogTitle className="text-[15px] font-bold text-zinc-900">
-                {editId ? "Edit Staf" : "Tambah Staf Baru"}
-              </DialogTitle>
-              <DialogDescription className="text-[12.5px] text-zinc-700">
-                Peran menentukan menu yang bisa diakses; owner selalu punya akses penuh.
-              </DialogDescription>
-            </div>
-            <DialogClose className="ml-2" />
-          </DialogHeader>
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 touch-pan-y">
-            <div className="space-y-1.5">
-              <Label htmlFor="sf-nama" className="text-[12.5px] text-zinc-600">Nama Staf</Label>
-              <Input id="sf-nama" value={draft.nama} onChange={(e) => setDraft((d) => ({ ...d, nama: e.target.value }))} className={inputCls} placeholder="cth. Ratna Sari" />
-              {nameTaken && <p className="text-xs text-red-500">Nama staf sudah terdaftar.</p>}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="sf-peran" className="text-[12.5px] text-zinc-600">Peran</Label>
-                <Select value={draft.peran} onValueChange={(v) => setDraft((d) => ({ ...d, peran: v as StaffRole }))}>
-                  <SelectTrigger id="sf-peran" className="h-9 w-full border-zinc-200 text-[13px] focus:ring-zinc-900/5">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STAFF_ROLES.map((r) => (
-                      <SelectItem key={r} value={r} className="text-[13px]">
-                        {r}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="sf-wa" className="text-[12.5px] text-zinc-600">No. WhatsApp</Label>
-                <Input
-                  id="sf-wa"
-                  inputMode="tel"
-                  value={draft.whatsapp}
-                  onChange={(e) => setDraft((d) => ({ ...d, whatsapp: e.target.value }))}
-                  className={cn(inputCls, "tabular-nums")}
-                  placeholder="+62 8xx-xxxx-xxxx"
-                />
-                {draft.whatsapp.length > 0 && waDigits.length < 9 && (
-                  <p className="text-xs text-red-500">Nomor WA minimal 9 digit.</p>
-                )}
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[12.5px] text-zinc-600">Akses Cabang</Label>
-              <div className="space-y-2 rounded-md border border-border bg-zinc-50 p-3">
-                {properties.map((p) => (
-                  <label key={p.id} className="flex cursor-pointer items-center gap-2.5 text-[12.5px] text-zinc-700">
-                    <Checkbox
-                      checked={draft.cabang.includes(p.id)}
-                      onCheckedChange={() => toggleCabang(p.id)}
-                      aria-label={`Akses ${p.name}`}
-                    />
-                    <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                    <span className="shrink-0 text-xs tabular-nums text-zinc-700">
-                      {p.unitCount} {PROPERTY_TYPE_META[p.type].unit}
-                    </span>
-                  </label>
-                ))}
-                <p className="border-t border-border pt-2 text-xs text-zinc-700">
-                  Kosongkan semua → akses seluruh cabang.
-                </p>
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="shrink-0 flex-row items-center justify-end gap-2 border-t border-border bg-white px-4 py-3">
-            <DialogClose asChild>
-              <Button variant="outline" className="h-9 border-zinc-200 bg-white px-3.5 text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50">
-                Batal
-              </Button>
-            </DialogClose>
-            <Button
-              onClick={submit}
-              disabled={!valid}
-              className="h-9 bg-[var(--ik-accent)] px-4 text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)] disabled:opacity-40"
-            >
-              {editId ? "Simpan Perubahan" : "Tambah Staf"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Konfirmasi hapus staf */}
-      <AlertDialog open={confirmDelete !== null} onOpenChange={(o) => !o && setConfirmDelete(null)}>
-        <AlertDialogContent className="max-w-[calc(100%-1.5rem)] rounded-2xl sm:max-w-sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-[15px] text-zinc-900">Hapus akses {confirmDelete?.nama}?</AlertDialogTitle>
-            <AlertDialogDescription className="text-[12.5px] text-zinc-700">
-              Staf tidak lagi bisa masuk dashboard UnitKu dengan peran {confirmDelete?.peran.toLowerCase()}.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-row justify-end gap-2">
-            <AlertDialogCancel className="h-9 border-zinc-200 bg-white px-3.5 text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50">
-              Batal
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => confirmDelete && doDelete(confirmDelete)}
-              className="h-9 bg-red-600 px-3.5 text-[13px] font-semibold text-white shadow-none hover:bg-red-700"
-            >
-              Ya, Hapus Staf
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <StaffAccessManager properties={properties} activePropertyId={activePropertyId} />
     </Pane>
   );
 }

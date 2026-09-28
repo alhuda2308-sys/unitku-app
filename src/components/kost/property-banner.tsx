@@ -11,7 +11,8 @@ interface PropertyBannerProps {
   /** Jumlah unit live dari dataset kamar */
   unitCount: number;
   onGantiFoto: (file: File) => void;
-  onKelola: () => void;
+  /** Kelola properti — owner only; undefined = sembunyikan (sesi staf) */
+  onKelola?: () => void;
   /** Nama pengguna aktif — tampil pada kartu identitas (desktop & ponsel) */
   ownerName: string;
   /** Role pengguna aktif (Owner / Staff Admin) */
@@ -31,6 +32,8 @@ interface PropertyBannerProps {
 /** Gaya badge role & label status akses sesuai role pengguna aktif */
 const ROLE_BADGE_META: Record<string, { pill: string; icon: string; status: string }> = {
   owner: { pill: "bg-emerald-600 text-white", icon: "text-emerald-600", status: "Akses Penuh" },
+  "staff admin": { pill: "bg-sky-600 text-white", icon: "text-sky-600", status: "Sesi Staf Aktif" },
+  penjaga: { pill: "bg-amber-500 text-white", icon: "text-amber-600", status: "Akses Terbatas" },
 };
 const DEFAULT_ROLE_BADGE = { pill: "bg-sky-600 text-white", icon: "text-sky-600", status: "Sesi Aktif" };
 
@@ -137,13 +140,15 @@ export function PropertyBanner({
               </span>
             </span>
           </div>
-          <Button
-            onClick={onKelola}
-            className="h-9 shrink-0 bg-[var(--ik-accent)] px-3 text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]"
-          >
-            <PencilLine className="size-3.5" strokeWidth={1.75} />
-            Kelola Properti
-          </Button>
+          {onKelola && (
+            <Button
+              onClick={onKelola}
+              className="h-9 shrink-0 bg-[var(--ik-accent)] px-3 text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]"
+            >
+              <PencilLine className="size-3.5" strokeWidth={1.75} />
+              Kelola Properti
+            </Button>
+          )}
         </div>
       </div>
 
@@ -169,13 +174,15 @@ export function PropertyBanner({
             </span>
           </span>
         </div>
-        <Button
-          onClick={onKelola}
-          className="h-10 shrink-0 bg-[var(--ik-accent)] px-3 text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]"
-        >
-          <PencilLine className="size-3.5" strokeWidth={1.75} />
-          Kelola
-        </Button>
+        {onKelola && (
+          <Button
+            onClick={onKelola}
+            className="h-10 shrink-0 bg-[var(--ik-accent)] px-3 text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]"
+          >
+            <PencilLine className="size-3.5" strokeWidth={1.75} />
+            Kelola
+          </Button>
+        )}
       </div>
 
       <input

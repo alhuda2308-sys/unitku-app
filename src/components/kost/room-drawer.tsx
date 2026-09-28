@@ -30,6 +30,8 @@ interface RoomDrawerProps {
   onCheckIn: (room: Room) => void;
   /** Nama properti — tampil pada QR & tautan portal penyewa */
   propertyName: string;
+  /** false = peran read-only (Penjaga) — aksi ubah data disembunyikan */
+  canManage?: boolean;
 }
 
 function SectionCard({
@@ -83,6 +85,7 @@ export function RoomDrawer({
   onMarkPaid,
   onSendInvoice,
   onCheckIn,
+  canManage = true,
   propertyName,
 }: RoomDrawerProps) {
   const vacant = room?.status === "kosong";
@@ -122,12 +125,14 @@ export function RoomDrawer({
                       Belum ada penyewa terdaftar. Lakukan check-in untuk mengisi kamar{" "}
                       {room.id}.
                     </p>
-                    <Button
-                      onClick={() => onCheckIn(room)}
-                      className="mt-1 h-8 bg-zinc-900 px-3 text-[12.5px] font-semibold text-white shadow-none hover:bg-zinc-800"
-                    >
-                      Check-in Penghuni
-                    </Button>
+                    {canManage && (
+                      <Button
+                        onClick={() => onCheckIn(room)}
+                        className="mt-1 h-8 bg-zinc-900 px-3 text-[12.5px] font-semibold text-white shadow-none hover:bg-zinc-800"
+                      >
+                        Check-in Penghuni
+                      </Button>
+                    )}
                   </div>
 
                   <SectionCard title="Info Kamar">
@@ -237,6 +242,7 @@ export function RoomDrawer({
                       </span>
                     </div>
 
+                    {canManage && (
                     <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <Button
                         variant="outline"
@@ -255,6 +261,7 @@ export function RoomDrawer({
                         {room.status === "lunas" ? "Sudah Lunas" : "Tandai Lunas Manual"}
                       </Button>
                     </div>
+                    )}
                   </SectionCard>
 
                   {/* Contract */}

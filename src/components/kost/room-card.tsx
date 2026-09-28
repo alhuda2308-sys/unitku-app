@@ -16,6 +16,7 @@ interface RoomCardProps {
   room: Room;
   onSelect: (room: Room) => void;
   onManage: (room: Room) => void;
+  /** false = peran read-only (Penjaga) — menu opsi disembunyikan */
   onDelete: (room: Room) => void;
   onCheckin?: (room: Room) => void;
 }
@@ -25,7 +26,7 @@ interface RoomCardProps {
  * (lunas/jatuh tempo/menunggak/kosong) dan tema aktif. Tinggi seragam
  * h-[124px], tata letak 3 baris presisi (justify-between).
  */
-export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin }: RoomCardProps) {
+export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, canManage = true }: RoomCardProps) {
   const isVacant = room.status === "kosong";
   const op = room.operational ?? "siap";
   const skin = STATUS_SKIN[room.status];
@@ -102,6 +103,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin }: Room
       </button>
 
       {/* Kebab: hover-reveal on pointer devices, always visible on touch */}
+      {canManage && (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -144,6 +146,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin }: Room
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      )}
     </div>
   );
 }

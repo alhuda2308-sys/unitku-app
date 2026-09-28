@@ -31,8 +31,28 @@ model Property {
 
   rooms      Room[]
   facilities Facility[]
+  staffMembers StaffMember[]
 
   @@map("properties")
+}
+
+// ── Staf & Akses Mandiri (link undangan) ─────────────────────────────────────
+
+model StaffMember {
+  id          String   @id @default(cuid())
+  propertyId  String? // properti penugasan — null = semua cabang
+  name        String
+  phone       String // display "+62 813-..."
+  role        String   @default("PENJAGA_TEKNISI") // ADMIN_OPERASIONAL | PENJAGA_TEKNISI
+  accessToken String   @unique // magic-link "stk_..." — /staff?token=...
+  isActive    Boolean  @default(true) // false = akses dicabut owner
+  createdAt   DateTime @default(now())
+
+  property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId])
+  @@index([isActive])
+  @@map("staff_members")
 }
 
 // ── Kamar / Unit ─────────────────────────────────────────────────────────────

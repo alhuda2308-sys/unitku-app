@@ -1,7 +1,8 @@
 "use client";
 
-import { ChevronsUpDown, DatabaseBackup, LayoutGrid, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Smartphone, Users, Wallet, Wrench } from "lucide-react";
+import { ChevronsUpDown, DatabaseBackup, LayoutGrid, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Smartphone, Users, Wallet, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { STAFF_ROLE_META, type StaffAccessRole } from "@/lib/staff-access";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,6 +30,9 @@ interface SidebarProps {
   onNavigate: (key: string) => void;
   /** Opens Pengaturan → tab "Zona Berbahaya" (Kelola Data / Reset Demo) */
   onOpenDangerZone: () => void;
+  /** Sesi staf aktif (dari /staff?token=…) — null = owner */
+  staffSession: { name: string; role: StaffAccessRole } | null;
+  onStaffLogout: () => void;
 }
 
 const NAV_ITEMS: { key: string; label: string; icon: typeof LayoutGrid }[] = [
@@ -55,7 +59,23 @@ export function Sidebar({
   activeKey,
   onNavigate,
   onOpenDangerZone,
+  staffSession,
+  onStaffLogout,
 }: SidebarProps) {
+  const isStaff = staffSession != null;
+  const staffMeta = staffSession ? STAFF_ROLE_META[staffSession.role] : null;
+  /** Penjaga: hanya denah + komplain + pengaturan; admin operasional: semua */
+  const allowedKeys = isStaff && staffSession.role === "PENJAGA_TEKNISI"
+    ? ["denah", "komplain", "pengaturan"]
+    : NAV_ITEMS.map((n) => n.key);
+  const visibleNav = NAV_ITEMS.filter((n) => allowedKeys.includes(n.key));
+  const userInitial = (isStaff ? staffSession.name : "Hendra Wijaya")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
   return (
     <>
       {/* Mobile backdrop */}
@@ -96,8 +116,34 @@ export function Sidebar({
           )}
         </div>
 
-        {/* Property switcher */}
+        {/* Property switcher — staf melihat properti penugasan (tanpa ganti) */}
         <div className={cn("border-b border-border p-2", collapsed && "px-1.5")}>
+          {isStaff ? (
+          <div
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md p-2 text-left",
+              collapsed && "justify-center p-1.5"
+            )}
+            aria-label="Properti penugasan"
+          >
+            <span
+              className={cn(
+                "flex size-6 shrink-0 items-center justify-center rounded bg-zinc-100 text-zinc-600",
+                collapsed && "hidden"
+              )}
+            >
+              <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01" strokeLinecap="round" />
+              </svg>
+            </span>
+            {!collapsed && (
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-semibold leading-4 text-zinc-900">{property}</span>
+                <span className="block truncate text-xs leading-4 text-zinc-700">{staffMeta?.label} · Akses Terbatas</span>
+              </span>
+            )}
+          </div>
+          ) : (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -152,11 +198,12 @@ export function Sidebar({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
         </div>
 
         {/* Nav */}
         <nav className={cn("flex-1 space-y-0.5 overflow-y-auto p-2 scrollbar-thin", collapsed && "px-1.5")} aria-label="Navigasi utama">
-          {NAV_ITEMS.map((item) => {
+          {visibleNav.map((item) => {
             const Icon = item.icon;
             const active = activeKey === item.key;
             return (
@@ -196,32 +243,51 @@ export function Sidebar({
 
         {/* Footer: data management + profile + collapse */}
         <div className={cn("border-t border-border p-2", collapsed && "px-1.5")}>
-          <Button
-            variant="ghost"
-            size={collapsed ? "icon" : "sm"}
-            onClick={onOpenDangerZone}
-            title={collapsed ? "Kelola Data / Reset Demo" : undefined}
-            className={cn(
-              "h-8 w-full justify-start gap-2 text-zinc-700 hover:bg-zinc-100 hover:text-zinc-800",
-              collapsed && "justify-center"
-            )}
-            aria-label="Kelola Data / Reset Demo"
-          >
-            <DatabaseBackup className="size-[18px] shrink-0" strokeWidth={1.75} />
-            {!collapsed && <span className="text-[12.5px]">Kelola Data / Reset Demo</span>}
-          </Button>
+          {!isStaff && (
+            <Button
+              variant="ghost"
+              size={collapsed ? "icon" : "sm"}
+              onClick={onOpenDangerZone}
+              title={collapsed ? "Kelola Data / Reset Demo" : undefined}
+              className={cn(
+                "h-8 w-full justify-start gap-2 text-zinc-700 hover:bg-zinc-100 hover:text-zinc-800",
+                collapsed && "justify-center"
+              )}
+              aria-label="Kelola Data / Reset Demo"
+            >
+              <DatabaseBackup className="size-[18px] shrink-0" strokeWidth={1.75} />
+              {!collapsed && <span className="text-[12.5px]">Kelola Data / Reset Demo</span>}
+            </Button>
+          )}
           <div className={cn("flex items-center gap-2 rounded-md p-1.5", collapsed && "justify-center p-1")}>
             <span
-              className="flex size-7 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-zinc-100 text-xs font-bold text-zinc-600"
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white",
+                staffMeta ? staffMeta.pill : "border border-zinc-200 bg-zinc-100 text-zinc-600"
+              )}
               aria-hidden="true"
             >
-              HW
+              {userInitial}
             </span>
             {!collapsed && (
               <span className="min-w-0 flex-1 leading-tight">
-                <span className="block truncate text-[12.5px] font-semibold text-zinc-800">Hendra Wijaya</span>
-                <span className="block text-xs text-zinc-700">Owner · Admin</span>
+                <span className="block truncate text-[12.5px] font-semibold text-zinc-800">
+                  {isStaff ? staffSession.name : "Hendra Wijaya"}
+                </span>
+                <span className="block text-xs text-zinc-700">{isStaff ? staffMeta!.label : "Owner · Admin"}</span>
               </span>
+            )}
+            {isStaff && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onStaffLogout}
+                className="size-7 shrink-0 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                aria-label="Keluar sesi staf"
+                title="Keluar sesi staf"
+              >
+                <LogOut className="size-4" strokeWidth={1.75} />
+              </Button>
             )}
           </div>
           <Button

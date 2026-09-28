@@ -17,6 +17,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ShieldAlert } from "lucide-react";
 import { MetricCard } from "./metric-card";
 import { ExpenseModal, type ExpenseDraft } from "./expense-modal";
 import { computeCashStats, type CashEntry } from "@/lib/kost-cashflow";
@@ -27,6 +28,8 @@ interface KasViewProps {
   entries: CashEntry[];
   onAddExpense: (draft: ExpenseDraft) => void;
   onDeleteEntry: (entry: CashEntry) => void;
+  /** Sesi staf — laporan keuangan sensitif (metrik & pencatatan) disembunyikan */
+  isStaffView?: boolean;
 }
 
 const MONTH_FILTERS = [
@@ -45,7 +48,7 @@ function typePill(type: CashEntry["type"]) {
     : "border-red-200 bg-red-50 text-red-700";
 }
 
-export function KasView({ entries, onAddExpense, onDeleteEntry }: KasViewProps) {
+export function KasView({ entries, onAddExpense, onDeleteEntry, isStaffView = false }: KasViewProps) {
   const [month, setMonth] = useState("2025-09");
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [preview, setPreview] = useState<CashEntry | null>(null);
@@ -109,7 +112,19 @@ export function KasView({ entries, onAddExpense, onDeleteEntry }: KasViewProps) 
         </div>
       </div>
 
+      {/* Notice staf — laporan keuangan sensitif dibatasi */}
+      {isStaffView && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-600" strokeWidth={1.75} aria-hidden="true" />
+          <p className="text-[12.5px] leading-4 text-amber-800">
+            Akses staf — hanya riwayat kas harian yang ditampilkan. Ringkasan
+            pemasukan, laba & laporan lengkap tersedia untuk owner.
+          </p>
+        </div>
+      )}
+
       {/* Metrics */}
+      {!isStaffView && (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <MetricCard
           dot="bg-emerald-500"
@@ -134,6 +149,7 @@ export function KasView({ entries, onAddExpense, onDeleteEntry }: KasViewProps) 
           sub={`Pemasukan − pengeluaran`}
         />
       </div>
+      )}
 
       {/* Transactions table */}
       <div className="max-h-[560px] overflow-auto overscroll-contain rounded-lg border border-border bg-white scrollbar-thin">
@@ -214,14 +230,18 @@ export function KasView({ entries, onAddExpense, onDeleteEntry }: KasViewProps) 
                           Lihat Bukti
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={() => onDeleteEntry(e)}
-                        className="text-[13px] text-red-600 focus:text-red-700"
-                      >
-                        <Trash2 className="size-3.5" strokeWidth={1.75} />
-                        Hapus Catatan
-                      </DropdownMenuItem>
+                      {!isStaffView && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => onDeleteEntry(e)}
+                            className="text-[13px] text-red-600 focus:text-red-700"
+                          >
+                            <Trash2 className="size-3.5" strokeWidth={1.75} />
+                            Hapus Catatan
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </td>

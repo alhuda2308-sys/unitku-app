@@ -23,6 +23,8 @@ interface TopBarProps {
   activeStatus: RoomStatus | "all";
   onStatusChange: (s: RoomStatus | "all") => void;
   onCheckIn: () => void;
+  /** false = peran tanpa izin check-in (Penjaga) — tombol disembunyikan */
+  canCheckIn?: boolean;
   onOpenMobileNav: () => void;
   /** Tema aktif (sinkron Pengaturan → Tema & Tampilan) */
   theme: ThemeKey;
@@ -46,6 +48,7 @@ export function TopBar({
   activeStatus,
   onStatusChange,
   onCheckIn,
+  canCheckIn = true,
   onOpenMobileNav,
   theme,
   onThemeChange,
@@ -178,6 +181,7 @@ export function TopBar({
         </DropdownMenu>
 
         {/* Primary action */}
+        {canCheckIn && (
         <Button
           onClick={onCheckIn}
           aria-label="Check-in Penghuni Baru"
@@ -186,6 +190,7 @@ export function TopBar({
           <Plus className="size-4" strokeWidth={2} />
           <span className="hidden sm:inline">Check-in Penghuni</span>
         </Button>
+        )}
       </div>
     </header>
   );

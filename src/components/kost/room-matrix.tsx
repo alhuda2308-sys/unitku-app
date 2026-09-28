@@ -18,6 +18,8 @@ interface RoomMatrixProps {
   onManageRoom: (room: Room) => void;
   onDeleteRoom: (room: Room) => void;
   onCheckinRoom?: (room: Room) => void;
+  /** false = peran read-only (Penjaga) — kartu tanpa menu opsi */
+  canManage?: boolean;
   onAddRoom: () => void;
 }
 
@@ -30,6 +32,7 @@ export function RoomMatrix({
   onManageRoom,
   onDeleteRoom,
   onCheckinRoom,
+  canManage = true,
   onAddRoom,
 }: RoomMatrixProps) {
   const counts: Record<TabValue, number> = {
@@ -126,6 +129,7 @@ export function RoomMatrix({
                   onManage={onManageRoom}
                   onDelete={onDeleteRoom}
                   onCheckin={onCheckinRoom}
+                  canManage={canManage}
                 />
               ))}
             </div>

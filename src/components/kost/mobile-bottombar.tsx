@@ -21,6 +21,8 @@ interface MobileBottomBarProps {
   activeStatus: RoomStatus | "all";
   onStatusChange: (s: RoomStatus | "all") => void;
   onCheckIn: () => void;
+  /** false = peran tanpa izin check-in (Penjaga) — FAB disembunyikan */
+  canCheckIn?: boolean;
   onOpenMobileNav: () => void;
   /** Tema aktif (sinkron TopBar & Pengaturan → Tema & Tampilan) */
   theme: ThemeKey;
@@ -39,6 +41,7 @@ export function MobileBottomBar({
   activeStatus,
   onStatusChange,
   onCheckIn,
+  canCheckIn = true,
   onOpenMobileNav,
   theme,
   onThemeChange,
@@ -141,6 +144,7 @@ export function MobileBottomBar({
           </button>
 
           {/* 3. Tombol utama "+" di tengah — aksen menonjol (check-in penghuni / catat transaksi) */}
+          {canCheckIn ? (
           <button
             type="button"
             onClick={onCheckIn}
@@ -149,6 +153,9 @@ export function MobileBottomBar({
           >
             <Plus className="size-6" strokeWidth={2.25} aria-hidden="true" />
           </button>
+          ) : (
+          <span className="size-14 shrink-0" aria-hidden="true" />
+          )}
 
           {/* 4. Palet tema (Theme Switcher 12 tema) */}
           <DropdownMenu>

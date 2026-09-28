@@ -2,6 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "@/lib/toast";
+import {
+  clearStaffSession,
+  getServerStaffSessionSnapshot,
+  getStaffSessionSnapshot,
+  staffRoleLabel,
+  subscribeStaffSession,
+  type StaffSession,
+} from "@/lib/staff-access";
 import { BRAND_WA_FOOTER } from "@/lib/brand";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -148,6 +156,25 @@ export default function IndoKostPage() {
   const settings = useSyncExternalStore(subscribeSettings, getSettingsSnapshot, getServerSettingsSnapshot);
   const [settingsTab, setSettingsTab] = useState("profil-saya");
   const property = settings.propertyProfile.nama;
+
+  // ── Sesi staf mandiri (/staff?token=…) — null = akses owner penuh ──
+  const staffSession = useSyncExternalStore(
+    subscribeStaffSession,
+    getStaffSessionSnapshot,
+    getServerStaffSessionSnapshot,
+  ) as StaffSession | null;
+  const isPenjaga = staffSession?.role === "PENJAGA_TEKNISI";
+  /** Owner & Admin Operasional boleh mengubah data; Penjaga hanya melihat */
+  const canManageRooms = !staffSession || staffSession.role === "ADMIN_OPERASIONAL";
+
+  const handleStaffLogout = () => {
+    clearStaffSession();
+    setView("denah");
+    setSettingsTab("profil-saya");
+    toast.success("Sesi staf ditutup", {
+      description: "Perangkat ini kembali ke tampilan owner.",
+    });
+  };
 
   // Check-in modal (topbar + vacant room drawer)
   const [checkinOpen, setCheckinOpen] = useState(false);
@@ -857,6 +884,8 @@ export default function IndoKostPage() {
         activeKey={view}
         onNavigate={handleNavigate}
         onOpenDangerZone={handleOpenDangerZone}
+        staffSession={staffSession ? { name: staffSession.name, role: staffSession.role } : null}
+        onStaffLogout={handleStaffLogout}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -871,6 +900,7 @@ export default function IndoKostPage() {
             if (view !== "denah") setView("denah");
           }}
           onCheckIn={() => openCheckin()}
+          canCheckIn={!isPenjaga}
           onOpenMobileNav={() => setMobileOpen(true)}
           theme={settings.theme}
           onThemeChange={(t) => updateSettings({ theme: t })}
@@ -923,6 +953,7 @@ export default function IndoKostPage() {
                 entries={cashEntries}
                 onAddExpense={handleAddExpense}
                 onDeleteEntry={handleDeleteEntry}
+                isStaffView={!!staffSession}
               />
             ) : view === "pengaturan" ? (
               <SettingsView
@@ -942,6 +973,10 @@ export default function IndoKostPage() {
                 onClearDemo={handleClearDemoData}
                 onFactoryReset={handleFactoryReset}
                 onApplyTariff={handleApplyTariff}
+                staffSession={
+                  staffSession ? { name: staffSession.name, role: staffSession.role } : null
+                }
+                onStaffLogout={handleStaffLogout}
               />
             ) : (
               <>
@@ -950,12 +985,16 @@ export default function IndoKostPage() {
                   profile={settings.propertyProfile}
                   unitCount={rooms.length}
                   onGantiFoto={handleGantiFotoProperti}
-                  ownerName={settings.owner.nama}
-                  ownerRole="Owner"
-                  onKelola={() => {
-                    setView("pengaturan");
-                    setSettingsTab("properti-list");
-                  }}
+                  ownerName={staffSession?.name ?? settings.owner.nama}
+                  ownerRole={staffSession ? staffRoleLabel(staffSession.role) : "Owner"}
+                  onKelola={
+                    staffSession
+                      ? undefined
+                      : () => {
+                          setView("pengaturan");
+                          setSettingsTab("properti-list");
+                        }
+                  }
                 />
 
                 {/* [2] Page heading + aksi */}
@@ -970,14 +1009,16 @@ export default function IndoKostPage() {
                     <p className="hidden text-[13px] font-medium text-zinc-700 sm:block">
                       Sinkron terakhir: hari ini 08.32 WIB
                     </p>
-                    <Button
-                      onClick={() => setAddRoomOpen(true)}
-                      variant="outline"
-                      className="h-9 border-zinc-200 bg-white px-3 text-[13px] font-semibold text-zinc-800 shadow-none hover:bg-zinc-50"
-                    >
-                      <Plus className="size-4 text-zinc-700" strokeWidth={2} />
-                      Tambah Kamar Baru
-                    </Button>
+                    {canManageRooms && (
+                      <Button
+                        onClick={() => setAddRoomOpen(true)}
+                        variant="outline"
+                        className="h-9 border-zinc-200 bg-white px-3 text-[13px] font-semibold text-zinc-800 shadow-none hover:bg-zinc-50"
+                      >
+                        <Plus className="size-4 text-zinc-700" strokeWidth={2} />
+                        Tambah Kamar Baru
+                      </Button>
+                    )}
                   </div>
                 </div>
 
@@ -999,6 +1040,7 @@ export default function IndoKostPage() {
                   }}
                   onDeleteRoom={handleRequestDeleteRoom}
                   onCheckinRoom={(room) => openCheckin(room.id)}
+                  canManage={canManageRooms}
                   onAddRoom={() => setAddRoomOpen(true)}
                 />
               </>
@@ -1016,6 +1058,7 @@ export default function IndoKostPage() {
             if (view !== "denah") setView("denah");
           }}
           onCheckIn={() => openCheckin()}
+          canCheckIn={!isPenjaga}
           onOpenMobileNav={() => setMobileOpen(true)}
           theme={settings.theme}
           onThemeChange={(t) => updateSettings({ theme: t })}
@@ -1032,6 +1075,7 @@ export default function IndoKostPage() {
         onSendInvoice={handleSendInvoice}
         onCheckIn={(room) => openCheckin(room.id)}
         propertyName={property}
+        canManage={canManageRooms}
       />
 
       <CheckinModal
