@@ -31,9 +31,15 @@ export function PortalAccessCard({ room, propertyName, className }: PortalAccess
   const [qrOpen, setQrOpen] = useState(false);
   const qrBoxRef = useRef<HTMLDivElement>(null);
 
+  // Origin dinamis: tautan & QR mengikuti domain aktif (bukan hardcode vendor).
+  // Aman dibaca langsung — komponen ini hanya di-mount di klien (dalam modal/sheet).
+  const [origin] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : window.location.origin,
+  );
+
   const tenant = room.tenant;
   const token = tenant?.portalToken ?? "";
-  const link = portalLink(token);
+  const link = portalLink(token, origin ?? undefined);
 
   // Kamar kosong tidak memiliki token — section disembunyikan
   if (!tenant || !token) return null;
@@ -120,24 +126,24 @@ export function PortalAccessCard({ room, propertyName, className }: PortalAccess
           </Button>
         </div>
 
-        {/* Aksi */}
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        {/* Aksi — 2 kolom seimbang, label ringkas agar tak bertabrakan di HP */}
+        <div className="mt-3 grid w-full grid-cols-2 gap-2">
           <Button
             asChild
             variant="outline"
-            className="h-8 border-zinc-200 bg-white px-1.5 text-[12.5px] font-semibold text-zinc-700 shadow-none hover:bg-zinc-50"
+            className="h-auto rounded-xl border-zinc-300 px-3 py-2.5 text-sm font-medium text-zinc-700 shadow-none hover:bg-zinc-50 dark:border-zinc-700 dark:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-800/40"
           >
             <a href={portalLocalPath(token)} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="size-3.5 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
-              Buka Tampilan Penyewa
+              <ExternalLink className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+              Buka Portal
             </a>
           </Button>
           <Button
             onClick={() => setQrOpen(true)}
-            className="h-8 bg-zinc-900 px-1.5 text-[12.5px] font-semibold text-white shadow-none hover:bg-zinc-800"
+            className="h-auto gap-1.5 rounded-xl bg-zinc-900 px-3 py-2.5 text-sm font-medium text-white shadow-none hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            <QrCode className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
-            Tampilkan QR Code
+            <QrCode className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+            QR Code
           </Button>
         </div>
 

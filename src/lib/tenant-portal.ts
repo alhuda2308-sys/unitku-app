@@ -14,12 +14,18 @@
 import { formatIDR, type Room } from "./kost-data";
 import { INVOICE_STATUS_META, type Invoice } from "./kost-invoices";
 
-/** Domain produksi untuk tautan "siap salin" & QR pintu */
-export const PORTAL_BASE_URL = "https://indokost.id/portal";
+/** Domain produksi (fallback SSR) untuk tautan "siap salin" & QR pintu.
+ *  Di browser, portalLink() memakai origin dinamis (window.location.origin)
+ *  sehingga tautan selalu mengikuti domain yang sedang aktif — bukan
+ *  hardcode domain vendor lama. */
+export const PORTAL_BASE_URL = "https://unitku.id/portal";
 
-/** Tautan portal siap salin untuk sebuah token akses */
-export function portalLink(token: string): string {
-  return `${PORTAL_BASE_URL}?token=${token}`;
+/** Tautan portal siap salin untuk sebuah token akses.
+ *  @param origin opsional — origin aktif (window.location.origin) agar tautan
+ *  mengikuti domain yang sedang dibuka (localhost / preview / unitku.id). */
+export function portalLink(token: string, origin?: string): string {
+  const base = (origin ?? "").trim().replace(/\/+$/, "");
+  return `${base || PORTAL_BASE_URL}/portal?token=${token}`;
 }
 
 /** Deep-link internal (tab baru dari dashboard owner, relative → works di sandbox) */

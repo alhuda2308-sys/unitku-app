@@ -135,7 +135,7 @@ export function TagihanView({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "indokost-tagihan-sep-2025.csv";
+    a.download = "unitku-tagihan-sep-2025.csv";
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Laporan CSV diunduh", { description: `${rows.length} invoice · Sep 2025` });

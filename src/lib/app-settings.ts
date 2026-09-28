@@ -344,7 +344,7 @@ export const DEFAULT_FACADE_PHOTO =
 export const DEFAULT_SETTINGS: IndoKostSettings = {
   owner: {
     nama: "Hendra Wijaya",
-    email: "hendra@indokost.id",
+    email: "hendra@unitku.id",
     whatsapp: "+62 812-9902-3367",
   },
   propertyProfile: {
