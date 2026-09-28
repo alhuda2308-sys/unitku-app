@@ -1,6 +1,6 @@
 # UnitKu — Kelola Kost, Kontrakan & Unit Sewa Tanpa Ribet
 
-Aplikasi manajemen properti (kost, kontrakan & unit sewa) berbasis web: denah kamar interaktif, tagihan & invoice WhatsApp-ready, komplain/pemeliharaan, pengumuman broadcast, portal penyewa, buku kas, dan pengaturan properti multi-cabang — semuanya berjalan penuh dengan **mock data localStorage** (tanpa perlu koneksi Supabase atau deploy Vercel).
+Aplikasi manajemen properti (kost, kontrakan & unit sewa) berbasis web: denah kamar interaktif, tagihan & invoice WhatsApp-ready, komplain/pemeliharaan, pengumuman broadcast, portal penyewa, buku kas, dan pengaturan properti multi-cabang — berjalan penuh dengan **mock data localStorage**, dengan **skema database Prisma siap Supabase PostgreSQL** (integrasi API runtime menyusul).
 
 ## Fitur Utama
 
@@ -69,6 +69,6 @@ public/             # Aset statis
 
 ## Catatan
 
-- Seluruh data pengguna tersimpan di `localStorage` browser (kunci `unitku_*`) — aman untuk demo/demo-to-production tanpa backend.
+- Seluruh data pengguna tersimpan di `localStorage` browser (kunci `unitku_*`) — aman untuk demo.
 - Data demo dapat direset kapan saja dari menu **Kelola Data / Reset Demo** di aplikasi.
-- Integrasi backend nyata (Supabase/Prisma server) dan deploy (Vercel) direncanakan pada fase berikutnya.
+- **Database siap Supabase**: `prisma/schema.prisma` (PostgreSQL) memodelkan `properties`, `rooms`, `tenants`, `invoices` + `invoice_lines`, `facilities`, `tickets`, `cash_entries`. Jalankan `bunx prisma db push` dengan kredensial Supabase di `.env` (lihat `.env.example`) untuk membuat seluruh tabel; script `build` otomatis menjalankan `prisma generate` (siap deploy Vercel). Runtime aplikasi saat ini masih memakai mock localStorage — penyambungan API backend menyusul.

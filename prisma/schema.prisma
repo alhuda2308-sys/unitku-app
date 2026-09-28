@@ -1,32 +1,189 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// ─────────────────────────────────────────────────────────────────────────────
+// UnitKu — Kelola Kost, Kontrakan & Unit Sewa Tanpa Ribet
+// Prisma schema — PostgreSQL (Supabase)
+//
+// Nilai status/kategori mengikuti tipe TS di src/lib (kost-data.ts,
+// kost-invoices.ts, ticket-data.ts, kost-cashflow.ts) dan disimpan sebagai
+// String agar mudah dikembangkan antar versi tanpa migrasi enum.
+// Field array memakai JSONB / tabel anak (aturan: tidak ada tipe list skalar).
+// ─────────────────────────────────────────────────────────────────────────────
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")      // runtime — transaction pooler (pgbouncer :6543)
+  directUrl = env("DIRECT_URL")        // migrasi/db push — koneksi langsung (:5432)
 }
 
-model User {
+// ── Properti ─────────────────────────────────────────────────────────────────
+
+model Property {
   id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
+  name      String // "Kost Griya Pratama"
+  tipe      String   @default("kost") // kost | kontrakan | unit-sewa
+  alamat    String?
+  fotoUrl   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  rooms      Room[]
+  facilities Facility[]
+
+  @@map("properties")
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
+// ── Kamar / Unit ─────────────────────────────────────────────────────────────
+
+model Room {
+  id          String  @id // nomor/label alami kamar — "101", "A-01", "Paviliun Barat"
+  propertyId  String
+  floor       Int     @default(1)
+  type        String  @default("") // "Tipe A - AC"
+  price       Int     @default(0) // sewa per bulan (IDR)
+  status      String  @default("kosong") // lunas | jatuhTempo | menunggak | kosong
+  operational String? // renovasi | perbaikan (null = siap huni)
+
+  // Kontrak sewa (opsional)
+  contractDuration String? // Bulanan | Per 3 Bulan | Tahunan
+  contractStart    DateTime?
+  contractEnd      DateTime? // null = rolling (auto-renew bulanan)
+  deposit          Int       @default(0)
+  depositHeld      Boolean   @default(false)
+
+  facilities Json? // string[] fasilitas milik kamar (JSONB)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  property Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenant   Tenant?
+  invoices Invoice[]
+  tickets  Ticket[]
+
+  @@index([propertyId])
+  @@index([status])
+  @@map("rooms")
+}
+
+// ── Penghuni ─────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id             String    @id @default(cuid())
+  roomId         String    @unique // 1 kamar = 1 penghuni aktif
+  name           String
+  phone          String
+  moveInAt       DateTime?
+  emergencyName  String?
+  emergencyPhone String?
+  portalToken    String    @unique // magic-link Portal Penyewa — "tok_101_xxxxxx"
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@map("tenants")
+}
+
+// ── Tagihan & Invoice ────────────────────────────────────────────────────────
+
+model Invoice {
+  id          String    @id // "#INV-202509-101"
+  roomId      String
+  tenantName  String? // null = kamar kosong (tagihan periode terakhir)
+  tenantPhone String?
+  roomType    String?
+  periodLabel String // "1 Sep – 30 Sep 2025"
+  periodKey   String // "2025-09"
+  dueDate     DateTime?
+  status      String    @default("jatuhTempo") // lunas | verifikasi | jatuhTempo | menunggak
+  dayOffset   Int? // H+n = overdue, H-n = due in n days
+  paidAt      DateTime?
+  total       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  room  Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  lines InvoiceLine[]
+
+  @@unique([roomId, periodKey])
+  @@index([status])
+  @@index([periodKey])
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id        Int    @id @default(autoincrement())
+  invoiceId String
+  label     String // "Sewa Kamar" | "Listrik" | "Parkir" | dst.
+  amount    Int    @default(0)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_lines")
+}
+
+// ── Fasilitas (katalog master per properti) ──────────────────────────────────
+
+model Facility {
+  id         String   @id // "fac_cctv-24-jam"
+  propertyId String?
+  group      String   @default("unit") // unit (milik kamar) | shared (bersama)
+  label      String // "AC" | "CCTV 24 Jam"
+  custom     Boolean  @default(false) // ditambahkan pengelola — dapat dihapus
+  createdAt  DateTime @default(now())
+
+  property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@unique([group, label])
+  @@map("facilities")
+}
+
+// ── Komplain & Pemeliharaan (tiket) ──────────────────────────────────────────
+
+model Ticket {
+  id            String   @id // "#TKT-041"
+  roomId        String? // null = tiket fasilitas/area bersama
+  lokasi        String? // "Area Parkir" — untuk tiket fasilitas
+  sumber        String   @default("penyewa") // penyewa | fasilitas
+  judul         String
+  urgensi       String   @default("sedang") // rendah | sedang | darurat
+  reporterName  String
+  reporterPhone String   @default("")
+  kategori      String   @default("Lainnya") // AC | Kelistrikan/Lampu | dst.
+  deskripsi     String   @default("")
+  photos        Json     @default("[]") // string[] URL foto (JSONB)
+  status        String   @default("menunggu") // menunggu | dikerjakan | selesai
+  reportedLabel String // "Hari ini, 09:15 WIB"
+  reportedSort  Int      @default(0) // sort monotonic (terbaru dulu)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([roomId])
+  @@map("tickets")
+}
+
+// ── Buku Kas (pemasukan & pengeluaran) ───────────────────────────────────────
+
+model CashEntry {
+  id          String    @id // "KS-101"
+  type        String    @default("masuk") // masuk | keluar
+  category    String // Sewa Kamar | Listrik/Token PLN | dst.
+  description String    @default("")
+  amount      Int       @default(0) // selalu positif; tanda berasal dari `type`
+  entryDate   DateTime?
+  dateLabel   String // "01 Sep 2025"
+  dateSort    Int       @default(0) // 20250901 — urutan terbaru dulu
+  attachment  String? // bukti nota / bukti transfer
+  createdAt   DateTime  @default(now())
+
+  @@index([type])
+  @@index([dateSort])
+  @@map("cash_entries")
 }
