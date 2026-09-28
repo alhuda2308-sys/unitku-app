@@ -264,10 +264,13 @@ export function resolveStaffToken(token: string): StaffTokenResolution {
 }
 
 /**
- * Simpan sesi staf — HANYA dipanggil setelah PIN 6 digit terverifikasi di
- * portal /staff (lihat PinLockCard). `pinVerified` selalu true di sini.
+ * Simpan sesi staf — HANYA dipanggil setelah PIN 6 digit terverifikasi
+ * (kini diverifikasi server via GET /api/staff?token=…&pin=…).
+ * `pinVerified` selalu true di sini.
  */
-export function saveStaffSession(member: StaffAccessMember): StaffSession {
+export function saveStaffSession(
+  member: Pick<StaffAccessMember, "id" | "name" | "role" | "phone" | "propertyId" | "accessToken">,
+): StaffSession {
   const session: StaffSession = {
     id: member.id,
     name: member.name,

@@ -1,13 +1,5 @@
-import { PrismaClient } from '@prisma/client'
+// Alias kompatibilitas — singleton kanonik sekarang di src/lib/prisma.ts
+// (Task: integrasi Prisma Route Handlers + Supabase).
+import { prisma as prismaClient } from "./prisma";
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
-}
-
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: ['query'],
-  })
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+export const db = prismaClient;

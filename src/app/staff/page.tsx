@@ -3,21 +3,22 @@
 /**
  * Portal Akses Staf — /staff?token=…
  *
- * Staf membuka link undangan dari owner → sistem memverifikasi token
- * (aktif / dicabut / tidak dikenal) → token valid TIDAK langsung lolos:
- * staf harus melewati Layar Kunci PIN 6 digit (PinLockCard). PIN cocok →
- * sesi "Staf Aktif (terverifikasi PIN)" disimpan di perangkat → dashboard (/)
- * tampil dengan hak akses terbatas sesuai peran & identitas header memakai
- * nama staf.
+ * Staf membuka link undangan dari owner → sistem memverifikasi token ke
+ * database (GET /api/staff?token=…) → token valid TIDAK langsung lolos:
+ * staf harus melewati Layar Kunci PIN 6 digit (PinLockCard) yang diverifikasi
+ * server (GET /api/staff?token=…&pin=…). PIN cocok → sesi "Staf Aktif
+ * (terverifikasi PIN)" disimpan di perangkat → dashboard (/) tampil dengan
+ * hak akses terbatas sesuai peran & identitas header memakai nama staf.
  */
 
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Building2,
   KeyRound,
   LayoutDashboard,
+  Loader2,
   LockKeyhole,
   ShieldCheck,
   ShieldOff,
@@ -25,17 +26,16 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  resolveStaffToken,
   saveStaffSession,
-  verifyStaffPin,
   isValidPinFormat,
   STAFF_ROLE_META,
   initialsOfStaff,
   type StaffAccessMember,
 } from "@/lib/staff-access";
+import { staffApi, type StaffTokenResolution } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
-type Phase = "verifying" | "ready";
+type Phase = "verifying" | "ready" | "failed";
 
 /** Deteksi hydration tanpa setState-in-effect — server false, client true */
 const emptySubscribe = () => () => {};
@@ -55,17 +55,28 @@ export default function StaffPortalPage() {
     return new URLSearchParams(window.location.search).get("token") ?? "";
   }, []);
 
-  // Verifikasi token saat render (client-only) — tanpa setState di effect
-  const resolution = useMemo(
-    () => (token ? resolveStaffToken(token) : null),
-    [token],
-  );
-  // Server & render pertama klien → "verifying" (HTML identik, tanpa mismatch);
-  // setelah hydration baru tampilkan hasil verifikasi token.
+  // Verifikasi token ke server (database Supabase) — async via callback, bukan localStorage.
+  // Pola lint-safe: setState hanya di dalam callback promise (tidak sinkron di body effect).
   const hydrated = useHydrated();
-  const phase: Phase = hydrated && resolution ? "ready" : "verifying";
+  const [result, setResult] = useState<
+    { ok: true; res: StaffTokenResolution } | { ok: false } | null
+  >(null);
+  const [retryKey, setRetryKey] = useState(0);
 
-  const member = resolution?.status === "valid" ? resolution.member : null;
+  const runVerify = useCallback(() => {
+    staffApi
+      .resolveToken(token)
+      .then((res) => setResult({ ok: true, res }))
+      .catch(() => setResult({ ok: false }));
+  }, [token]);
+
+  useEffect(() => {
+    if (!hydrated || !token) return;
+    runVerify();
+  }, [hydrated, token, runVerify, retryKey]);
+
+  const phase: Phase = !hydrated || result === null ? "verifying" : !result.ok ? "failed" : "ready";
+  const member = result?.ok && result.res.status === "valid" ? result.res.member : null;
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-100 px-4 py-10">
@@ -80,8 +91,16 @@ export default function StaffPortalPage() {
 
         {phase === "verifying" ? (
           <VerifyingCard />
+        ) : phase === "failed" ? (
+          <FailedCard
+            onRetry={() => {
+              setResult(null); // kembali ke layar verifikasi
+              setRetryKey((k) => k + 1);
+            }}
+          />
         ) : member ? (
           <PinLockCard
+            token={token}
             member={member}
             onVerified={(m) => {
               saveStaffSession(m);
@@ -89,7 +108,7 @@ export default function StaffPortalPage() {
             }}
           />
         ) : (
-          <InvalidCard revoked={resolution?.status === "revoked"} />
+          <InvalidCard revoked={result?.ok ? result.res.status === "revoked" : false} />
         )}
 
         <p className="mt-5 text-center text-xs leading-4 text-zinc-500">
@@ -111,24 +130,52 @@ function VerifyingCard() {
     >
       <KeyRound className="mx-auto size-8 animate-pulse text-zinc-400" strokeWidth={1.5} aria-hidden="true" />
       <h1 className="mt-3 text-[15px] font-bold text-zinc-900">Memverifikasi tautan akses…</h1>
-      <p className="mt-1 text-[12.5px] text-zinc-600">Sedang memeriksa token staf Anda.</p>
+      <p className="mt-1 text-[12.5px] text-zinc-600">Sedang memeriksa token staf Anda di database.</p>
     </section>
   );
 }
 
-// ── State 2: token valid — layar kunci PIN 6 digit ───────────────────────────
+// ── State 1b: gagal terhubung server ─────────────────────────────────────────
+
+function FailedCard({ onRetry }: { onRetry: () => void }) {
+  return (
+    <section
+      className="rounded-xl border border-border bg-white p-8 text-center shadow-[0_1px_3px_rgba(15,23,42,0.06)]"
+      aria-live="assertive"
+    >
+      <ShieldX className="mx-auto size-6 text-red-600" strokeWidth={1.75} aria-hidden="true" />
+      <h1 className="mt-3 text-[15px] font-bold tracking-tight text-zinc-900">
+        Gagal memeriksa tautan
+      </h1>
+      <p className="mt-1.5 text-[12.5px] leading-4 text-zinc-600">
+        Server tidak terjangkau saat memverifikasi token Anda. Periksa koneksi internet lalu coba lagi.
+      </p>
+      <Button
+        onClick={onRetry}
+        className="mt-5 h-10 bg-zinc-900 px-4 text-[12.5px] font-semibold text-white shadow-none hover:bg-zinc-800"
+      >
+        Coba Lagi
+      </Button>
+    </section>
+  );
+}
+
+// ── State 2: token valid — layar kunci PIN 6 digit (diverifikasi server) ─────
 
 function PinLockCard({
+  token,
   member,
   onVerified,
 }: {
-  member: StaffAccessMember;
-  onVerified: (m: StaffAccessMember) => void;
+  token: string;
+  member: Omit<StaffAccessMember, "accessPin">;
+  onVerified: (m: Omit<StaffAccessMember, "accessPin">) => void;
 }) {
   const meta = STAFF_ROLE_META[member.role];
 
   const [digits, setDigits] = useState<string[]>(() => Array<string>(6).fill(""));
   const [error, setError] = useState(false);
+  const [checking, setChecking] = useState(false);
   /** key remount agar animasi shake diputar ulang tiap percobaan salah */
   const [shakeKey, setShakeKey] = useState(0);
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
@@ -206,16 +253,26 @@ function PinLockCard({
 
   const submitPin = () => {
     const pin = digits.join("");
-    if (!isValidPinFormat(pin)) return;
-    if (verifyStaffPin(member, pin)) {
-      onVerified(member); // simpan sesi terverifikasi + masuk dashboard
-      return;
-    }
-    // PIN salah — shake + pesan merah, kosongkan & fokus ke kotak pertama
-    setError(true);
-    setShakeKey((k) => k + 1);
-    setDigits(Array<string>(6).fill(""));
-    window.setTimeout(() => inputsRef.current[0]?.focus(), 0);
+    if (!isValidPinFormat(pin) || checking) return;
+    setChecking(true);
+    setError(false);
+    staffApi
+      .verifyPin(token, pin)
+      .then((res) => {
+        if (res.status === "valid" && res.verified) {
+          onVerified(res.member); // simpan sesi terverifikasi + masuk dashboard
+          return;
+        }
+        throw new Error("pin-salah");
+      })
+      .catch(() => {
+        // PIN salah — shake + pesan merah, kosongkan & fokus ke kotak pertama
+        setError(true);
+        setShakeKey((k) => k + 1);
+        setDigits(Array<string>(6).fill(""));
+        window.setTimeout(() => inputsRef.current[0]?.focus(), 0);
+      })
+      .finally(() => setChecking(false));
   };
 
   return (
@@ -282,6 +339,7 @@ function PinLockCard({
               onChange={(e) => handleChange(i, e.target.value)}
               onKeyDown={(e) => handleKeyDown(i, e)}
               onPaste={handlePaste}
+              disabled={checking}
               inputMode="numeric"
               autoComplete={i === 0 ? "one-time-code" : "off"}
               aria-label={`Digit PIN ${i + 1}`}
@@ -308,11 +366,15 @@ function PinLockCard({
 
         <Button
           onClick={submitPin}
-          disabled={!complete}
+          disabled={!complete || checking}
           className="mt-4 h-11 w-full bg-zinc-900 text-sm font-semibold text-white shadow-none hover:bg-zinc-800 disabled:opacity-50"
         >
-          <LayoutDashboard className="size-4" strokeWidth={1.75} aria-hidden="true" />
-          Masuk Dashboard
+          {checking ? (
+            <Loader2 className="size-4 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+          ) : (
+            <LayoutDashboard className="size-4" strokeWidth={1.75} aria-hidden="true" />
+          )}
+          {checking ? "Memverifikasi…" : "Masuk Dashboard"}
         </Button>
 
         <p className="mt-3 text-center text-[11.5px] leading-4 text-zinc-500">

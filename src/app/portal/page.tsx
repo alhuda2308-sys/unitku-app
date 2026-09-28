@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import { TenantPortal } from "@/components/kost/tenant-portal";
 import {
@@ -14,15 +14,15 @@ import {
   loadSettings,
   subscribeSettings,
 } from "@/lib/app-settings";
+import { portalApi, type PortalData } from "@/lib/api-client";
 
 /**
  * Halaman publik Portal Penyewa — /portal?token=[portal_token]
  *
  * Token magic-link (atribut `portalToken` milik penghuni) menentukan SATU
- * kamar: halaman hanya menampilkan identitas kamar & tagihan milik token
- * tersebut, tanpa login. Data dihidrasi dari mirror dashboard owner
- * (localStorage, live via event storage) sehingga status pembayaran selalu
- * terkini; bila mirror belum ada, dipakai dataset seed.
+ * kamar. Data diambil pertama dari cloud via GET /api/portal?token=… (Supabase)
+ * sehingga status pembayaran selalu terkini lintas perangkat; bila API gagal,
+ * jatuh ke mirror dashboard owner (localStorage) seperti sebelumnya.
  */
 function PortalByToken() {
   const params = useSearchParams();
@@ -43,13 +43,31 @@ function PortalByToken() {
     getServerSettingsSnapshot
   );
 
+  // Cloud-first: data kamar & tagihan dari database; gagal → mirror lokal
+  const [cloud, setCloud] = useState<PortalData | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    portalApi
+      .resolve(token)
+      .then((res) => {
+        if (alive) setCloud(res);
+      })
+      .catch(() => {
+        /* fallback mirror */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
   return (
     <TenantPortal
       token={token}
-      rooms={mirror.rooms}
-      invoices={mirror.invoices}
+      rooms={cloud ? [cloud.room] : mirror.rooms}
+      invoices={cloud ? cloud.invoices : mirror.invoices}
       announcements={mirror.announcements}
-      propertyName={mirror.propertyName}
+      propertyName={cloud?.propertyName ?? mirror.propertyName}
       sharedFacilities={settings.facilities.shared.map((f) => f.label)}
       standalone
     />

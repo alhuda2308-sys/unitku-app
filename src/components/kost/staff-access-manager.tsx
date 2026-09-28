@@ -5,11 +5,11 @@
  *
  * Owner membuat staf + link akses unik /staff?token=… + PIN keamanan 6 digit,
  * menyalin/mengirimnya via WhatsApp, dan mencabut akses saat staf berhenti.
- * Data persist di localStorage (unitku:staff-access:v1) — model Prisma
- * StaffMember (termasuk access_pin) siap di Supabase untuk backend nyata.
+ * Data persist di tabel `staff_members` (Supabase) via Route Handler
+ * /api/staff — tersinkron lintas perangkat; sesi perangkat tetap di localStorage.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Check,
   Copy,
@@ -17,6 +17,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  Loader2,
   MoreHorizontal,
   ShieldCheck,
   ShieldOff,
@@ -39,25 +40,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/lib/toast";
+import { api } from "@/lib/api-client";
 import type { PropertyEntry } from "@/lib/app-settings";
 import {
-  addStaffAccess,
-  deleteStaffAccess,
+  clearStaffSession,
   generatePin,
+  getStaffSessionSnapshot,
   isValidPinFormat,
   maskPin,
-  setStaffAccessActive,
   staffPortalLink,
   STAFF_ROLES,
   STAFF_ROLE_META,
-  subscribeStaffAccess,
-  getStaffAccessSnapshot,
-  getServerStaffAccessSnapshot,
   waInviteLink,
   type StaffAccessMember,
   type StaffAccessRole,
 } from "@/lib/staff-access";
-import { useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 
 interface StaffAccessManagerProps {
@@ -66,11 +63,26 @@ interface StaffAccessManagerProps {
 }
 
 export function StaffAccessManager({ properties, activePropertyId }: StaffAccessManagerProps) {
-  const members = useSyncExternalStore(
-    subscribeStaffAccess,
-    getStaffAccessSnapshot,
-    getServerStaffAccessSnapshot,
-  );
+  // ── Daftar staf dari database via GET /api/staff (tabel staff_members) ──
+  const [members, setMembers] = useState<StaffAccessMember[] | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const loadMembers = (onFail?: () => void) => {
+    api
+      .getStaff()
+      .then((res) => setMembers(res.staff))
+      .catch((err: unknown) => {
+        toast.error("Gagal memuat daftar staf", {
+          description: err instanceof Error ? err.message : "Periksa koneksi database.",
+        });
+        setMembers((prev) => prev ?? []);
+        onFail?.();
+      });
+  };
+
+  useEffect(() => {
+    loadMembers();
+  }, []);
 
   // Origin dinamis — komponen hanya dirender di klien (dalam dashboard)
   const [origin] = useState<string | null>(() =>
@@ -86,37 +98,42 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
   const [freshId, setFreshId] = useState<string | null>(null);
 
   const activeProperty = properties.find((p) => p.id === activePropertyId) ?? properties[0];
-  const nameTaken = members.some(
+  const nameTaken = (members ?? []).some(
     (m) => m.name.trim().toLowerCase() === name.trim().toLowerCase(),
   );
   const phoneDigits = phone.replace(/[^0-9]/g, "");
   const pinOk = isValidPinFormat(pin);
   const valid =
-    name.trim().length >= 3 && !nameTaken && phoneDigits.length >= 9 && pinOk;
+    name.trim().length >= 3 && !nameTaken && phoneDigits.length >= 9 && pinOk && !saving;
 
   const submit = () => {
     if (!valid) return;
-    let member: StaffAccessMember;
-    try {
-      member = addStaffAccess({
+    setSaving(true);
+    api
+      .addStaff({
         name,
         phone: formatPhoneInput(phoneDigits),
         role,
         propertyId: activeProperty?.id ?? "",
         accessPin: pin,
-      });
-    } catch {
-      toast.error("PIN tidak valid", { description: "PIN harus tepat 6 digit angka." });
-      return;
-    }
-    setName("");
-    setPhone("");
-    setRole("ADMIN_OPERASIONAL");
-    setPin("");
-    setFreshId(member.id);
-    toast.success(`Link akses staf dibuat untuk ${member.name}`, {
-      description: "Kirim tautan + PIN via WhatsApp — staf verifikasi PIN saat login.",
-    });
+      })
+      .then(({ member }) => {
+        setMembers((prev) => [member, ...(prev ?? [])]);
+        setName("");
+        setPhone("");
+        setRole("ADMIN_OPERASIONAL");
+        setPin("");
+        setFreshId(member.id);
+        toast.success(`Link akses staf dibuat untuk ${member.name}`, {
+          description: "Token & PIN tersimpan di database — kirim tautan + PIN via WhatsApp.",
+        });
+      })
+      .catch((err: unknown) => {
+        toast.error("Gagal membuat staf", {
+          description: err instanceof Error ? err.message : "Coba lagi sebentar.",
+        });
+      })
+      .finally(() => setSaving(false));
   };
 
   const linkOf = (m: StaffAccessMember) => staffPortalLink(m.accessToken, origin ?? undefined);
@@ -138,21 +155,45 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
   };
 
   const toggleActive = (m: StaffAccessMember) => {
-    setStaffAccessActive(m.id, !m.isActive);
-    toast.success(
-      m.isActive ? `Akses ${m.name} dicabut` : `Akses ${m.name} diaktifkan kembali`,
-      {
-        description: m.isActive
-          ? "Tautan staf tidak bisa dipakai login sampai diaktifkan lagi."
-          : "Tautan lama berfungsi kembali — staf bisa masuk lagi.",
-      },
+    const next = !m.isActive;
+    // Optimistic + clear sesi lokal bila token perangkat ini yang dicabut
+    setMembers((prev) =>
+      prev?.map((x) => (x.id === m.id ? { ...x, isActive: next } : x)) ?? prev,
     );
+    if (!next && getStaffSessionSnapshot()?.accessToken === m.accessToken) {
+      clearStaffSession();
+    }
+    api
+      .setStaffActive(m.id, next)
+      .then(() => {
+        toast.success(
+          next ? `Akses ${m.name} diaktifkan kembali` : `Akses ${m.name} dicabut`,
+          {
+            description: next
+              ? "Tautan lama berfungsi kembali — staf bisa masuk lagi."
+              : "Tautan staf tidak bisa dipakai login sampai diaktifkan lagi.",
+          },
+        );
+      })
+      .catch((err: unknown) => {
+        toast.error("Gagal mengubah status akses", {
+          description: err instanceof Error ? err.message : "Sinkron ulang daftar staf.",
+        });
+        loadMembers();
+      });
   };
 
   const removeMember = (m: StaffAccessMember) => {
-    deleteStaffAccess(m.id);
+    setMembers((prev) => prev?.filter((x) => x.id !== m.id) ?? prev);
+    if (getStaffSessionSnapshot()?.accessToken === m.accessToken) clearStaffSession();
     toast.success(`${m.name} dihapus permanen`, {
-      description: "Tautan akses & sesi perangkat staf ikut dinonaktifkan.",
+      description: "Data staf dihapus dari database — sesi perangkatnya ikut dinonaktifkan.",
+    });
+    api.deleteStaff(m.id).catch((err: unknown) => {
+      toast.error("Gagal menghapus staf di database", {
+        description: err instanceof Error ? err.message : "Sinkron ulang daftar staf.",
+      });
+      loadMembers();
     });
   };
 
@@ -291,8 +332,12 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
             disabled={!valid}
             className="h-9 bg-[var(--ik-accent)] px-3 text-[12.5px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]"
           >
-            <UserRoundPlus className="size-4" strokeWidth={1.75} aria-hidden="true" />
-            Buat Link Akses Staf
+            {saving ? (
+              <Loader2 className="size-4 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+            ) : (
+              <UserRoundPlus className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            )}
+            {saving ? "Menyimpan…" : "Buat Link Akses Staf"}
           </Button>
         </div>
       </section>
@@ -303,11 +348,20 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
           Daftar Staf &amp; Akses
         </h3>
         <p className="text-[12.5px] font-medium tabular-nums text-zinc-700">
-          {members.filter((m) => m.isActive).length} aktif · {members.length} total
+          {(members ?? []).filter((m) => m.isActive).length} aktif · {(members ?? []).length} total
         </p>
       </div>
 
-      {members.length === 0 ? (
+      {members === null ? (
+        <div
+          className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-300 bg-white p-8 text-[12.5px] font-medium text-zinc-600"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="size-4 animate-spin text-zinc-400" strokeWidth={2} aria-hidden="true" />
+          Memuat daftar staf dari database…
+        </div>
+      ) : members.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-white p-8 text-center">
           <KeyRound className="mx-auto size-7 text-zinc-300" strokeWidth={1.5} aria-hidden="true" />
           <p className="mt-2 text-[13px] font-semibold text-zinc-700">Belum ada staf terdaftar</p>

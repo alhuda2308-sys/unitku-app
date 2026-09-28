@@ -139,6 +139,11 @@ interface SettingsViewProps {
   onClearDemo: () => void;
   onFactoryReset: () => void;
   onApplyTariff: (changes: { type: string; price: number }[]) => void;
+  /** Sinkronkan profil properti / rekening ke database via PUT /api/properties */
+  onSyncProperty?: (patch: {
+    propertyProfile?: IndoKostSettings["propertyProfile"];
+    rekening?: IndoKostSettings["rekening"];
+  }) => void;
 }
 
 export function SettingsView({
@@ -154,6 +159,7 @@ export function SettingsView({
   onClearDemo,
   onFactoryReset,
   onApplyTariff,
+  onSyncProperty,
 }: SettingsViewProps) {
   // ── RBAC staf: tab tersembunyi + snap tab terlarang ke yang diizinkan ──
   const allowedKeys = useMemo(() => {
@@ -310,7 +316,10 @@ export function SettingsView({
           key={JSON.stringify(settings.propertyProfile)}
           profile={settings.propertyProfile}
           propertyCount={settings.properties.length}
-          onSave={(propertyProfile) => onUpdateSettings({ propertyProfile })}
+          onSave={(propertyProfile) => {
+            onUpdateSettings({ propertyProfile });
+            onSyncProperty?.({ propertyProfile });
+          }}
         />
         <PropertiListTab
           properties={settings.properties}
@@ -324,7 +333,10 @@ export function SettingsView({
         <RekeningTab
           key={JSON.stringify(settings.rekening)}
           rekening={settings.rekening}
-          onSave={(rekening) => onUpdateSettings({ rekening })}
+          onSave={(rekening) => {
+            onUpdateSettings({ rekening });
+            onSyncProperty?.({ rekening });
+          }}
         />
         <TemplateTab
           key={JSON.stringify(settings.templates)}

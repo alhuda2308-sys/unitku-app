@@ -19,6 +19,8 @@ interface RoomCardProps {
   /** false = peran read-only (Penjaga) — menu opsi disembunyikan */
   onDelete: (room: Room) => void;
   onCheckin?: (room: Room) => void;
+  /** false = sembunyikan menu kebab Opsi (Penjaga) — default true */
+  canManage?: boolean;
 }
 
 /**

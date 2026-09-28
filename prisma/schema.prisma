@@ -21,11 +21,15 @@ datasource db {
 // ── Properti ─────────────────────────────────────────────────────────────────
 
 model Property {
-  id        String   @id @default(cuid())
+  id        String   @id // "kgp" untuk properti seed utama — cuid utk properti baru
   name      String // "Kost Griya Pratama"
   tipe      String   @default("kost") // kost | kontrakan | unit-sewa
   alamat    String?
   fotoUrl   String?
+  // Rekening pembayaran (Pengaturan → Rekening & Pembayaran → /api/properties)
+  bankName        String? // "BCA"
+  bankAccountNo   String? // "1234567890"
+  bankAccountName String? // "Hendra Wijaya"
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

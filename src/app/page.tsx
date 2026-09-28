@@ -2,6 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "@/lib/toast";
+import { api } from "@/lib/api-client";
+import {
+  getDashboardSnapshot,
+  getServerDashboardSnapshot,
+  loadDashboard,
+  refreshDashboard,
+  subscribeDashboard,
+  updateCashEntries,
+  updateInvoices,
+  updateRooms,
+} from "@/lib/dashboard-store";
 import {
   clearStaffSession,
   getServerStaffSessionSnapshot,
@@ -11,7 +22,7 @@ import {
   type StaffSession,
 } from "@/lib/staff-access";
 import { BRAND_WA_FOOTER } from "@/lib/brand";
-import { Plus } from "lucide-react";
+import { Building2, CloudOff, Loader2, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -43,13 +54,8 @@ import type { CheckoutPayload } from "@/components/kost/checkout-dialog";
 import type { ExpenseDraft } from "@/components/kost/expense-modal";
 import type { IssueDraft } from "@/components/kost/report-issue-drawer";
 import {
-  MONTH_NAMES,
-  addMonths,
   formatDateLabel,
   formatIDR,
-  dateToLabel,
-  newPortalToken,
-  parseDateLabel,
   ROOMS,
   waLink,
   type Room,
@@ -60,8 +66,6 @@ import {
 } from "@/lib/kost-invoices";
 import {
   CASH_ENTRIES,
-  dateSortFromLabel,
-  nextExpenseId,
   type CashEntry,
 } from "@/lib/kost-cashflow";
 import {
@@ -95,6 +99,8 @@ import {
   subscribeSettings,
   updateStoredSettings,
   type IndoKostSettings,
+  type PropertyProfile,
+  type RekeningConfig,
 } from "@/lib/app-settings";
 
 type ViewKey =
@@ -118,16 +124,9 @@ const VIEW_LABELS: Record<ViewKey, string> = {
   pengaturan: "Pengaturan",
 };
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
-
-/** "Tempo: 24 Sep" / "Sewa Sep 2025" → rolls the month forward (mock billing cycle) */
-function advanceMonth(text: string): string {
-  const idx = MONTHS.findIndex((m) => text.includes(m));
-  if (idx === -1) return text;
-  if (idx === MONTHS.length - 1) {
-    return text.replace("Des", "Jan").replace(/\d{4}/, (y) => String(Number(y) + 1));
-  }
-  return text.replace(MONTHS[idx], MONTHS[idx + 1]);
+/** Pesan error ramah untuk toast gagal (dari Error dilempar api-client) */
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : "Terjadi kesalahan tak terduga.";
 }
 
 /** "8123456789" → "812-3456-789" style display (matches existing dataset formatting) */
@@ -140,12 +139,15 @@ function formatPhone(digits: string): string {
 }
 
 export default function IndoKostPage() {
-  const [rooms, setRooms] = useState<Room[]>(ROOMS);
-  const [tickets, setTickets] = useState<Ticket[]>(TICKETS);
-  const [cashEntries, setCashEntries] = useState<CashEntry[]>(CASH_ENTRIES);
-  // Lifted so room deletion / demo-data resets propagate to Tagihan & portal in real time
-  const [invoices, setInvoices] = useState<Invoice[]>(INVOICES);
-  const [announcements, setAnnouncements] = useState<Announcement[]>(ANNOUNCEMENTS);
+  // ── Data dari Supabase via Route Handlers (external store — kamar/tagihan/kas)
+  const dash = useSyncExternalStore(
+    subscribeDashboard,
+    getDashboardSnapshot,
+    getServerDashboardSnapshot,
+  );
+  const { rooms, invoices, cashEntries, status: dbState, syncedAt } = dash;
+  const [tickets, setTickets] = useState<Ticket[]>(TICKETS); // lokal (demo)
+  const [announcements, setAnnouncements] = useState<Announcement[]>(ANNOUNCEMENTS); // lokal (demo)
   const [view, setView] = useState<ViewKey>("denah");
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<TabValue>("all");
@@ -200,6 +202,57 @@ export default function IndoKostPage() {
   useEffect(() => {
     document.documentElement.dataset.ikTheme = settings.theme;
   }, [settings.theme]);
+
+  // ── Bootstrap data dari Supabase (Route Handlers) — external store, tanpa setState-in-effect
+  useEffect(() => {
+    loadDashboard().catch((err: unknown) => {
+      toast.error("Gagal terhubung database", {
+        description: err instanceof Error ? err.message : "Menampilkan data demo perangkat ini.",
+      });
+    });
+  }, []);
+
+  /** Tombol "Coba Sambungkan Ulang" pada banner offline */
+  const handleRetrySync = () => {
+    loadDashboard().catch((err: unknown) => {
+      toast.error("Gagal terhubung database", {
+        description: err instanceof Error ? err.message : "Menampilkan data demo perangkat ini.",
+      });
+    });
+  };
+
+  // ── Sinkron profil properti & rekening dari database (cloud = sumber kebenaran)
+  useEffect(() => {
+    let alive = true;
+    api
+      .getProperty()
+      .then((res) => {
+        if (!alive) return;
+        const p = res.property;
+        updateStoredSettings((s) => ({
+          propertyProfile: {
+            ...s.propertyProfile,
+            nama: p.name,
+            tipe: (p.tipe in PROPERTY_TYPE_META
+              ? p.tipe
+              : s.propertyProfile.tipe) as PropertyProfile["tipe"],
+            alamat: p.alamat ?? s.propertyProfile.alamat,
+            fotoUrl: p.fotoUrl ?? s.propertyProfile.fotoUrl,
+          },
+          rekening: {
+            bank: p.bankName ?? s.rekening.bank,
+            noRek: p.bankAccountNo ?? s.rekening.noRek,
+            atasNama: p.bankAccountName ?? s.rekening.atasNama,
+          },
+        }));
+      })
+      .catch(() => {
+        /* offline — biarkan pengaturan lokal */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const manageRoom = useMemo(
     () => rooms.find((r) => r.id === manageRoomId) ?? null,
@@ -278,75 +331,53 @@ export default function IndoKostPage() {
     setSettingsTab("danger");
   };
 
-  /** Shared payment flip — syncs room pill AND the lifted invoice table */
+  /** Shared payment flip — server ditandai lunas lalu kamar+invoice diperbarui dari respons */
   const markRoomPaid = (roomId: string) => {
-    const room = rooms.find((r) => r.id === roomId);
-    setRooms((prev) =>
-      prev.map((r) =>
-        r.id === roomId && r.invoice
-          ? {
-              ...r,
-              status: "lunas",
-              invoice: {
-                ...r.invoice,
-                dueLabel: advanceMonth(r.invoice.dueLabel),
-                periodLabel: advanceMonth(r.invoice.periodLabel),
-                dayOffset: undefined,
-              },
-            }
-          : r
-      )
-    );
-    setInvoices((prev) =>
-      prev.map((i) =>
-        i.roomId === roomId && i.status !== "lunas"
-          ? { ...i, status: "lunas", paidAt: "26 Sep 2025", dayOffset: undefined }
-          : i
-      )
-    );
-    if (room) {
-      toast.success(`Pembayaran Kamar ${room.id} dicatat lunas`, {
-        description: `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(room.invoice?.amount ?? 0)} — tempo digeser ke ${
-          advanceMonth(room.invoice?.dueLabel ?? "")
-        }`,
-      });
+    const invoiceId = invoices.find((i) => i.roomId === roomId && i.status !== "lunas")?.id;
+    if (!invoiceId) {
+      toast.info(`Tidak ada tagihan tertunggak untuk Kamar ${roomId}.`);
+      return;
     }
+    api
+      .markInvoicePaid(invoiceId)
+      .then(({ invoice, room }) => {
+        updateInvoices((prev) => prev.map((i) => (i.id === invoice.id ? invoice : i)));
+        updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+        toast.success(`Pembayaran Kamar ${room.id} dicatat lunas`, {
+          description: `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"} · tersimpan ke cloud.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menandai lunas", { description: errMsg(err) }),
+      );
   };
 
   const handleMarkPaid = (room: Room) => markRoomPaid(room.id);
 
-  /** Tagihan table "Tandai Lunas / Konfirmasi" — syncs the invoice dataset (rooms follow via pill) */
+  /** Tagihan table "Tandai Lunas / Konfirmasi" — server-first, kamar ikut disinkronkan */
   const handleInvoiceMarkPaid = (inv: Invoice) => {
-    setInvoices((prev) =>
-      prev.map((i) =>
-        i.id === inv.id ? { ...i, status: "lunas", paidAt: "26 Sep 2025", dayOffset: undefined } : i
-      )
-    );
-    setRooms((prev) =>
-      prev.map((r) =>
-        r.id === inv.roomId && r.status !== "kosong" && r.invoice
-          ? {
-              ...r,
-              status: "lunas",
-              invoice: {
-                ...r.invoice,
-                dueLabel: advanceMonth(r.invoice.dueLabel),
-                periodLabel: advanceMonth(r.invoice.periodLabel),
-                dayOffset: undefined,
-              },
-            }
-          : r
-      )
-    );
-    toast.success(`Kamar ${inv.roomId} ditandai lunas`, {
-      description: `${inv.id} · ${formatIDR(inv.total)} diterima hari ini.`,
-    });
+    api
+      .markInvoicePaid(inv.id)
+      .then(({ invoice, room }) => {
+        updateInvoices((prev) => prev.map((i) => (i.id === invoice.id ? invoice : i)));
+        updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+        toast.success(`Kamar ${inv.roomId} ditandai lunas`, {
+          description: `${inv.id} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menandai lunas", { description: errMsg(err) }),
+      );
   };
 
   const handleInvoiceCancel = (inv: Invoice) => {
-    setInvoices((prev) => prev.filter((i) => i.id !== inv.id));
+    updateInvoices((prev) => prev.filter((i) => i.id !== inv.id));
     toast.warning(`Tagihan ${inv.id} dibatalkan`, {
       description: `Kamar ${inv.roomId} · ${formatIDR(inv.total)} dihapus dari daftar.`,
+    });
+    api.cancelInvoice(inv.id).catch((err: unknown) => {
+      toast.error("Gagal membatalkan tagihan di database", { description: errMsg(err) });
+      void refreshDashboard();
     });
   };
 
@@ -414,149 +445,120 @@ export default function IndoKostPage() {
 
   const handleCheckinSubmit = (p: CheckinPayload) => {
     const moveInLabel = formatDateLabel(p.tanggalMasuk);
-    const moveIn = parseDateLabel(moveInLabel);
-    const months = p.siklus === "Bulanan" ? 1 : p.siklus === "Per 3 Bulan" ? 3 : 12;
-    const endDate = dateToLabel(addMonths(moveIn, months));
-    const monthName = MONTH_NAMES[moveIn.getMonth()];
-    const roomType = rooms.find((r) => r.id === p.roomId)?.type ?? "";
-
-    setRooms((prev) =>
-      prev.map((r) =>
-        r.id === p.roomId
-          ? {
-              ...r,
-              status: "lunas",
-              price: p.totalPerBulan,
-              tenant: {
-                name: p.nama,
-                phone: `+62 ${formatPhone(p.phone)}`,
-                moveInDate: moveInLabel,
-                emergencyContact: {
-                  name: p.emergencyName || "—",
-                  phone: p.emergencyPhone || "—",
-                },
-                portalToken: newPortalToken(p.roomId),
-              },
-              invoice: {
-                amount: p.totalPerBulan,
-                periodLabel: `Sewa ${monthName} ${moveIn.getFullYear()}`,
-                dueLabel: `Tempo: ${moveIn.getDate()} ${monthName}`,
-              },
-              contract: {
-                duration: p.siklus,
-                startDate: moveInLabel,
-                endDate,
-                deposit: p.deposit,
-                depositHeld: true,
-              },
-            }
-          : r
-      )
-    );
-
-    // First invoice for the new tenant (start month, paid at check-in) → Tagihan table
-    const newInvoice: Invoice = {
-      id: `#INV-${moveIn.getFullYear()}${String(moveIn.getMonth() + 1).padStart(2, "0")}-${p.roomId}`,
-      roomId: p.roomId,
-      tenantName: p.nama,
-      tenantPhone: `+62 ${formatPhone(p.phone)}`,
-      roomType,
-      periodLabel: `1 ${monthName} – ${new Date(moveIn.getFullYear(), moveIn.getMonth() + 1, 0).getDate()} ${monthName} ${moveIn.getFullYear()}`,
-      periodKey: `${moveIn.getFullYear()}-${String(moveIn.getMonth() + 1).padStart(2, "0")}`,
-      dueDate: moveInLabel,
-      lines: [
-        { label: "Sewa Kamar", amount: p.hargaSewa },
-        ...p.addons.map((a) => ({
-          label: a,
-          amount:
-            a === "Parkir Motor" ? 50_000 : a === "Parkir Mobil" ? 150_000 : 200_000,
-        })),
-      ],
-      total: p.totalPerBulan,
-      status: "lunas",
-      paidAt: "26 Sep 2025",
-    };
-    setInvoices((prev) => [newInvoice, ...prev]);
-
-    const addons = p.addons.length > 0 ? ` · Add-on: ${p.addons.join(", ")}` : "";
-    toast.success(`${p.nama} check-in ke Kamar ${p.roomId}`, {
-      description: `${formatIDR(p.totalPerBulan)}/bln · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${endDate}${addons}`,
-    });
+    api
+      .checkinTenant({
+        roomId: p.roomId,
+        name: p.nama,
+        phone: p.phone,
+        emergencyName: p.emergencyName,
+        emergencyPhone: p.emergencyPhone,
+        tanggalMasuk: p.tanggalMasuk,
+        siklus: p.siklus,
+        hargaSewa: p.hargaSewa,
+        deposit: p.deposit,
+        addons: p.addons,
+        totalPerBulan: p.totalPerBulan,
+      })
+      .then(({ room, invoice }) => {
+        updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+        updateInvoices((prev) => [invoice, ...prev]);
+        const addons = p.addons.length > 0 ? ` · Add-on: ${p.addons.join(", ")}` : "";
+        toast.success(`${p.nama} check-in ke Kamar ${p.roomId}`, {
+          description: `${formatIDR(p.totalPerBulan)}/bln · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${
+            room.contract?.endDate ?? moveInLabel
+          }${addons} · tersimpan ke cloud.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Check-in gagal diproses", { description: errMsg(err) }),
+      );
   };
 
   // ── Data Penghuni: perpanjang & check-out ──────────────────────────────────
 
   const handleRenew = (room: Room, newEndDate: string, months: number) => {
-    setRooms((prev) =>
-      prev.map((r) =>
-        r.id === room.id && r.contract
-          ? { ...r, contract: { ...r.contract, endDate: newEndDate } }
-          : r
-      )
-    );
-    toast.success(`Kontrak Kamar ${room.id} diperpanjang +${months} bulan`, {
-      description: `${room.tenant?.name} · kontrak berakhir ${newEndDate}. Pengingat otomatis H-14 via WA.`,
-    });
+    api
+      .renewTenant(room.id, newEndDate)
+      .then(({ room: updated }) => {
+        updateRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+        toast.success(`Kontrak Kamar ${room.id} diperpanjang +${months} bulan`, {
+          description: `${room.tenant?.name} · kontrak berakhir ${newEndDate}. Pengingat otomatis H-14 via WA.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal memperpanjang kontrak", { description: errMsg(err) }),
+      );
   };
 
   const handleCheckout = (room: Room, payload: CheckoutPayload) => {
     if (!room.tenant) return;
     const dateLabel = formatDateLabel(payload.tanggal);
+    const tenantName = room.tenant.name;
 
-    setRooms((prev) =>
-      prev.map((r) => {
-        if (r.id !== room.id) return r;
-        const { tenant: _t, invoice: _i, contract: _c, ...rest } = r;
-        return { ...rest, status: "kosong" as const };
+    api
+      .checkoutTenant(room.id)
+      .then(({ room: updated }) => {
+        updateRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+
+        if (payload.refund > 0) {
+          api
+            .addCash({
+              type: "keluar",
+              category: "Refund Deposit",
+              description: `Refund deposit — ${tenantName} (Kamar ${room.id}) · ${payload.alasan}`,
+              amount: payload.refund,
+              dateLabel,
+            })
+            .then(({ entry }) => updateCashEntries((prev) => [entry, ...prev]))
+            .catch((err: unknown) =>
+              toast.error("Refund gagal dicatat ke Buku Kas", { description: errMsg(err) }),
+            );
+        }
+
+        toast.success(`Check-out Kamar ${room.id} diproses`, {
+          description:
+            payload.refund > 0
+              ? `${tenantName} keluar (${payload.alasan}) · refund ${formatIDR(payload.refund)} tercatat di Buku Kas.`
+              : `${tenantName} keluar (${payload.alasan}) · tanpa refund deposit.`,
+        });
       })
-    );
-
-    if (payload.refund > 0) {
-      const id = nextExpenseId(cashEntries);
-      const entry: CashEntry = {
-        id,
-        dateLabel,
-        dateSort: dateSortFromLabel(dateLabel),
-        type: "keluar",
-        category: "Refund Deposit",
-        description: `Refund deposit — ${room.tenant.name} (Kamar ${room.id}) · ${payload.alasan}`,
-        amount: payload.refund,
-      };
-      setCashEntries((prev) => [entry, ...prev]);
-    }
-
-    toast.success(`Check-out Kamar ${room.id} diproses`, {
-      description:
-        payload.refund > 0
-          ? `${room.tenant.name} keluar (${payload.alasan}) · refund ${formatIDR(payload.refund)} tercatat di Buku Kas.`
-          : `${room.tenant.name} keluar (${payload.alasan}) · tanpa refund deposit.`,
-    });
+      .catch((err: unknown) =>
+        toast.error("Check-out gagal diproses", { description: errMsg(err) }),
+      );
   };
 
   // ── Buku Kas ───────────────────────────────────────────────────────────────
 
   const handleAddExpense = (draft: ExpenseDraft) => {
     const dateLabel = formatDateLabel(draft.tanggal);
-    const entry: CashEntry = {
-      id: nextExpenseId(cashEntries),
-      dateLabel,
-      dateSort: dateSortFromLabel(dateLabel),
-      type: "keluar",
-      category: draft.category,
-      description: draft.description,
-      amount: draft.amount,
-      attachment: draft.attachment,
-    };
-    setCashEntries((prev) => [entry, ...prev]);
-    toast.success(`Pengeluaran ${formatIDR(draft.amount)} tercatat`, {
-      description: `${draft.category} · ${draft.description} · ${dateLabel}`,
-    });
+    api
+      .addCash({
+        type: "keluar",
+        category: draft.category,
+        description: draft.description,
+        amount: draft.amount,
+        dateLabel,
+        attachment: draft.attachment,
+      })
+      .then(({ entry }) => {
+        updateCashEntries((prev) => [entry, ...prev]);
+        toast.success(`Pengeluaran ${formatIDR(draft.amount)} tercatat`, {
+          description: `${draft.category} · ${draft.description} · ${dateLabel} · tersimpan ke cloud.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal mencatat pengeluaran", { description: errMsg(err) }),
+      );
   };
 
   const handleDeleteEntry = (entry: CashEntry) => {
-    setCashEntries((prev) => prev.filter((e) => e.id !== entry.id));
+    updateCashEntries((prev) => prev.filter((e) => e.id !== entry.id));
     toast.success(`Transaksi ${entry.id} dihapus`, {
       description: `${entry.description} · ${formatIDR(entry.amount)} dikeluarkan dari rekap.`,
+    });
+    api.deleteCash(entry.id).catch((err: unknown) => {
+      toast.error("Gagal menghapus transaksi di database", { description: errMsg(err) });
+      void refreshDashboard();
     });
   };
 
@@ -583,22 +585,60 @@ export default function IndoKostPage() {
     }
   };
 
-  /** Ganti foto fasad langsung dari banner Denah */
+  /** Ganti foto fasad langsung dari banner Denah — tersimpan ke database */
   const handleGantiFotoProperti = (file: File) => {
     fileToPhotoDataUrl(file)
       .then((url) => {
         updateSettings({ propertyProfile: { ...settings.propertyProfile, fotoUrl: url } });
-        toast.success("Foto properti diperbarui", {
-          description: "Banner identitas & modul Pengaturan otomatis ikut berganti.",
-        });
+        api
+          .updateProperty({ fotoUrl: url })
+          .then(() => {
+            toast.success("Foto properti diperbarui", {
+              description: "Banner identitas & modul Pengaturan ikut berganti — tersimpan ke cloud.",
+            });
+          })
+          .catch((err: unknown) =>
+            toast.error("Foto tampil lokal, gagal tersimpan ke database", {
+              description: errMsg(err),
+            }),
+          );
       })
       .catch((err: unknown) => {
         toast.error(err instanceof Error ? err.message : "Gagal memuat foto");
       });
   };
 
+  /** Sinkronkan profil properti & rekening (Pengaturan) ke database via PUT /api/properties */
+  const handleSyncPropertyToDb = useCallback(
+    (patch: { propertyProfile?: PropertyProfile; rekening?: RekeningConfig }) => {
+      const payload: Record<string, string | null> = {};
+      if (patch.propertyProfile) {
+        payload.name = patch.propertyProfile.nama;
+        payload.tipe = patch.propertyProfile.tipe;
+        payload.alamat = patch.propertyProfile.alamat;
+        if (patch.propertyProfile.fotoUrl) payload.fotoUrl = patch.propertyProfile.fotoUrl;
+      }
+      if (patch.rekening) {
+        payload.bankName = patch.rekening.bank;
+        payload.bankAccountNo = patch.rekening.noRek;
+        payload.bankAccountName = patch.rekening.atasNama;
+      }
+      api
+        .updateProperty(payload)
+        .then((res) => {
+          toast.success("Tersinkron ke database", {
+            description: `Profil "${res.property.name}" tersimpan di Supabase — ikut tampil di semua perangkat.`,
+          });
+        })
+        .catch((err: unknown) =>
+          toast.error("Gagal sinkron profil ke database", { description: errMsg(err) }),
+        );
+    },
+    [],
+  );
+
   const handleApplyTariff = (changes: { type: string; price: number }[]) => {
-    setRooms((prev) =>
+    updateRooms((prev) =>
       prev.map((r) => {
         const change = changes.find((c) => c.type === r.type);
         return change ? { ...r, price: change.price } : r;
@@ -610,20 +650,47 @@ export default function IndoKostPage() {
         .join(" · ")
         .concat(" — berlaku untuk tagihan periode berikutnya."),
     });
+    // Bulk patch ke database (tarif massal per tipe kamar)
+    const targets = rooms.filter((r) => changes.some((c) => c.type === r.type));
+    if (targets.length === 0) return;
+    api
+      .patchRoomsBulk(
+        targets.map((r) => ({
+          id: r.id,
+          patch: { price: changes.find((c) => c.type === r.type)!.price },
+        })),
+      )
+      .catch((err: unknown) => {
+        toast.error("Gagal menyimpan tarif ke database", { description: errMsg(err) });
+        void refreshDashboard();
+      });
   };
 
   // ── Manajemen Kamar (CRUD) ────────────────────────────────────────────
 
   const handleAddRooms = (newRooms: Room[]) => {
-    setRooms((prev) => [...prev, ...newRooms]);
-    toast.success(
-      `${newRooms.length} kamar baru ditambahkan`,
-      {
-        description: `${newRooms.map((r) => r.id).join(", ")} · ${newRooms[0].type} · ${formatIDR(
-          newRooms[0].price
-        )}/bln · status kosong.`,
-      }
-    );
+    api
+      .addRooms(
+        newRooms.map((r) => ({
+          id: r.id,
+          floor: r.floor,
+          type: r.type,
+          price: r.price,
+          facilities: r.facilities,
+          operational: r.operational ?? "siap",
+        })),
+      )
+      .then(({ rooms: created }) => {
+        updateRooms((prev) => [...prev, ...created]);
+        toast.success(`${created.length} kamar baru ditambahkan`, {
+          description: `${created.map((r) => r.id).join(", ")} · ${created[0]?.type ?? newRooms[0].type} · ${formatIDR(
+            created[0]?.price ?? newRooms[0].price,
+          )}/bln · status kosong · tersimpan ke cloud.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menambah kamar", { description: errMsg(err) }),
+      );
   };
 
   /** Katalog Fasilitas — tambah custom dari modal Tambah Kamar (tersimpan master) */
@@ -657,7 +724,7 @@ export default function IndoKostPage() {
 
   const handleUpdateRoom = (room: Room, patch: RoomPatch) => {
     const idChanged = patch.id !== room.id;
-    setRooms((prev) =>
+    updateRooms((prev) =>
       prev.map((r) =>
         r.id === room.id
           ? {
@@ -674,7 +741,7 @@ export default function IndoKostPage() {
     );
     // Renumber propagates to invoice & ticket datasets so nothing dangles
     if (idChanged) {
-      setInvoices((prev) =>
+      updateInvoices((prev) =>
         prev.map((i) => (i.roomId === room.id ? { ...i, roomId: patch.id } : i))
       );
       setTickets((prev) =>
@@ -686,6 +753,19 @@ export default function IndoKostPage() {
         ? `Nomor kamar berubah menjadi "${patch.id}" — tagihan & tiket ikut diperbarui.`
         : `${patch.type} · ${formatIDR(patch.price)}/bln · Lantai ${patch.floor}.`,
     });
+    api
+      .patchRoom(room.id, {
+        id: patch.id,
+        floor: patch.floor,
+        type: patch.type,
+        price: patch.price,
+        facilities: patch.facilities,
+        operational: patch.operational,
+      })
+      .catch((err: unknown) => {
+        toast.error("Gagal menyimpan perubahan kamar", { description: errMsg(err) });
+        void refreshDashboard();
+      });
   };
 
   const handleDeleteRoom = (room: Room) => {
@@ -696,12 +776,16 @@ export default function IndoKostPage() {
       });
       return;
     }
-    setRooms((prev) => prev.filter((r) => r.id !== room.id));
-    setInvoices((prev) => prev.filter((i) => i.roomId !== room.id));
+    updateRooms((prev) => prev.filter((r) => r.id !== room.id));
+    updateInvoices((prev) => prev.filter((i) => i.roomId !== room.id));
     if (selectedRoomId === room.id) setSelectedRoomId(null);
     if (manageRoomId === room.id) setManageRoomId(null);
     toast.success(`Kamar ${room.id} dihapus`, {
-      description: `${room.type} (${formatIDR(room.price)}/bln) dikeluarkan dari denah & daftar tagihan.`,
+      description: `${room.type} (${formatIDR(room.price)}/bln) dikeluarkan dari denah & daftar tagihan di database.`,
+    });
+    api.deleteRoom(room.id).catch((err: unknown) => {
+      toast.error("Gagal menghapus kamar di database", { description: errMsg(err) });
+      void refreshDashboard();
     });
   };
 
@@ -719,36 +803,43 @@ export default function IndoKostPage() {
   const handleClearDemoData = () => {
     const keptRooms = rooms.length;
     const removedTenants = rooms.filter((r) => r.tenant && r.status !== "kosong").length;
-    setRooms((prev) =>
-      prev.map((r) => {
-        const { tenant: _t, invoice: _i, contract: _c, ...rest } = r;
-        return { ...rest, status: "kosong" as const };
-      })
-    );
-    setInvoices([]);
-    setCashEntries([]);
     setTickets([]);
     setAnnouncements([]);
     setSelectedRoomId(null);
-    toast.success("Data demo berhasil dihapus", {
-      description: `${removedTenants} penyewa, seluruh invoice, transaksi kas, tiket & pengumuman dikosongkan — struktur ${keptRooms} kamar & profil properti dipertahankan.`,
-    });
+    api
+      .resetData("demo")
+      .then(() => refreshDashboard())
+      .then(() => {
+        toast.success("Data demo berhasil dihapus", {
+          description: `${removedTenants} penyewa, seluruh invoice & transaksi kas dikosongkan dari database — struktur ${keptRooms} kamar & profil properti dipertahankan.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Reset data gagal", { description: errMsg(err) }),
+      );
   };
 
   const handleFactoryReset = () => {
     const removedRooms = rooms.length;
-    setRooms([]);
-    setInvoices([]);
-    setCashEntries([]);
+    updateRooms(() => []);
+    updateInvoices(() => []);
+    updateCashEntries(() => []);
     setTickets([]);
     setAnnouncements([]);
     setSelectedRoomId(null);
     setView("denah");
     setActiveTab("all");
     setQuery("");
-    toast.success("Factory reset selesai", {
-      description: `${removedRooms} kamar beserta seluruh data penyewa, tagihan & transaksi dihapus permanen.`,
-    });
+    api
+      .resetData("factory")
+      .then(() => {
+        toast.success("Factory reset selesai", {
+          description: `${removedRooms} kamar beserta seluruh data penyewa, tagihan & transaksi dihapus permanen dari database.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Factory reset gagal", { description: errMsg(err) }),
+      );
   };
 
   // ── Maintenance / ticketing (Phase 3) ──────────────────────────────────────
@@ -849,6 +940,11 @@ export default function IndoKostPage() {
     });
   };
 
+  // ── Loading gate: data belum tiba dari database → skeleton layar penuh ──
+  if (dbState === "loading") {
+    return <DashboardSkeleton />;
+  }
+
   // ── Portal Penyewa renders standalone (public page, no owner chrome) ──────
   if (view === "portal") {
     return (
@@ -908,6 +1004,7 @@ export default function IndoKostPage() {
 
         <main className="flex-1 overflow-y-auto scrollbar-thin" aria-label="Konten utama">
           <div className="mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6">
+            {dbState === "offline" && <OfflineBanner onRetry={handleRetrySync} />}
             {view === "tagihan" ? (
               <TagihanView
                 invoices={invoices}
@@ -973,6 +1070,7 @@ export default function IndoKostPage() {
                 onClearDemo={handleClearDemoData}
                 onFactoryReset={handleFactoryReset}
                 onApplyTariff={handleApplyTariff}
+                onSyncProperty={handleSyncPropertyToDb}
                 staffSession={
                   staffSession ? { name: staffSession.name, role: staffSession.role } : null
                 }
@@ -1002,12 +1100,12 @@ export default function IndoKostPage() {
                   <div>
                     <h1 className="ik-head text-lg font-bold tracking-tight text-zinc-900">Denah Kamar</h1>
                     <p className="mt-0.5 text-sm font-medium text-zinc-700">
-                      Ringkasan okupansi &amp; status tagihan · data per 26 Sep 2025
+                      Ringkasan okupansi &amp; status tagihan · data tersimpan di cloud Supabase
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
                     <p className="hidden text-[13px] font-medium text-zinc-700 sm:block">
-                      Sinkron terakhir: hari ini 08.32 WIB
+                      {syncedAt ? `Tersinkron cloud · ${syncedAt}` : "Menyambungkan ke cloud…"}
                     </p>
                     {canManageRooms && (
                       <Button
@@ -1145,6 +1243,51 @@ export default function IndoKostPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+// ── Skeleton layar penuh saat data dimuat dari Supabase ─────────────────────
+
+function DashboardSkeleton() {
+  return (
+    <div
+      className="flex h-screen flex-col items-center justify-center gap-3 bg-background px-4"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="flex size-10 items-center justify-center rounded-xl bg-zinc-900 text-white">
+        <Building2 className="size-5 animate-pulse" strokeWidth={1.75} aria-hidden="true" />
+      </span>
+      <p className="flex items-center gap-2 text-[13px] font-semibold text-zinc-800">
+        <Loader2 className="size-4 animate-spin text-zinc-500" strokeWidth={2} aria-hidden="true" />
+        Menyambungkan ke database…
+      </p>
+      <p className="text-center text-[12.5px] leading-4 text-zinc-500">
+        Memuat kamar, tagihan &amp; buku kas dari Supabase via API.
+      </p>
+    </div>
+  );
+}
+
+// ── Banner fallback offline (database tak terjangkau → data demo perangkat) ──
+
+function OfflineBanner({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5">
+      <p className="flex min-w-0 items-center gap-2 text-[12.5px] font-medium leading-4 text-amber-800">
+        <CloudOff className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+        Mode offline — database tidak terjangkau. Menampilkan data demo perangkat; perubahan
+        tidak tersimpan ke cloud.
+      </p>
+      <Button
+        variant="outline"
+        onClick={onRetry}
+        className="h-8 shrink-0 gap-1.5 border-amber-300 bg-white px-2.5 text-[12.5px] font-semibold text-amber-800 shadow-none hover:bg-amber-100"
+      >
+        <RefreshCw className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+        Coba Sambungkan Ulang
+      </Button>
     </div>
   );
 }
