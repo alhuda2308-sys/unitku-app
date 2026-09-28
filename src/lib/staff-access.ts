@@ -1,14 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Pendaftaran & Manajemen Akses Staf Mandiri
 //
-// Owner membuat staf + link akses unik (/staff?token=…). Staf membuka tautan,
-// sistem memverifikasi token & menyimpan sesi "Staf Aktif" di localStorage —
-// dashboard lalu menyesuaikan identitas header & membatasi menu sesuai peran.
+// Owner membuat staf + link akses unik (/staff?token=…) + PIN keamanan 6 digit.
+// Staf membuka tautan → token diverifikasi → layar kunci PIN → sesi "Staf
+// Aktif (terverifikasi PIN)" disimpan di localStorage — dashboard lalu
+// menyesuaikan identitas header & membatasi menu sesuai peran.
 //
 // Integration seam (backend-ready): model Prisma `StaffMember` (staff_members)
-// sudah di-deploy ke Supabase. Ganti resolveStaffToken()/CRUD localStorage
-// dengan `GET /api/staff?token=…` + tabel Supabase saat API layer aktif —
-// bentuk data & peran identik.
+// sudah di-deploy ke Supabase (termasuk kolom access_pin). Ganti
+// resolveStaffToken()/verifyStaffPin()/CRUD localStorage dengan
+// `GET /api/staff?token=…` + tabel Supabase saat API layer aktif — bentuk data
+// & peran identik.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { PropertyEntry } from "./app-settings";
@@ -25,6 +27,7 @@ export interface StaffAccessMember {
   phone: string; // display "+62 813-…" / "08…"
   role: StaffAccessRole;
   accessToken: string; // "stk_<hex>" — unguessable
+  accessPin: string; // PIN keamanan 6 digit — verifikasi kedua di portal
   isActive: boolean; // false = akses dicabut owner
   createdAt: string; // ISO
 }
@@ -36,6 +39,8 @@ export interface StaffSession {
   phone: string;
   propertyId: string;
   accessToken: string;
+  /** true = pemilik sesi lolos verifikasi PIN 6 digit di portal /staff */
+  pinVerified: boolean;
   startedAt: string; // ISO
 }
 
@@ -87,7 +92,20 @@ function readList(): StaffAccessMember[] {
   try {
     const raw = window.localStorage.getItem(STAFF_ACCESS_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? (parsed as StaffAccessMember[]) : [];
+    if (!Array.isArray(parsed)) return [];
+    // Migrasi senyap: staf lama (pra-PIN) diberi accessPin acak agar portal
+    // tetap berfungsi — owner bisa melihatnya via tombol intip di daftar staf.
+    let changed = false;
+    const normalized = (parsed as StaffAccessMember[]).map((m) => {
+      if (typeof m.accessPin === "string" && isValidPinFormat(m.accessPin)) return m;
+      changed = true;
+      return { ...m, accessPin: generatePin() };
+    });
+    if (changed) {
+      // Tulis senyap tanpa dispatch event — hindari loop re-render snapshot.
+      window.localStorage.setItem(STAFF_ACCESS_KEY, JSON.stringify(normalized));
+    }
+    return normalized;
   } catch {
     return [];
   }
@@ -146,14 +164,45 @@ export function generateAccessToken(): string {
   return `stk_${hex}`;
 }
 
+/** PIN 6 digit acak — tiap digit 0-9 via crypto (fallback Math.random) */
+export function generatePin(): string {
+  const digits = new Uint8Array(6);
+  if (typeof window !== "undefined" && "crypto" in window && crypto.getRandomValues) {
+    crypto.getRandomValues(digits);
+  } else {
+    for (let i = 0; i < digits.length; i++) digits[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(digits, (b) => String(b % 10)).join("");
+}
+
+/** Format PIN valid: tepat 6 karakter angka */
+export function isValidPinFormat(pin: string): boolean {
+  return /^\d{6}$/.test(pin.trim());
+}
+
+/** Bandingkan PIN masukan staf dengan PIN terdaftar */
+export function verifyStaffPin(member: Pick<StaffAccessMember, "accessPin">, pin: string): boolean {
+  return isValidPinFormat(member.accessPin) && member.accessPin === pin.trim();
+}
+
+/** Mask PIN utk daftar owner: "123456" → "••••56" (2 digit akhir terlihat) */
+export function maskPin(pin: string): string {
+  if (!isValidPinFormat(pin)) return "——";
+  return `••••${pin.slice(-2)}`;
+}
+
 export interface AddStaffAccessInput {
   name: string;
   phone: string;
   role: StaffAccessRole;
   propertyId: string;
+  accessPin: string;
 }
 
 export function addStaffAccess(input: AddStaffAccessInput): StaffAccessMember {
+  if (!isValidPinFormat(input.accessPin)) {
+    throw new Error("PIN harus tepat 6 digit angka.");
+  }
   const member: StaffAccessMember = {
     id: nextId(),
     propertyId: input.propertyId,
@@ -161,6 +210,7 @@ export function addStaffAccess(input: AddStaffAccessInput): StaffAccessMember {
     phone: input.phone.trim(),
     role: input.role,
     accessToken: generateAccessToken(),
+    accessPin: input.accessPin.trim(),
     isActive: true,
     createdAt: new Date().toISOString(),
   };
@@ -213,6 +263,10 @@ export function resolveStaffToken(token: string): StaffTokenResolution {
   return member.isActive ? { status: "valid", member } : { status: "revoked", member };
 }
 
+/**
+ * Simpan sesi staf — HANYA dipanggil setelah PIN 6 digit terverifikasi di
+ * portal /staff (lihat PinLockCard). `pinVerified` selalu true di sini.
+ */
 export function saveStaffSession(member: StaffAccessMember): StaffSession {
   const session: StaffSession = {
     id: member.id,
@@ -221,6 +275,7 @@ export function saveStaffSession(member: StaffAccessMember): StaffSession {
     phone: member.phone,
     propertyId: member.propertyId,
     accessToken: member.accessToken,
+    pinVerified: true,
     startedAt: new Date().toISOString(),
   };
   if (typeof window !== "undefined") {
@@ -293,15 +348,15 @@ export function normalizeWaDigits(phone: string): string {
   return d;
 }
 
-/** Template pesan undangan akses (spec) */
-export function waInviteMessage(name: string, link: string): string {
-  return `Halo ${name}, berikut tautan akses kerja Anda untuk sistem kelola properti UnitKu: ${link}. Simpan tautan ini untuk bertugas.`;
+/** Template pesan undangan akses + PIN keamanan (spec) */
+export function waInviteMessage(name: string, link: string, pin: string): string {
+  return `Halo ${name}, berikut tautan kerja sistem UnitKu Anda: ${link}. PIN Keamanan Anda: ${pin}. Simpan pesan ini untuk login.`;
 }
 
-/** wa.me deep-link dengan pesan undangan terisi */
-export function waInviteLink(phone: string, name: string, link: string): string {
+/** wa.me deep-link dengan pesan undangan (link + PIN) terisi */
+export function waInviteLink(phone: string, name: string, link: string, pin: string): string {
   return `https://wa.me/${normalizeWaDigits(phone)}?text=${encodeURIComponent(
-    waInviteMessage(name, link),
+    waInviteMessage(name, link, pin),
   )}`;
 }
 

@@ -3,16 +3,19 @@
 /**
  * "Kelola Staf" — pendaftaran & manajemen akses staf mandiri.
  *
- * Owner membuat staf + link akses unik /staff?token=…, menyalin/mengirimnya
- * via WhatsApp, dan mencabut akses saat staf berhenti. Data persist di
- * localStorage (unitku:staff-access:v1) — model Prisma StaffMember siap di
- * Supabase untuk backend nyata.
+ * Owner membuat staf + link akses unik /staff?token=… + PIN keamanan 6 digit,
+ * menyalin/mengirimnya via WhatsApp, dan mencabut akses saat staf berhenti.
+ * Data persist di localStorage (unitku:staff-access:v1) — model Prisma
+ * StaffMember (termasuk access_pin) siap di Supabase untuk backend nyata.
  */
 
 import { useMemo, useState } from "react";
 import {
   Check,
   Copy,
+  Dices,
+  Eye,
+  EyeOff,
   KeyRound,
   MoreHorizontal,
   ShieldCheck,
@@ -40,6 +43,9 @@ import type { PropertyEntry } from "@/lib/app-settings";
 import {
   addStaffAccess,
   deleteStaffAccess,
+  generatePin,
+  isValidPinFormat,
+  maskPin,
   setStaffAccessActive,
   staffPortalLink,
   STAFF_ROLES,
@@ -75,6 +81,7 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<StaffAccessRole>("ADMIN_OPERASIONAL");
+  const [pin, setPin] = useState("");
   /** id staf yang baru dibuat — link box-nya diberi highlight */
   const [freshId, setFreshId] = useState<string | null>(null);
 
@@ -83,22 +90,32 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
     (m) => m.name.trim().toLowerCase() === name.trim().toLowerCase(),
   );
   const phoneDigits = phone.replace(/[^0-9]/g, "");
-  const valid = name.trim().length >= 3 && !nameTaken && phoneDigits.length >= 9;
+  const pinOk = isValidPinFormat(pin);
+  const valid =
+    name.trim().length >= 3 && !nameTaken && phoneDigits.length >= 9 && pinOk;
 
   const submit = () => {
     if (!valid) return;
-    const member = addStaffAccess({
-      name,
-      phone: formatPhoneInput(phoneDigits),
-      role,
-      propertyId: activeProperty?.id ?? "",
-    });
+    let member: StaffAccessMember;
+    try {
+      member = addStaffAccess({
+        name,
+        phone: formatPhoneInput(phoneDigits),
+        role,
+        propertyId: activeProperty?.id ?? "",
+        accessPin: pin,
+      });
+    } catch {
+      toast.error("PIN tidak valid", { description: "PIN harus tepat 6 digit angka." });
+      return;
+    }
     setName("");
     setPhone("");
     setRole("ADMIN_OPERASIONAL");
+    setPin("");
     setFreshId(member.id);
     toast.success(`Link akses staf dibuat untuk ${member.name}`, {
-      description: "Salin atau kirim tautan via WhatsApp — staf langsung bisa masuk.",
+      description: "Kirim tautan + PIN via WhatsApp — staf verifikasi PIN saat login.",
     });
   };
 
@@ -116,7 +133,7 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
   };
 
   const sendWa = (m: StaffAccessMember) => {
-    const url = waInviteLink(m.phone, m.name, linkOf(m));
+    const url = waInviteLink(m.phone, m.name, linkOf(m), m.accessPin);
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
@@ -184,10 +201,10 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
           Tambah Staf Baru
         </h3>
         <p className="mt-0.5 text-[12.5px] text-zinc-600">
-          Buat link akses unik untuk staf — berlaku untuk properti{" "}
+          Buat link akses unik + PIN keamanan untuk staf — berlaku untuk properti{" "}
           <span className="font-semibold text-zinc-800">{activeProperty?.name ?? "—"}</span>.
         </p>
-        <div className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-[1fr_1fr_200px]">
+        <div className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-[1fr_1fr_200px_220px]">
           <div className="space-y-1">
             <label htmlFor="staff-name" className="text-[12.5px] font-medium text-zinc-700">
               Nama Lengkap Staf
@@ -233,10 +250,41 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-1">
+            <label htmlFor="staff-pin" className="text-[12.5px] font-medium text-zinc-700">
+              PIN Akses (6 Digit Angka)
+            </label>
+            <div className="relative">
+              <Input
+                id="staff-pin"
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
+                placeholder="cth. 123456"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={6}
+                className="h-9 border-zinc-200 bg-white pr-[74px] text-[13px] tabular-nums tracking-[0.2em]"
+              />
+              <button
+                type="button"
+                onClick={() => setPin(generatePin())}
+                title="Acak PIN — generate 6 angka acak otomatis"
+                aria-label="Acak PIN"
+                className="absolute right-1 top-1/2 flex h-7 -translate-y-1/2 items-center gap-1 rounded-md bg-zinc-100 px-1.5 text-[11px] font-semibold text-zinc-700 transition-colors hover:bg-zinc-200"
+              >
+                <Dices className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+                Acak PIN
+              </button>
+            </div>
+            {pin.length > 0 && !pinOk && (
+              <p className="text-xs leading-4 text-red-600">PIN harus tepat 6 angka.</p>
+            )}
+          </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs leading-4 text-zinc-600">
-            Token dibuat otomatis &amp; unik per staf — bisa dicabut kapan saja.
+            Token unik &amp; PIN dibuat per staf — staf wajib verifikasi PIN saat membuka
+            tautan; akses bisa dicabut kapan saja.
           </p>
           <Button
             onClick={submit}
@@ -277,6 +325,7 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
                 <th className="px-3.5 py-2.5 font-bold">Staf</th>
                 <th className="px-3 py-2.5 font-bold">Peran</th>
                 <th className="px-3 py-2.5 font-bold">Kontak</th>
+                <th className="px-3 py-2.5 font-bold">PIN</th>
                 <th className="px-3 py-2.5 font-bold">Status</th>
                 <th className="px-3 py-2.5 font-bold">Link Akses Staf</th>
                 <th className="px-3.5 py-2.5 text-right font-bold">Aksi</th>
@@ -321,6 +370,9 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
                     </span>
                   </td>
                   <td className="px-3 py-3 text-[12.5px] tabular-nums text-zinc-700">{m.phone}</td>
+                  <td className="px-3 py-3">
+                    <PinDisplay pin={m.accessPin} />
+                  </td>
                   <td className="px-3 py-3">
                     {m.isActive ? (
                       <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-emerald-700">
@@ -434,7 +486,7 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
                 )}
               </div>
 
-              <div className="mt-2 flex items-center gap-1.5">
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <span
                   className={cn(
                     "inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold leading-none",
@@ -443,6 +495,7 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
                 >
                   {STAFF_ROLE_META[m.role].label}
                 </span>
+                <PinDisplay pin={m.accessPin} />
                 <span className="truncate text-[11px] text-zinc-500">
                   {properties.find((p) => p.id === m.propertyId)?.name ?? "Semua cabang"}
                 </span>
@@ -497,6 +550,46 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
 }
 
 // ── Sub-komponen ─────────────────────────────────────────────────────────────
+
+/** Tampilan PIN owner: tersembunyi "••••56" + ikon mata utk intip */
+function PinDisplay({ pin, className }: { pin: string; className?: string }) {
+  const [revealed, setRevealed] = useState(false);
+  const valid = isValidPinFormat(pin);
+  const label = revealed ? "Sembunyikan PIN" : "Intip PIN";
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-zinc-50 py-0.5 pl-1.5 pr-0.5",
+        className,
+      )}
+    >
+      <span
+        className={cn(
+          "font-mono text-[11.5px] leading-4 tabular-nums",
+          revealed ? "font-semibold text-zinc-900" : "text-zinc-600",
+        )}
+        aria-label={revealed ? "PIN staf" : "PIN staf (tersembunyi)"}
+      >
+        {valid ? (revealed ? pin : maskPin(pin)) : "——"}
+      </span>
+      <button
+        type="button"
+        onClick={() => setRevealed((v) => !v)}
+        aria-label={label}
+        aria-pressed={revealed}
+        title={label}
+        disabled={!valid}
+        className="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-200/70 hover:text-zinc-700 disabled:opacity-40"
+      >
+        {revealed ? (
+          <EyeOff className="size-3" strokeWidth={1.75} aria-hidden="true" />
+        ) : (
+          <Eye className="size-3" strokeWidth={1.75} aria-hidden="true" />
+        )}
+      </button>
+    </span>
+  );
+}
 
 /** Kotak tautan akses: mono + tombol salin (highlight saat baru dibuat) */
 function LinkBox({

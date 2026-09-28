@@ -45,6 +45,7 @@ model StaffMember {
   phone       String // display "+62 813-..."
   role        String   @default("PENJAGA_TEKNISI") // ADMIN_OPERASIONAL | PENJAGA_TEKNISI
   accessToken String   @unique // magic-link "stk_..." — /staff?token=...
+  accessPin   String   @default("") // PIN keamanan 6 digit — verifikasi kedua di portal /staff
   isActive    Boolean  @default(true) // false = akses dicabut owner
   createdAt   DateTime @default(now())
 
