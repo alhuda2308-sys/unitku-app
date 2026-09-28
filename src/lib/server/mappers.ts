@@ -42,7 +42,7 @@ export function toClientInvoice(
 
 // ── Room (+ tenant & invoice ringkas menempel, bentuk UI) ────────────────────
 
-/** "Sewa Sep 2025" — label ringkas kamar dari periodKey "2025-09" */
+/** "Sewa Sep 2026" — label ringkas kamar dari periodKey "2026-09" */
 function sewaLabelFromPeriodKey(periodKey: string): string {
   const [y, m] = periodKey.split("-");
   const idx = Number(m) - 1;

@@ -86,7 +86,7 @@ import { LogOut } from "lucide-react";
 const inputCls =
   "h-9 border-zinc-200 bg-white text-[13px] text-zinc-900 placeholder:text-zinc-600 focus-visible:ring-zinc-900/5";
 
-const SAMPLE = { nama: "Dimas Ardi", kamar: "102", nominal: "Rp1.750.000", tempo: "28 Sep 2025", kos: "Kost Griya Pratama" };
+const SAMPLE = { nama: "Dimas Ardi", kamar: "102", nominal: "Rp1.750.000", tempo: "28 Sep 2026", kos: "Kost Griya Pratama" };
 
 const TOKENS = ["{nama}", "{kamar}", "{nominal}", "{tempo}"] as const;
 

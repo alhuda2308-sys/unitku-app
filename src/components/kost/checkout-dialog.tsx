@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatIDR, type Room } from "@/lib/kost-data";
+import { formatIDR, todayISO, type Room } from "@/lib/kost-data";
 import { RupiahInput } from "./rupiah-input";
 
 export interface CheckoutPayload {
@@ -43,7 +43,7 @@ const inputCls =
 
 export function CheckoutDialog({ room, open, onOpenChange, onSubmit }: CheckoutDialogProps) {
   const [refund, setRefund] = useState(() => (room?.contract?.depositHeld ? room.contract.deposit : 0));
-  const [tanggal, setTanggal] = useState("2025-09-30");
+  const [tanggal, setTanggal] = useState(todayISO);
   const [alasan, setAlasan] = useState(REASONS[0]);
 
   if (!room) return null;

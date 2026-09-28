@@ -43,7 +43,7 @@ export function resolvePortalRoom(token: string, rooms: Room[]): Room | null {
   return rooms.find((r) => r.tenant?.portalToken === token) ?? null;
 }
 
-export const PORTAL_ISSUED_LABEL = "Diterbitkan 26 Sep 2025";
+export const PORTAL_ISSUED_LABEL = "Diterbitkan 26 Sep 2026";
 
 // ── Virtual Account options ──────────────────────────────────────────────────
 

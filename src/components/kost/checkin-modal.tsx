@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatIDR, type Room } from "@/lib/kost-data";
+import { formatIDR, todayISO, type Room } from "@/lib/kost-data";
 import { cn } from "@/lib/utils";
 import { RupiahInput } from "./rupiah-input";
 
@@ -80,7 +80,7 @@ export function CheckinModal({
   onSubmit,
 }: CheckinModalProps) {
   const [ktpFile, setKtpFile] = useState<{ name: string; url: string } | null>(null);
-  const [tanggalMasuk, setTanggalMasuk] = useState("2025-10-01");
+  const [tanggalMasuk, setTanggalMasuk] = useState(todayISO);
   const [siklus, setSiklus] = useState<BillingCycle>("Bulanan");
   const [rentTouched, setRentTouched] = useState(false);
   const [deposit, setDeposit] = useState(1_000_000);

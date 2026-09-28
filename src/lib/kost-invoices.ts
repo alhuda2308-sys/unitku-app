@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // IndoKost — Tagihan & Invoice dataset (Phase 2)
-// Billing period: Sep 2025 (bulan berjalan). Snapshot: 26 Sep 2025.
+// Billing period: Sep 2026 (bulan berjalan). Snapshot: 26 Sep 2026.
 //
 // Numbers reconcile exactly with the Phase 2 spec:
 //   Total     : Rp38.500.000 (24 kamar)
@@ -20,14 +20,14 @@ export interface InvoiceLine {
 }
 
 export interface Invoice {
-  id: string; // "#INV-202509-101"
+  id: string; // "#INV-202609-101"
   roomId: string; // "101"
   tenantName: string | null; // null = kamar kosong (tagihan periode terakhir)
   tenantPhone: string | null;
   roomType: string;
-  periodLabel: string; // "1 Sep – 30 Sep 2025"
-  periodKey: string; // "2025-09"
-  dueDate: string; // "24 Sep 2025"
+  periodLabel: string; // "1 Sep – 30 Sep 2026"
+  periodKey: string; // "2026-09"
+  dueDate: string; // "24 Sep 2026"
   lines: InvoiceLine[];
   total: number;
   status: InvoiceStatus;
@@ -36,8 +36,8 @@ export interface Invoice {
   paidAt?: string;
 }
 
-export const CURRENT_PERIOD_KEY = "2025-09";
-export const CURRENT_PERIOD_LABEL = "1 Sep – 30 Sep 2025";
+export const CURRENT_PERIOD_KEY = "2026-09";
+export const CURRENT_PERIOD_LABEL = "1 Sep – 30 Sep 2026";
 
 export const BANK_ACCOUNT = {
   bank: "BCA",
@@ -46,11 +46,11 @@ export const BANK_ACCOUNT = {
 };
 
 export const MONTH_OPTIONS = [
-  { key: "2025-10", label: "Okt 2025" },
-  { key: "2025-09", label: "Sep 2025", tag: "Bulan Berjalan" },
-  { key: "2025-08", label: "Agu 2025" },
-  { key: "2025-07", label: "Jul 2025" },
-  { key: "2025-06", label: "Jun 2025" },
+  { key: "2026-10", label: "Okt 2026" },
+  { key: "2026-09", label: "Sep 2026", tag: "Bulan Berjalan" },
+  { key: "2026-08", label: "Agu 2026" },
+  { key: "2026-07", label: "Jul 2026" },
+  { key: "2026-06", label: "Jun 2026" },
 ];
 
 // ── Status metadata ──────────────────────────────────────────────────────────
@@ -104,7 +104,7 @@ function make(
   opts?: { dayOffset?: number; paidAt?: string }
 ): Invoice {
   return {
-    id: `#INV-202509-${roomId}`,
+    id: `#INV-202609-${roomId}`,
     roomId,
     tenantName,
     tenantPhone,
@@ -121,56 +121,56 @@ function make(
 
 export const INVOICES: Invoice[] = [
   // ── Lantai 1 ───────────────────────────────────────────────────────────────
-  make("101", "Budi Santoso", "+62 812-1101-2210", "Tipe A - AC", "1 Sep 2025",
-    [sewa(1_500_000), listrik(180_000)], "lunas", { paidAt: "3 Sep 2025" }),
-  make("102", "Dimas Ardi", "+62 812-3456-7890", "Tipe A - AC", "5 Sep 2025",
-    [sewa(1_500_000), listrik(150_000)], "lunas", { paidAt: "2 Sep 2025" }),
-  make("103", "Ahmad Fauzi", "+62 813-8821-5502", "Tipe B - Kipas", "22 Sep 2025",
+  make("101", "Budi Santoso", "+62 812-1101-2210", "Tipe A - AC", "1 Sep 2026",
+    [sewa(1_500_000), listrik(180_000)], "lunas", { paidAt: "3 Sep 2026" }),
+  make("102", "Dimas Ardi", "+62 812-3456-7890", "Tipe A - AC", "5 Sep 2026",
+    [sewa(1_500_000), listrik(150_000)], "lunas", { paidAt: "2 Sep 2026" }),
+  make("103", "Ahmad Fauzi", "+62 813-8821-5502", "Tipe B - Kipas", "22 Sep 2026",
     [sewa(1_100_000), listrik(50_000)], "menunggak", { dayOffset: 4 }),
-  make("104", "Dewi Lestari", "+62 812-9902-3367", "Tipe AC Deluxe", "24 Sep 2025",
+  make("104", "Dewi Lestari", "+62 812-9902-3367", "Tipe AC Deluxe", "24 Sep 2026",
     [sewa(1_750_000), listrik(150_000)], "menunggak", { dayOffset: 2 }),
-  make("105", "Rizky Pratama", "+62 878-2210-6634", "Tipe A - AC", "10 Sep 2025",
-    [sewa(1_500_000), listrik(200_000)], "lunas", { paidAt: "9 Sep 2025" }),
-  make("106", null, null, "Tipe A - AC", "4 Sep 2025",
-    [sewa(1_500_000)], "lunas", { paidAt: "4 Sep 2025" }),
-  make("107", "Maya Anggraini", "+62 812-6675-0119", "Tipe B - Kipas", "3 Sep 2025",
-    [sewa(1_100_000), listrik(120_000)], "lunas", { paidAt: "3 Sep 2025" }),
-  make("108", "Doni Kusnadi", "+62 856-4410-8823", "Tipe A - AC", "18 Sep 2025",
-    [sewa(1_500_000), listrik(220_000)], "verifikasi", { paidAt: "25 Sep 2025" }),
-  make("109", "Putri Handayani", "+62 813-2299-4405", "Tipe AC Deluxe", "7 Sep 2025",
-    [sewa(1_750_000), listrik(250_000)], "lunas", { paidAt: "6 Sep 2025" }),
-  make("110", "Agus Setiawan", "+62 812-3358-9907", "Tipe B - Kipas", "29 Sep 2025",
+  make("105", "Rizky Pratama", "+62 878-2210-6634", "Tipe A - AC", "10 Sep 2026",
+    [sewa(1_500_000), listrik(200_000)], "lunas", { paidAt: "9 Sep 2026" }),
+  make("106", null, null, "Tipe A - AC", "4 Sep 2026",
+    [sewa(1_500_000)], "lunas", { paidAt: "4 Sep 2026" }),
+  make("107", "Maya Anggraini", "+62 812-6675-0119", "Tipe B - Kipas", "3 Sep 2026",
+    [sewa(1_100_000), listrik(120_000)], "lunas", { paidAt: "3 Sep 2026" }),
+  make("108", "Doni Kusnadi", "+62 856-4410-8823", "Tipe A - AC", "18 Sep 2026",
+    [sewa(1_500_000), listrik(220_000)], "verifikasi", { paidAt: "25 Sep 2026" }),
+  make("109", "Putri Handayani", "+62 813-2299-4405", "Tipe AC Deluxe", "7 Sep 2026",
+    [sewa(1_750_000), listrik(250_000)], "lunas", { paidAt: "6 Sep 2026" }),
+  make("110", "Agus Setiawan", "+62 812-3358-9907", "Tipe B - Kipas", "29 Sep 2026",
     [sewa(1_100_000), listrik(200_000)], "jatuhTempo", { dayOffset: 3 }),
-  make("111", null, null, "Tipe AC Deluxe", "14 Sep 2025",
-    [sewa(1_750_000)], "lunas", { paidAt: "12 Sep 2025" }),
-  make("112", "Fajar Nugroho", "+62 878-9920-1145", "Tipe A - AC", "21 Sep 2025",
-    [sewa(1_500_000), listrik(170_000)], "lunas", { paidAt: "19 Sep 2025" }),
+  make("111", null, null, "Tipe AC Deluxe", "14 Sep 2026",
+    [sewa(1_750_000)], "lunas", { paidAt: "12 Sep 2026" }),
+  make("112", "Fajar Nugroho", "+62 878-9920-1145", "Tipe A - AC", "21 Sep 2026",
+    [sewa(1_500_000), listrik(170_000)], "lunas", { paidAt: "19 Sep 2026" }),
 
   // ── Lantai 2 ───────────────────────────────────────────────────────────────
-  make("201", "Rina Marlina", "+62 812-4470-2238", "Tipe A - AC", "29 Sep 2025",
+  make("201", "Rina Marlina", "+62 812-4470-2238", "Tipe A - AC", "29 Sep 2026",
     [sewa(1_500_000), listrik(100_000)], "jatuhTempo", { dayOffset: 3 }),
-  make("202", "Joko Prasetyo", "+62 856-7780-3312", "Tipe B - Kipas", "9 Sep 2025",
-    [sewa(1_100_000), listrik(100_000)], "lunas", { paidAt: "8 Sep 2025" }),
-  make("203", "Ayu Kartika", "+62 812-9915-7734", "Tipe A - AC", "29 Sep 2025",
+  make("202", "Joko Prasetyo", "+62 856-7780-3312", "Tipe B - Kipas", "9 Sep 2026",
+    [sewa(1_100_000), listrik(100_000)], "lunas", { paidAt: "8 Sep 2026" }),
+  make("203", "Ayu Kartika", "+62 812-9915-7734", "Tipe A - AC", "29 Sep 2026",
     [sewa(1_500_000), listrik(100_000)], "jatuhTempo", { dayOffset: 3 }),
-  make("204", "Hendra Gunawan", "+62 813-5521-8896", "Tipe AC Deluxe", "2 Sep 2025",
-    [sewa(1_750_000), listrik(400_000)], "lunas", { paidAt: "1 Sep 2025" }),
-  make("205", "Intan Permata", "+62 812-2245-9910", "Tipe B - Kipas", "25 Sep 2025",
+  make("204", "Hendra Gunawan", "+62 813-5521-8896", "Tipe AC Deluxe", "2 Sep 2026",
+    [sewa(1_750_000), listrik(400_000)], "lunas", { paidAt: "1 Sep 2026" }),
+  make("205", "Intan Permata", "+62 812-2245-9910", "Tipe B - Kipas", "25 Sep 2026",
     [sewa(1_100_000), listrik(100_000)], "menunggak", { dayOffset: 1 }),
-  make("206", null, null, "Tipe B - Kipas", "6 Sep 2025",
-    [sewa(1_100_000)], "lunas", { paidAt: "5 Sep 2025" }),
-  make("207", "Bagus Wicaksono", "+62 878-3390-5521", "Tipe A - AC", "19 Sep 2025",
-    [sewa(1_500_000), listrik(250_000)], "lunas", { paidAt: "17 Sep 2025" }),
-  make("208", "Novi Suryani", "+62 812-6634-2219", "Tipe AC Deluxe", "25 Sep 2025",
-    [sewa(1_750_000), listrik(350_000)], "lunas", { paidAt: "24 Sep 2025" }),
-  make("209", "Eko Purnomo", "+62 856-2214-7789", "Tipe B - Kipas", "14 Sep 2025",
-    [sewa(1_100_000), listrik(110_000)], "lunas", { paidAt: "13 Sep 2025" }),
-  make("210", "Lestari Ningsih", "+62 812-8890-5541", "Tipe A - AC", "8 Sep 2025",
-    [sewa(1_500_000), listrik(200_000)], "lunas", { paidAt: "7 Sep 2025" }),
-  make("211", "Rudi Hartono", "+62 813-4470-9912", "Tipe AC Deluxe", "27 Sep 2025",
-    [sewa(1_750_000), listrik(400_000)], "verifikasi", { paidAt: "24 Sep 2025" }),
-  make("212", null, null, "Tipe A - AC", "16 Sep 2025",
-    [sewa(1_500_000)], "lunas", { paidAt: "15 Sep 2025" }),
+  make("206", null, null, "Tipe B - Kipas", "6 Sep 2026",
+    [sewa(1_100_000)], "lunas", { paidAt: "5 Sep 2026" }),
+  make("207", "Bagus Wicaksono", "+62 878-3390-5521", "Tipe A - AC", "19 Sep 2026",
+    [sewa(1_500_000), listrik(250_000)], "lunas", { paidAt: "17 Sep 2026" }),
+  make("208", "Novi Suryani", "+62 812-6634-2219", "Tipe AC Deluxe", "25 Sep 2026",
+    [sewa(1_750_000), listrik(350_000)], "lunas", { paidAt: "24 Sep 2026" }),
+  make("209", "Eko Purnomo", "+62 856-2214-7789", "Tipe B - Kipas", "14 Sep 2026",
+    [sewa(1_100_000), listrik(110_000)], "lunas", { paidAt: "13 Sep 2026" }),
+  make("210", "Lestari Ningsih", "+62 812-8890-5541", "Tipe A - AC", "8 Sep 2026",
+    [sewa(1_500_000), listrik(200_000)], "lunas", { paidAt: "7 Sep 2026" }),
+  make("211", "Rudi Hartono", "+62 813-4470-9912", "Tipe AC Deluxe", "27 Sep 2026",
+    [sewa(1_750_000), listrik(400_000)], "verifikasi", { paidAt: "24 Sep 2026" }),
+  make("212", null, null, "Tipe A - AC", "16 Sep 2026",
+    [sewa(1_500_000)], "lunas", { paidAt: "15 Sep 2026" }),
 ];
 
 // ── Derived stats ────────────────────────────────────────────────────────────

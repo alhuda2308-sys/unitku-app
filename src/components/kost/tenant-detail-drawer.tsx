@@ -214,7 +214,7 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
                     </div>
                   ))}
                   <p className="pt-1 text-xs leading-4 text-zinc-700">
-                    Menampilkan {history.length} tagihan dari periode berjalan (Sep 2025).
+                    Menampilkan {history.length} tagihan dari periode berjalan (Sep 2026).
                   </p>
                 </div>
               </SectionCard>
@@ -276,6 +276,6 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
 
 /** Shared helper: next contract end date from an existing end (or cycle end) */
 export function nextEndDate(room: Room, months: number): string {
-  const base = room.contract?.endDate ? parseDateLabel(room.contract.endDate) : new Date(2025, 8, 30);
+  const base = room.contract?.endDate ? parseDateLabel(room.contract.endDate) : new Date(2026, 8, 30);
   return dateToLabel(addMonths(base, months));
 }

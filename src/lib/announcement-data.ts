@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // IndoKost — Pengumuman Kost & Broadcast Penyewa dataset
 // Owner announcements pushed to the tenant portal (banner) & WhatsApp groups.
-// Snapshot "today": 26 Sep 2025 (fixed, konsisten dengan modul lain).
+// Snapshot "today": 26 Sep 2026 (fixed, konsisten dengan modul lain).
 //
 // Seed reconciles with the spec metrics:
-//   Pengumuman Aktif : 1   → #PGM-006 (tayang 26–30 Sep 2025)
+//   Pengumuman Aktif : 1   → #PGM-006 (tayang 26–30 Sep 2026)
 //   Arsip Pengumuman : 5   → #PGM-001…005 (berakhir / dinonaktifkan)
 //
 // Integration seam: swap ANNOUNCEMENTS for `GET /api/announcements`; mutations
@@ -30,7 +30,7 @@ export interface Announcement {
   tanggalBerakhir: string;
   /** Toggle manual (Aksi "Nonaktifkan") — dipasang/ditarik pengelola */
   aktif: boolean;
-  createdAtLabel: string; // "26 Sep 2025"
+  createdAtLabel: string; // "26 Sep 2026"
   /** Monotonic sort key (newest first) — yyyymmddHHmm */
   createdAtSort: number;
 }
@@ -95,13 +95,13 @@ export const ANNOUNCEMENT_KATEGORI: AnnouncementKategori[] = [
 
 // ── Status & periode tayang ──────────────────────────────────────────────────
 
-/** ISO "2025-09-26" → Date (local midnight — aman dibandingkan dengan ISO lain) */
+/** ISO "2026-09-26" → Date (local midnight — aman dibandingkan dengan ISO lain) */
 function isoToDate(iso: string): Date {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y || 1970, (m || 1) - 1, d || 1);
 }
 
-/** ISO → label "26 Sep 2025" */
+/** ISO → label "26 Sep 2026" */
 export function isoToLabel(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return iso;
@@ -137,7 +137,7 @@ export function targetLabel(targetFloor: number | null): string {
   return targetFloor === null ? "Semua Kamar" : `Khusus Lantai ${targetFloor}`;
 }
 
-/** "26 Sep – 30 Sep 2025" — ringkas untuk banner & WA */
+/** "26 Sep – 30 Sep 2026" — ringkas untuk banner & WA */
 export function periodeLabel(a: Pick<Announcement, "tanggalMulai" | "tanggalBerakhir">): string {
   const start = isoToLabel(a.tanggalMulai);
   const end = isoToLabel(a.tanggalBerakhir);
@@ -226,9 +226,9 @@ export function announcementFromDraft(
 }
 
 // ── Dataset ──────────────────────────────────────────────────────────────────
-// Newest first. "Hari ini" snapshot = 26 Sep 2025.
+// Newest first. "Hari ini" snapshot = 26 Sep 2026.
 
-export const ANNOUNCEMENT_TODAY_ISO = "2025-09-26";
+export const ANNOUNCEMENT_TODAY_ISO = "2026-09-26";
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
@@ -236,36 +236,36 @@ export const ANNOUNCEMENTS: Announcement[] = [
     judul: "Jadwal Pengurasan Toren Air & Mati Lampu Sementara",
     kategori: "penting",
     targetFloor: null,
-    isi: "Diberitahukan seluruh penghuni bahwa pengurasan toren air akan dilakukan pada Sabtu, 27 Sep 2025 pukul 09.00–15.00 WIB.\n\nSelama pengerjaan:\n• Aliran air terhenti sementara (± 4 jam).\n• Lampu koridor & area parkir dimatikan pukul 10.00–12.00 WIB.\n• Mohon simpan air minum dan kebutuhan pokok sebelum jadwal tersebut.\n\nAir akan kembali mengalir normal setelah toren terisi penuh. Terima kasih atas pengertiannya.",
-    tanggalMulai: "2025-09-26",
-    tanggalBerakhir: "2025-09-30",
+    isi: "Diberitahukan seluruh penghuni bahwa pengurasan toren air akan dilakukan pada Minggu, 27 Sep 2026 pukul 09.00–15.00 WIB.\n\nSelama pengerjaan:\n• Aliran air terhenti sementara (± 4 jam).\n• Lampu koridor & area parkir dimatikan pukul 10.00–12.00 WIB.\n• Mohon simpan air minum dan kebutuhan pokok sebelum jadwal tersebut.\n\nAir akan kembali mengalir normal setelah toren terisi penuh. Terima kasih atas pengertiannya.",
+    tanggalMulai: "2026-09-26",
+    tanggalBerakhir: "2026-09-30",
     aktif: true,
-    createdAtLabel: "26 Sep 2025",
-    createdAtSort: 202509260900,
+    createdAtLabel: "26 Sep 2026",
+    createdAtSort: 202609260900,
   },
   {
     id: "#PGM-005",
     judul: "Pemeliharaan Pompa Air Otomatis — Lantai 2",
     kategori: "info",
     targetFloor: 2,
-    isi: "Teknisi akan melakukan pengecekan rutin pompa air otomatis pada kamar lantai 2, Rabu 17 Sep 2025 pukul 08.00 WIB. Tekanan air mungkin tidak stabil ± 1 jam. Tidak perlu koordinasi khusus — cukup informasi.",
-    tanggalMulai: "2025-09-15",
-    tanggalBerakhir: "2025-09-18",
+    isi: "Teknisi akan melakukan pengecekan rutin pompa air otomatis pada kamar lantai 2, Kamis 17 Sep 2026 pukul 08.00 WIB. Tekanan air mungkin tidak stabil ± 1 jam. Tidak perlu koordinasi khusus — cukup informasi.",
+    tanggalMulai: "2026-09-15",
+    tanggalBerakhir: "2026-09-18",
     aktif: true,
-    createdAtLabel: "15 Sep 2025",
-    createdAtSort: 202509150800,
+    createdAtLabel: "15 Sep 2026",
+    createdAtSort: 202609150800,
   },
   {
     id: "#PGM-004",
     judul: "Spot Check Kamar & Fasilitas Bersama Pemilik",
     kategori: "info",
     targetFloor: null,
-    isi: "Pemilik akan melakukan spot check kondisi kamar & fasilitas bersama pada 8–12 Sep 2025. Mohon izin ketuk pintu saat penghuni berada di kamar. Atas kerja samanya, terima kasih.",
-    tanggalMulai: "2025-09-05",
-    tanggalBerakhir: "2025-09-12",
+    isi: "Pemilik akan melakukan spot check kondisi kamar & fasilitas bersama pada 8–12 Sep 2026. Mohon izin ketuk pintu saat penghuni berada di kamar. Atas kerja samanya, terima kasih.",
+    tanggalMulai: "2026-09-05",
+    tanggalBerakhir: "2026-09-12",
     aktif: false, // ditarik lebih awal — jadwal digabung ke kunjungan bulan depan
-    createdAtLabel: "4 Sep 2025",
-    createdAtSort: 202509040830,
+    createdAtLabel: "4 Sep 2026",
+    createdAtSort: 202609040830,
   },
   {
     id: "#PGM-003",
@@ -273,34 +273,34 @@ export const ANNOUNCEMENTS: Announcement[] = [
     kategori: "penting",
     targetFloor: null,
     isi: "Beberapa MCB sempat trip karena pemakaian setrika, water heater & charger berbarengan pada jam yang sama (21.00–23.00). Mohon tidak menjalankan perangkat high-wattage secara serentak untuk menjaga stabilitas listrik gedung.",
-    tanggalMulai: "2025-09-01",
-    tanggalBerakhir: "2025-09-10",
+    tanggalMulai: "2026-09-01",
+    tanggalBerakhir: "2026-09-10",
     aktif: true,
-    createdAtLabel: "1 Sep 2025",
-    createdAtSort: 202509010900,
+    createdAtLabel: "1 Sep 2026",
+    createdAtSort: 202609010900,
   },
   {
     id: "#PGM-002",
     judul: "Fogging & Pengendalian Nyamuk Area Kost",
     kategori: "info",
     targetFloor: null,
-    isi: "Fogging nyamuk akan dilakukan Sabtu, 23 Agu 2025 pukul 07.00–09.00 WIB di area parkir, taman & koridor. Mohon tutup makanan & kipas jendela selama proses. Ventilasi kamar dibuka kembali pukul 10.00 WIB.",
-    tanggalMulai: "2025-08-20",
-    tanggalBerakhir: "2025-08-23",
+    isi: "Fogging nyamuk akan dilakukan Minggu, 23 Agu 2026 pukul 07.00–09.00 WIB di area parkir, taman & koridor. Mohon tutup makanan & kipas jendela selama proses. Ventilasi kamar dibuka kembali pukul 10.00 WIB.",
+    tanggalMulai: "2026-08-20",
+    tanggalBerakhir: "2026-08-23",
     aktif: true,
-    createdAtLabel: "20 Agu 2025",
-    createdAtSort: 202508200900,
+    createdAtLabel: "20 Agu 2026",
+    createdAtSort: 202608200900,
   },
   {
     id: "#PGM-001",
     judul: "Kebijakan Baru: Parkir Mobil Tamu Hanya Area Depan",
     kategori: "info",
     targetFloor: null,
-    isi: "Mulai 10 Agu 2025, parkir mobil tamu hanya diizinkan di area depan (maks. 1×24 jam). Mobil penghuni tetap pada slot masing-masing. Mohon informasikan tamu yang berkunjung. Kendaraan yang melanggar akan digeser oleh petugas.",
-    tanggalMulai: "2025-08-05",
-    tanggalBerakhir: "2025-08-10",
+    isi: "Mulai 10 Agu 2026, parkir mobil tamu hanya diizinkan di area depan (maks. 1×24 jam). Mobil penghuni tetap pada slot masing-masing. Mohon informasikan tamu yang berkunjung. Kendaraan yang melanggar akan digeser oleh petugas.",
+    tanggalMulai: "2026-08-05",
+    tanggalBerakhir: "2026-08-10",
     aktif: true,
-    createdAtLabel: "5 Agu 2025",
-    createdAtSort: 202508051000,
+    createdAtLabel: "5 Agu 2026",
+    createdAtSort: 202608051000,
   },
 ];

@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EXPENSE_CATEGORIES, type ExpenseCategory } from "@/lib/kost-cashflow";
+import { todayISO } from "@/lib/kost-data";
 import { RupiahInput } from "./rupiah-input";
 
 export interface ExpenseDraft {
@@ -43,7 +44,7 @@ const inputCls =
 export function ExpenseModal({ open, onOpenChange, onSubmit }: ExpenseModalProps) {
   const [category, setCategory] = useState<ExpenseCategory | "">("");
   const [amount, setAmount] = useState(0);
-  const [tanggal, setTanggal] = useState("2025-09-26");
+  const [tanggal, setTanggal] = useState(todayISO);
   const [description, setDescription] = useState("");
   const [nota, setNota] = useState<{ name: string; size: string } | null>(null);
   const notaRef = useRef<HTMLInputElement>(null);
@@ -53,7 +54,7 @@ export function ExpenseModal({ open, onOpenChange, onSubmit }: ExpenseModalProps
   const reset = () => {
     setCategory("");
     setAmount(0);
-    setTanggal("2025-09-26");
+    setTanggal(todayISO());
     setDescription("");
     setNota(null);
   };
@@ -80,7 +81,7 @@ export function ExpenseModal({ open, onOpenChange, onSubmit }: ExpenseModalProps
             Catat Pengeluaran
           </DialogTitle>
           <DialogDescription className="text-[12.5px] text-zinc-700">
-            Pengeluaran langsung tercatat di Buku Kas bulan berjalan (Sep 2025).
+            Pengeluaran langsung tercatat di Buku Kas bulan berjalan (Sep 2026).
           </DialogDescription>
         </DialogHeader>
 

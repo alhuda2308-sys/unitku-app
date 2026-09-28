@@ -33,10 +33,10 @@ interface KasViewProps {
 }
 
 const MONTH_FILTERS = [
-  { key: "2025-09", label: "Sep 2025", tag: "Bulan Berjalan" },
-  { key: "2025-08", label: "Agu 2025" },
-  { key: "2025-07", label: "Jul 2025" },
-  { key: "2025-06", label: "Jun 2025" },
+  { key: "2026-09", label: "Sep 2026", tag: "Bulan Berjalan" },
+  { key: "2026-08", label: "Agu 2026" },
+  { key: "2026-07", label: "Jul 2026" },
+  { key: "2026-06", label: "Jun 2026" },
 ];
 
 const HEAD_CELL =
@@ -49,7 +49,7 @@ function typePill(type: CashEntry["type"]) {
 }
 
 export function KasView({ entries, onAddExpense, onDeleteEntry, isStaffView = false }: KasViewProps) {
-  const [month, setMonth] = useState("2025-09");
+  const [month, setMonth] = useState("2026-09");
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [preview, setPreview] = useState<CashEntry | null>(null);
 
@@ -257,7 +257,7 @@ export function KasView({ entries, onAddExpense, onDeleteEntry, isStaffView = fa
             </span>
             <p className="text-[13px] font-semibold text-zinc-700">Belum ada transaksi</p>
             <p className="max-w-[280px] text-[12.5px] leading-5 text-zinc-700">
-              Tidak ada catatan kas untuk {monthLabel}. Data demo tersedia pada Sep 2025.
+              Tidak ada catatan kas untuk {monthLabel}. Data demo tersedia pada Sep 2026.
             </p>
           </div>
         )}

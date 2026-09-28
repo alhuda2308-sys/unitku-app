@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       category?: unknown;
       description?: unknown;
       amount?: unknown;
-      dateLabel?: unknown; // "26 Sep 2025"
+      dateLabel?: unknown; // "26 Sep 2026"
       attachment?: unknown;
     };
 

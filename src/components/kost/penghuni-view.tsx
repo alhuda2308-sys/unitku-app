@@ -43,8 +43,8 @@ interface PenghuniViewProps {
 
 type DirTab = "semua" | "aktif" | "keluar";
 
-/** Snapshot 26 Sep 2025 — fixed for deterministic mock rendering */
-const SNAPSHOT = new Date(2025, 8, 26);
+/** Snapshot 26 Sep 2026 — fixed for deterministic mock rendering */
+const SNAPSHOT = new Date(2026, 8, 26);
 
 function daysLeft(endLabel: string): number {
   return Math.ceil((parseDateLabel(endLabel).getTime() - SNAPSHOT.getTime()) / 86_400_000);
@@ -254,7 +254,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
         <div>
           <h1 className="text-lg font-bold tracking-tight text-zinc-900">Direktori Penghuni</h1>
           <p className="mt-0.5 text-[12.5px] text-zinc-700">
-            {tenants.length} penghuni terdaftar dari {rooms.length} kamar · data per 26 Sep 2025
+            {tenants.length} penghuni terdaftar dari {rooms.length} kamar · data per 26 Sep 2026
           </p>
         </div>
         {/* Search */}

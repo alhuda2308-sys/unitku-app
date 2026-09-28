@@ -27,7 +27,7 @@ function formatPhoneDisplay(digits: string): string {
   return `+62 ${[head, ...groups].join("-")}`;
 }
 
-/** "2025-10-01" → Date lokal tengah malam (deterministik lintas timezone) */
+/** "2026-10-01" → Date lokal tengah malam (deterministik lintas timezone) */
 function parseIsoDate(iso: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
   if (!m) return null;
@@ -132,29 +132,55 @@ export async function POST(request: NextRequest) {
     });
 
     // 3) Invoice pertama (bulan masuk — lunas saat check-in)
+    // Satu invoice per kamar per periode (@@unique roomId+periodKey): bila kamar
+    // sudah punya invoice periode sama (arsip penyewa sebelumnya), perbarui
+    // invoice itu menjadi milik penyewa baru; jika belum ada, buat dengan ID unik.
     const periodKey = `${moveIn.getFullYear()}-${String(moveIn.getMonth() + 1).padStart(2, "0")}`;
-    const invoice = await db.invoice.create({
-      data: {
-        id: `#INV-${periodKey.replace("-", "")}-${room.id}`,
-        roomId: room.id,
-        tenantName: name,
-        tenantPhone: phoneDisplay,
-        roomType: room.type,
-        periodLabel: `1 ${monthName} – ${lastDay} ${monthName} ${moveIn.getFullYear()}`,
-        periodKey,
-        dueDate: moveIn,
-        status: "lunas",
-        paidAt: new Date(),
-        total: Math.round(totalPerBulan),
-        lines: {
-          create: [
-            { label: "Sewa Kamar", amount: Math.round(hargaSewa) },
-            ...addons.map((a) => ({ label: a, amount: ADDON_PRICE[a] ?? 0 })),
-          ],
-        },
-      },
+    const invoiceLines = [
+      { label: "Sewa Kamar", amount: Math.round(hargaSewa) },
+      ...addons.map((a) => ({ label: a, amount: ADDON_PRICE[a] ?? 0 })),
+    ];
+    const invoiceData = {
+      tenantName: name,
+      tenantPhone: phoneDisplay,
+      roomType: room.type,
+      periodLabel: `1 ${monthName} – ${lastDay} ${monthName} ${moveIn.getFullYear()}`,
+      dueDate: moveIn,
+      status: "lunas",
+      paidAt: new Date(),
+      total: Math.round(totalPerBulan),
+    };
+    const reused = await db.invoice.findUnique({
+      where: { roomId_periodKey: { roomId: room.id, periodKey } },
       include: { lines: true },
     });
+    let invoice;
+    if (reused) {
+      await db.invoiceLine.deleteMany({ where: { invoiceId: reused.id } });
+      invoice = await db.invoice.update({
+        where: { id: reused.id },
+        data: { ...invoiceData, lines: { create: invoiceLines } },
+        include: { lines: true },
+      });
+    } else {
+      const baseInvoiceId = `#INV-${periodKey.replace("-", "")}-${room.id}`;
+      let invoiceId = baseInvoiceId;
+      let seq = 2;
+      while (await db.invoice.findUnique({ where: { id: invoiceId } })) {
+        invoiceId = `${baseInvoiceId}-${seq}`;
+        seq += 1;
+      }
+      invoice = await db.invoice.create({
+        data: {
+          id: invoiceId,
+          roomId: room.id,
+          periodKey,
+          ...invoiceData,
+          lines: { create: invoiceLines },
+        },
+        include: { lines: true },
+      });
+    }
 
     return NextResponse.json(
       { room: toClientRoom(updatedRoom), invoice: toClientInvoice(invoice), tenantId: tenant.id },

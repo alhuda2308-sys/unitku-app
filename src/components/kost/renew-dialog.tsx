@@ -140,7 +140,7 @@ export function RenewDialog({ room, open, onOpenChange, onSubmit }: RenewDialogP
   );
 }
 
-/* "1 Okt 2025" ⇄ "2025-10-01" */
+/* "1 Okt 2026" ⇄ "2026-10-01" */
 function toISO(label: string): string {
   const d = parseDateLabel(label);
   const mm = String(d.getMonth() + 1).padStart(2, "0");

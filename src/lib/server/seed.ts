@@ -3,7 +3,7 @@
 //
 // GET pertama pada endpoint mana pun (rooms/invoices/cash/staff/properties)
 // memanggil ensureSeed(): bila tabel masih kosong, seluruh dataset demo
-// (24 kamar + penghuni, tagihan Sep 2025, buku kas, 2 staf contoh, properti
+// (24 kamar + penghuni, tagihan Sep 2026, buku kas, 2 staf contoh, properti
 // utama "Kost Griya Pratama") dimigrasikan ke Supabase. Dari titik ini data
 // tersimpan permanen di cloud & tersinkron lintas perangkat.
 //
@@ -98,7 +98,7 @@ async function runSeed(): Promise<void> {
     });
   }
 
-  // ── Tagihan & rincian (Sep 2025) ──────────────────────────────────────────
+  // ── Tagihan & rincian (Sep 2026) ──────────────────────────────────────────
   for (const inv of INVOICES) {
     await db.invoice.create({
       data: {
@@ -121,7 +121,7 @@ async function runSeed(): Promise<void> {
     });
   }
 
-  // ── Buku kas (Sep 2025) ───────────────────────────────────────────────────
+  // ── Buku kas (Sep 2026) ───────────────────────────────────────────────────
   await db.cashEntry.createMany({
     data: CASH_ENTRIES.map((e) => ({
       id: e.id,

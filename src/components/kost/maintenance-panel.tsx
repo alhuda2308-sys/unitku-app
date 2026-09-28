@@ -382,7 +382,7 @@ export function MaintenancePanel({
           label="Selesai Bulan Ini"
           value={String(stats.selesaiBulanIni)}
           unit="Tiket"
-          sub="Sep 2025 · respons rata-rata < 1 hari"
+          sub="Sep 2026 · respons rata-rata < 1 hari"
         />
       </section>
 

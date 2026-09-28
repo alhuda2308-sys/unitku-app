@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // IndoKost — Komplain & Pemeliharaan dataset (Phase 3 + owner ticket creation)
-// Maintenance / ticketing module. Snapshot "today": 26 Sep 2025.
+// Maintenance / ticketing module. Snapshot "today": 26 Sep 2026.
 //
 // Counts reconcile exactly with the Phase 3 spec:
 //   Tiket Aktif (Menunggu)   : 2   → #TKT-041, #TKT-040
@@ -163,7 +163,7 @@ export const TICKETS: Ticket[] = [
     photos: ["/tickets/ac.png"],
     status: "menunggu",
     reportedLabel: "Hari ini, 09:15 WIB",
-    reportedSort: 202509260915,
+    reportedSort: 202609260915,
   },
   {
     id: "#TKT-040",
@@ -178,7 +178,7 @@ export const TICKETS: Ticket[] = [
     photos: ["/tickets/bocor.png"],
     status: "menunggu",
     reportedLabel: "Hari ini, 08:02 WIB",
-    reportedSort: 202509260802,
+    reportedSort: 202609260802,
   },
   {
     id: "#TKT-039",
@@ -193,7 +193,7 @@ export const TICKETS: Ticket[] = [
     photos: ["/tickets/socket.png"],
     status: "dikerjakan",
     reportedLabel: "Kemarin, 17:40 WIB",
-    reportedSort: 202509251740,
+    reportedSort: 202609251740,
     teknisi: { name: "Pak Yanto", phone: "+62 813-2200-1177" },
   },
   {
@@ -209,7 +209,7 @@ export const TICKETS: Ticket[] = [
     photos: ["/tickets/kran.png"],
     status: "selesai",
     reportedLabel: "24 Sep, 20:11 WIB",
-    reportedSort: 202509242011,
+    reportedSort: 202609242011,
     teknisi: { name: "Pak Yanto", phone: "+62 813-2200-1177" },
     selesaiLabel: "Selesai 25 Sep, 10:30 WIB",
   },
@@ -226,7 +226,7 @@ export const TICKETS: Ticket[] = [
     photos: [],
     status: "selesai",
     reportedLabel: "24 Sep, 07:48 WIB",
-    reportedSort: 202509240748,
+    reportedSort: 202609240748,
     teknisi: { name: "Pak Yanto", phone: "+62 813-2200-1177" },
     selesaiLabel: "Selesai 24 Sep, 15:05 WIB",
   },
@@ -243,7 +243,7 @@ export const TICKETS: Ticket[] = [
     photos: [],
     status: "selesai",
     reportedLabel: "22 Sep, 19:05 WIB",
-    reportedSort: 202509221905,
+    reportedSort: 202609221905,
     teknisi: { name: "Servicing Jaya", phone: "+62 812-8899-4410" },
     selesaiLabel: "Selesai 23 Sep, 09:20 WIB",
   },
@@ -260,7 +260,7 @@ export const TICKETS: Ticket[] = [
     photos: [],
     status: "selesai",
     reportedLabel: "21 Sep, 08:30 WIB",
-    reportedSort: 202509210830,
+    reportedSort: 202609210830,
     teknisi: { name: "Pak Yanto", phone: "+62 813-2200-1177" },
     selesaiLabel: "Selesai 21 Sep, 11:45 WIB",
   },
@@ -277,7 +277,7 @@ export const TICKETS: Ticket[] = [
     photos: [],
     status: "selesai",
     reportedLabel: "19 Sep, 21:14 WIB",
-    reportedSort: 202509192114,
+    reportedSort: 202609192114,
     teknisi: { name: "Servicing Jaya", phone: "+62 812-8899-4410" },
     selesaiLabel: "Selesai 20 Sep, 14:00 WIB",
   },
@@ -294,7 +294,7 @@ export const TICKETS: Ticket[] = [
     photos: [],
     status: "selesai",
     reportedLabel: "17 Sep, 13:22 WIB",
-    reportedSort: 202509171322,
+    reportedSort: 202609171322,
     teknisi: { name: "Pak Yanto", phone: "+62 813-2200-1177" },
     selesaiLabel: "Selesai 18 Sep, 08:50 WIB",
   },
@@ -311,7 +311,7 @@ export const TICKETS: Ticket[] = [
     photos: [],
     status: "selesai",
     reportedLabel: "15 Sep, 09:40 WIB",
-    reportedSort: 202509150940,
+    reportedSort: 202609150940,
     teknisi: { name: "Pak Yanto", phone: "+62 813-2200-1177" },
     selesaiLabel: "Selesai 15 Sep, 16:10 WIB",
   },
@@ -328,7 +328,7 @@ export const TICKETS: Ticket[] = [
     photos: [],
     status: "selesai",
     reportedLabel: "12 Sep, 18:25 WIB",
-    reportedSort: 202509121825,
+    reportedSort: 202609121825,
     teknisi: { name: "Servicing Jaya", phone: "+62 812-8899-4410" },
     selesaiLabel: "Selesai 13 Sep, 10:15 WIB",
   },

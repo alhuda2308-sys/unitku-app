@@ -135,10 +135,10 @@ export function TagihanView({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "unitku-tagihan-sep-2025.csv";
+    a.download = "unitku-tagihan-sep-2026.csv";
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Laporan CSV diunduh", { description: `${rows.length} invoice · Sep 2025` });
+    toast.success("Laporan CSV diunduh", { description: `${rows.length} invoice · Sep 2026` });
   };
 
   return (
@@ -190,7 +190,7 @@ export function TagihanView({
             onClick={() =>
               toast.info(
                 invoices.length > 0
-                  ? `Semua ${invoices.length} kamar sudah ditagih untuk Sep 2025.`
+                  ? `Semua ${invoices.length} kamar sudah ditagih untuk Sep 2026.`
                   : "Belum ada data tagihan — tambahkan kamar & penghuni terlebih dahulu.",
                 {
                   description: "Tagihan tambahan (listrik, laundry, denda) dapat dibuat pada fase pengembangan berikutnya.",
@@ -236,7 +236,7 @@ export function TagihanView({
           mobileLabel="Pengingat WA"
           value={String(waCount)}
           unit="WA Sent"
-          sub="via WhatsApp · Sep 2025"
+          sub="via WhatsApp · Sep 2026"
         />
       </section>
 
@@ -365,7 +365,7 @@ export function TagihanView({
         emptyDescription={
           isCurrentMonth
             ? "Coba ubah filter status atau kata kunci pencarian."
-            : "Data mock hanya tersedia untuk Sep 2025 (bulan berjalan)."
+            : "Data mock hanya tersedia untuk Sep 2026 (bulan berjalan)."
         }
       />
 
