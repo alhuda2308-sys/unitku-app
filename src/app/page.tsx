@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Sidebar } from "@/components/kost/sidebar";
 import { TopBar } from "@/components/kost/topbar";
+import { MobileBottomBar } from "@/components/kost/mobile-bottombar";
 import { MetricStrip } from "@/components/kost/metric-strip";
 import { RoomMatrix, type TabValue } from "@/components/kost/room-matrix";
 import { RoomDrawer } from "@/components/kost/room-drawer";
@@ -876,7 +877,7 @@ export default function IndoKostPage() {
         />
 
         <main className="flex-1 overflow-y-auto scrollbar-thin" aria-label="Konten utama">
-          <div className="mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 lg:p-6">
+          <div className="mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6">
             {view === "tagihan" ? (
               <TagihanView
                 invoices={invoices}
@@ -1004,6 +1005,21 @@ export default function IndoKostPage() {
             )}
           </div>
         </main>
+
+        {/* Bilah navigasi bawah — khusus ponsel (<640px); kontrol atas desktop tidak berubah */}
+        <MobileBottomBar
+          query={query}
+          onQueryChange={setQuery}
+          activeStatus={activeTab}
+          onStatusChange={(s) => {
+            setActiveTab(s);
+            if (view !== "denah") setView("denah");
+          }}
+          onCheckIn={() => openCheckin()}
+          onOpenMobileNav={() => setMobileOpen(true)}
+          theme={settings.theme}
+          onThemeChange={(t) => updateSettings({ theme: t })}
+        />
       </div>
 
       <RoomDrawer

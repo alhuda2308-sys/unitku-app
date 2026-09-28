@@ -29,7 +29,8 @@ interface TopBarProps {
   onThemeChange: (t: ThemeKey) => void;
 }
 
-const FILTER_OPTIONS: { value: RoomStatus | "all"; label: string }[] = [
+/** Opsi filter status tagihan — dipakai TopBar (desktop) & MobileBottomBar (ponsel) */
+export const FILTER_OPTIONS: { value: RoomStatus | "all"; label: string }[] = [
   { value: "all", label: "Semua Status" },
   { value: "lunas", label: STATUS_META.lunas.tabLabel },
   { value: "jatuhTempo", label: STATUS_META.jatuhTempo.tabLabel },
@@ -67,7 +68,7 @@ export function TopBar({
   const activeLabel = FILTER_OPTIONS.find((o) => o.value === activeStatus)?.label ?? "Semua Status";
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-white px-3 lg:px-6">
+    <header className="hidden h-14 shrink-0 items-center gap-3 border-b border-border bg-white px-3 sm:flex lg:px-6">
       {/* Mobile nav trigger */}
       <Button
         variant="ghost"

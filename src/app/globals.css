@@ -1286,3 +1286,51 @@
 }
 
 /* task34 cache-bust */
+
+/* ===== Bilah navigasi bawah mobile (Task 40) — adaptasi tema gelap =====
+   Bar memakai bg-white/95 sesuai spec; tema gelap UnitKu (cyber/blueprint)
+   menimpa warna bar, ikon, dan panel pencarian agar tetap serasi. */
+[data-ik-theme="cyber"] .mobile-bottombar {
+  background-color: rgba(12, 12, 14, 0.95);
+  border-color: #27272a;
+}
+[data-ik-theme="blueprint"] .mobile-bottombar {
+  background-color: rgba(15, 30, 54, 0.95);
+  border-color: rgba(56, 189, 248, 0.25);
+}
+[data-ik-theme="cyber"] .mobile-bottombar .barbtn {
+  color: #a1a1aa;
+}
+[data-ik-theme="cyber"] .mobile-bottombar .barbtn:hover {
+  background-color: #27272a;
+}
+[data-ik-theme="blueprint"] .mobile-bottombar .barbtn {
+  color: #c7d7ea;
+}
+[data-ik-theme="blueprint"] .mobile-bottombar .barbtn:hover {
+  background-color: rgba(56, 189, 248, 0.14);
+}
+[data-ik-theme="cyber"] .mobile-bottombar-panel {
+  background-color: rgba(18, 18, 21, 0.98);
+  border-color: #3f3f46;
+}
+[data-ik-theme="blueprint"] .mobile-bottombar-panel {
+  background-color: rgba(15, 30, 54, 0.98);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+[data-ik-theme="cyber"] .mobile-bottombar-panel input,
+[data-ik-theme="blueprint"] .mobile-bottombar-panel input {
+  color: #fafafa;
+}
+[data-ik-theme="cyber"] .mobile-bottombar-panel input::placeholder {
+  color: #71717a;
+}
+[data-ik-theme="blueprint"] .mobile-bottombar-panel input::placeholder {
+  color: #64809c;
+}
+[data-ik-theme="cyber"] .mobile-bottombar-panel .barbtn {
+  color: #a1a1aa;
+}
+[data-ik-theme="blueprint"] .mobile-bottombar-panel .barbtn {
+  color: #c7d7ea;
+}
