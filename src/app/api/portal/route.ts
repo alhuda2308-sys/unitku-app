@@ -43,6 +43,15 @@ export async function GET(request: NextRequest) {
       room: toClientRoom(roomWithTenant),
       invoices: invoices.map(toClientInvoice),
       propertyName: property.name,
+      // Rekening & QRIS statis owner — kartu pembayaran portal (Transfer Bank /
+      // Scan QRIS). Null-aman: field opsional di model Property.
+      rekening: {
+        bank: property.bankName ?? "BCA",
+        noRek: property.bankAccountNo ?? "",
+        atasNama: property.bankAccountName ?? property.name,
+        qrisImageUrl: property.qrisImageUrl ?? undefined,
+        qrisNmid: property.qrisNmid ?? undefined,
+      },
     });
   } catch (err) {
     console.error("[api/portal GET]", err);

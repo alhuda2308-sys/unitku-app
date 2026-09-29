@@ -11,6 +11,7 @@ import type { Invoice as ClientInvoice } from "@/lib/kost-invoices";
 import type { CashEntry as ClientCashEntry, CashType } from "@/lib/kost-cashflow";
 import type { StaffAccessMember } from "@/lib/staff-access";
 import type { ClientProperty } from "@/lib/server/mappers";
+import type { PortalRekening } from "./tenant-portal";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -40,6 +41,10 @@ export interface PropertyPatchInput {
   bankName?: string | null;
   bankAccountNo?: string | null;
   bankAccountName?: string | null;
+  /** DataURL gambar QRIS statis (null = hapus) */
+  qrisImageUrl?: string | null;
+  /** Nama Merchant / NMID QRIS (null = hapus) */
+  qrisNmid?: string | null;
 }
 
 export const api = {
@@ -211,6 +216,8 @@ export interface PortalData {
   room: ClientRoom;
   invoices: ClientInvoice[];
   propertyName: string;
+  /** Rekening + QRIS statis owner (cloud) — kartu pembayaran portal */
+  rekening?: PortalRekening;
 }
 
 export const portalApi = {

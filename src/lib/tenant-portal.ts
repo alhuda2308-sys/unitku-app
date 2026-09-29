@@ -8,7 +8,8 @@
 //
 // Integration seam: ganti resolvePortalRoom/portalInvoiceView dengan
 // `GET /api/portal?token=…` dan pembayaran dengan webhook payment gateway
-// (Midtrans/Xendit). QRIS payload mengikuti standar EMVCo (dynamic, amount-bound).
+// (Midtrans/Xendit). QRIS memakai gambar statis unggahan owner
+// (Pengaturan → Rekening & Pembayaran → field `qrisImageUrl`).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { formatIDR, type Room } from "./kost-data";
@@ -45,76 +46,27 @@ export function resolvePortalRoom(token: string, rooms: Room[]): Room | null {
 
 export const PORTAL_ISSUED_LABEL = "Diterbitkan 26 Sep 2026";
 
-// ── Virtual Account options ──────────────────────────────────────────────────
+// ── Rekening & QRIS statis (kartu pembayaran portal) ────────────────────────
 
-export interface VaAccount {
+/** Rekening pembayaran owner + QRIS statis (Pengaturan → Rekening & Pembayaran).
+ *  Sumber: cloud (GET /api/properties & /api/portal?token=…), fallback settings
+ *  localStorage. `qrisImageUrl` berupa dataURL (PNG/JPG/WebP terkompresi). */
+export interface PortalRekening {
   bank: string;
-  va: string; // display format, spaced
+  noRek: string;
+  atasNama: string;
+  /** DataURL gambar QRIS statis — hadir = tab "Scan QRIS" tampil di portal */
+  qrisImageUrl?: string;
+  /** Nama Merchant / NMID QRIS (opsional) — contoh "Kost Griya Nyaman · NMID: ID1020…" */
+  qrisNmid?: string;
 }
 
-export const VA_ACCOUNTS: VaAccount[] = [
-  { bank: "BCA", va: "8801 2938 1029 3844" },
-  { bank: "Mandiri", va: "8951 0011 2233 4455" },
-  { bank: "BRI", va: "2620 1099 8877 6655" },
-];
+/** Panduan scan QRIS — teks verbatim spesifikasi (ditampilkan di bawah gambar) */
+export const QRIS_SCAN_GUIDE =
+  "Buka aplikasi m-Banking atau e-Wallet (BCA, Mandiri, GoPay, OVO, ShopeePay), lalu scan kode di atas.";
 
-// ── QRIS dynamic payload (EMVCo TLV, mock merchant) ──────────────────────────
-
-/** CRC-16/CCITT-FALSE — required trailing checksum of an EMVCo QRIS payload */
-function crc16(payload: string): string {
-  let crc = 0xffff;
-  for (let i = 0; i < payload.length; i++) {
-    crc ^= payload.charCodeAt(i) << 8;
-    for (let b = 0; b < 8; b++) {
-      crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
-    }
-  }
-  return crc.toString(16).toUpperCase().padStart(4, "0");
-}
-
-const tlv = (id: string, value: string) => id + String(value.length).padStart(2, "0") + value;
-
-const MERCHANT_PAN = "936009140000001230";
-const MERCHANT_ID = "10940318210303403";
-
-/** Nama merchant EMVCo dari nama properti — uppercase ASCII alnum, maks 25 char */
-export function qrisMerchantName(propertyName: string): string {
-  const clean = propertyName
-    .toUpperCase()
-    .replace(/[^A-Z0-9 ]/g, "")
-    .trim();
-  return clean.length > 0 ? clean.slice(0, 25) : "UNITKU";
-}
-
-export const QRIS_NMID = "NMID: 936009140000001230";
-
-/** Payload QRIS dinamis terikat nominal & referensi tagihan */
-export function buildQrisPayload(
-  total: number,
-  billRef: string,
-  propertyName = "Kost Griya Pratama"
-): string {
-  const merchantAccount =
-    tlv("00", "ID.CO.QRIS.WWW") + tlv("01", MERCHANT_PAN) + tlv("02", MERCHANT_ID) + tlv("03", "UMI");
-  const body =
-    tlv("00", "01") +
-    tlv("01", "12") + // 12 = dynamic QR (amount bound)
-    tlv("26", merchantAccount) +
-    tlv("51", merchantAccount) +
-    tlv("52", "5812") + // MCC: food/housing services proxy
-    tlv("53", "360") + // IDR
-    tlv("54", String(total)) +
-    tlv("58", "ID") +
-    tlv("59", qrisMerchantName(propertyName)) +
-    tlv("60", "JAKARTA") +
-    tlv("61", "12340") +
-    tlv("62", tlv("07", billRef.replace("#", ""))) + // bill reference
-    "6304";
-  return body + crc16(body);
-}
-
-/** Payment channels shown under the QR ("Scan via …") */
-export const QRIS_CHANNELS = ["BCA", "Gojek", "ShopeePay"];
+/** Channel yang ditampilkan sebagai chips di bawah panduan scan */
+export const QRIS_CHANNELS = ["BCA", "Mandiri", "GoPay", "OVO", "ShopeePay"];
 
 export const AUTO_VERIFY_NOTE =
   "Status pembayaran akan otomatis terverifikasi dalam 1–2 menit setelah transfer berhasil.";

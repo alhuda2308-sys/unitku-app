@@ -115,6 +115,12 @@ export interface RekeningConfig {
   bank: string;
   noRek: string;
   atasNama: string;
+  /** Gambar QRIS statis — dataURL (PNG/JPG/WebP terkompresi ≤ 720px).
+   *  Hadir = portal penyewa menampilkan tab "Scan QRIS" & pesan WA
+   *  menyebut opsi QRIS. Sinkron ke cloud `Property.qrisImageUrl`. */
+  qrisImageUrl?: string;
+  /** Nama Merchant / NMID QRIS (opsional) — contoh "Kost Griya Nyaman · NMID: ID1020…" */
+  qrisNmid?: string;
 }
 
 /* ── Template WhatsApp ─────────────────────────────────────────────────────── */
@@ -545,9 +551,13 @@ if (typeof window !== "undefined") {
 
 /**
  * File gambar → dataURL JPEG terkompresi (sisi terpanjang ≤ maxSize).
- * Menjaga kuota localStorage tetap aman untuk foto fasad.
+ * Menjaga kuota localStorage tetap aman untuk foto fasad / KTP / QRIS.
  */
-export function fileToPhotoDataUrl(file: File, maxSize = 480): Promise<string> {
+export function fileToPhotoDataUrl(
+  file: File,
+  maxSize = 480,
+  quality = 0.82,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Gagal membaca file"));
@@ -567,7 +577,7 @@ export function fileToPhotoDataUrl(file: File, maxSize = 480): Promise<string> {
           return;
         }
         ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", 0.82));
+        resolve(canvas.toDataURL("image/jpeg", quality));
       };
       img.src = String(reader.result);
     };

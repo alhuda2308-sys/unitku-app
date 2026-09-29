@@ -11,10 +11,12 @@ import {
   ImagePlus,
   Landmark,
   Layers3,
+  Loader2,
   MessageSquareText,
   Palette,
   Pencil,
   Plus,
+  QrCode,
   Save,
   Sofa,
   Trash2,
@@ -1061,6 +1063,32 @@ function StaffAccessTab({
 
 const BANKS = ["BCA", "Mandiri", "BRI", "BNI", "CIMB Niaga", "Permata"];
 
+/* ── QRIS statis — pembaca file (PNG/JPG/WebP → dataURL siap simpan) ──────── */
+
+const QRIS_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+const QRIS_ACCEPT = ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp";
+
+/** File QRIS → dataURL. PNG/WebP kecil dipertahankan apa adanya agar modul QR
+ *  tetap tajam; JPG/file besar dikompresi sisi terpanjang 720px (quality 0.9). */
+function fileToQrisDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Gagal membaca file"));
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      if (
+        (file.type === "image/png" || file.type === "image/webp") &&
+        file.size <= 250_000
+      ) {
+        resolve(dataUrl);
+        return;
+      }
+      fileToPhotoDataUrl(file, 720, 0.9).then(resolve, reject);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function RekeningTab({
   rekening,
   onSave,
@@ -1071,20 +1099,74 @@ function RekeningTab({
   const [bank, setBank] = useState(rekening.bank);
   const [noRek, setNoRek] = useState(rekening.noRek);
   const [atasNama, setAtasNama] = useState(rekening.atasNama);
-  const [qris, setQris] = useState<{ name: string; url: string } | null>(null);
+  // QRIS statis — sumber kebenaran = rekening tersimpan (remount via key saat
+  // settings berubah). NMID di-draft lokal agar bisa diketik dulu; tersimpan
+  // saat blur bila berubah.
+  const qrisUrl = rekening.qrisImageUrl;
+  const [nmid, setNmid] = useState(rekening.qrisNmid ?? "");
   const fileRef = useRef<HTMLInputElement>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  /** Persist QRIS — bank fields diambil dari snapshot tersimpan (bukan draft
+   *  lokal) agar aksi QRIS tidak ikut menyimpan editan rekening yang belum
+   *  disimpan pengguna. */
+  const saveQris = (qrisImageUrl: string | undefined) => {
+    onSave({
+      ...rekening,
+      bank: rekening.bank,
+      noRek: rekening.noRek,
+      atasNama: rekening.atasNama,
+      qrisImageUrl,
+      qrisNmid: nmid.trim() || undefined,
+    });
+  };
 
   const pick = (file: File | undefined) => {
-    if (!file) return;
-    if (qris) URL.revokeObjectURL(qris.url);
-    setQris({ name: file.name, url: URL.createObjectURL(file) });
+    if (!file || uploading) return;
+    if (!(QRIS_MIME_TYPES as readonly string[]).includes(file.type)) {
+      toast.error("Format tidak didukung", {
+        description: "Unggah gambar QRIS dalam format PNG, JPG, atau WebP.",
+      });
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Ukuran gambar terlalu besar", {
+        description: "Maksimal 8 MB — kompres dulu atau pilih file lain.",
+      });
+      return;
+    }
+    setUploading(true);
+    fileToQrisDataUrl(file)
+      .then((dataUrl) => {
+        saveQris(dataUrl);
+        toast.success("QRIS tersimpan", {
+          description: "Tersedia di portal penyewa (tab Scan QRIS) & pesan tagihan WhatsApp.",
+        });
+      })
+      .catch((err: unknown) => {
+        toast.error("Gagal memuat QRIS", {
+          description: err instanceof Error ? err.message : "Coba file lain.",
+        });
+      })
+      .finally(() => setUploading(false));
   };
 
   const save = () => {
     if (!noRek.trim() || !atasNama.trim()) return;
-    onSave({ bank, noRek: noRek.trim(), atasNama: atasNama.trim() });
+    onSave({ bank, noRek: noRek.trim(), atasNama: atasNama.trim(), qrisImageUrl: qrisUrl, qrisNmid: nmid.trim() || undefined });
     toast.success("Rekening tersimpan", {
       description: "Instruksi transfer pada invoice & pengingat WA ikut diperbarui.",
+    });
+  };
+
+  /** Simpan NMID saat blur bila berubah (input opsional) */
+  const commitNmid = () => {
+    const next = nmid.trim() || undefined;
+    if (next === (rekening.qrisNmid ?? undefined)) return;
+    onSave({ ...rekening, qrisNmid: next });
+    toast.success("Info QRIS tersimpan", {
+      description: "Nama merchant / NMID tampil bersama kode QRIS di portal penyewa.",
     });
   };
 
@@ -1125,47 +1207,131 @@ function RekeningTab({
           </div>
         </SectionCard>
 
-        <SectionCard title="QRIS Manual">
+        <SectionCard title="QRIS Statis">
           <div className="space-y-3 p-4">
             <div className="flex items-start gap-2.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-2.5">
-              <Landmark className="mt-0.5 size-4 shrink-0 text-violet-500" strokeWidth={1.75} aria-hidden="true" />
+              <QrCode className="mt-0.5 size-4 shrink-0 text-violet-500" strokeWidth={1.75} aria-hidden="true" />
               <p className="text-[12.5px] leading-5 text-violet-800">
-                Unggah gambar QRIS statis sebagai alternatif pembayaran sebelum payment gateway otomatis aktif.
+                QRIS yang diunggah otomatis tampil di portal penyewa (tab &quot;Scan QRIS&quot;),
+                kwitansi digital &amp; disebut pada pesan tagihan WhatsApp.
               </p>
             </div>
-            {qris ? (
-              <div className="flex items-center gap-3 rounded-md border border-border bg-zinc-50 p-3">
-                <img src={qris.url} alt={`QRIS ${qris.name}`} className="size-20 rounded border border-border bg-white object-contain p-1" />
+
+            {qrisUrl ? (
+              <div className="flex items-start gap-3 rounded-md border border-border bg-zinc-50 p-3">
+                {/* Pratinjau — aspect-square + object-contain agar QRIS tidak terpotong */}
+                <img
+                  src={qrisUrl}
+                  alt="QRIS statis properti ini"
+                  className="size-24 shrink-0 rounded border border-border bg-white object-contain p-1"
+                />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[12.5px] font-medium text-zinc-800">{qris.name}</p>
-                  <p className="text-xs text-zinc-700">Aktif · ditampilkan di portal penyewa</p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="mt-1 h-7 px-2 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700"
-                    onClick={() => {
-                      URL.revokeObjectURL(qris.url);
-                      setQris(null);
-                    }}
-                  >
-                    <X className="mr-1 size-3" strokeWidth={1.75} />
-                    Hapus QRIS
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Check className="size-3.5 text-emerald-600" strokeWidth={2} aria-hidden="true" />
+                    <p className="text-[12.5px] font-semibold text-zinc-800">QRIS Aktif</p>
+                  </div>
+                  <p className="mt-0.5 text-xs leading-4 text-zinc-700">
+                    Ditampilkan di portal penyewa &amp; kwitansi digital.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={uploading}
+                      className="h-7 border-zinc-200 bg-white px-2 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      <ImagePlus className="size-3 text-zinc-700" strokeWidth={1.75} />
+                      Ganti QRIS
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={uploading}
+                      className="h-7 px-2 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => {
+                        saveQris(undefined);
+                        toast.success("QRIS dihapus", {
+                          description: "Portal penyewa kembali menampilkan nomor rekening bank saja.",
+                        });
+                      }}
+                    >
+                      <Trash2 className="size-3" strokeWidth={1.75} />
+                      Hapus QRIS
+                    </Button>
+                  </div>
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-3 py-8 text-center transition-colors hover:border-zinc-400 hover:bg-white"
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragActive(false);
+                  pick(e.dataTransfer.files?.[0]);
+                }}
               >
-                <ImagePlus className="size-5 text-zinc-700" strokeWidth={1.5} aria-hidden="true" />
-                <span className="text-[12.5px] font-medium text-zinc-600">Unggah Gambar QRIS</span>
-                <span className="text-xs text-zinc-700">PNG/JPG · rasio 1:1 disarankan</span>
-              </button>
+                <button
+                  type="button"
+                  disabled={uploading}
+                  onClick={() => fileRef.current?.click()}
+                  aria-label="Pilih Gambar QRIS"
+                  className={cn(
+                    "flex w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-3 py-7 text-center transition-colors",
+                    dragActive
+                      ? "border-zinc-900 bg-zinc-100"
+                      : "border-zinc-300 bg-zinc-50 hover:border-zinc-400 hover:bg-white",
+                    uploading && "opacity-60",
+                  )}
+                >
+                  {uploading ? (
+                    <Loader2 className="size-5 animate-spin text-zinc-700" strokeWidth={1.5} aria-hidden="true" />
+                  ) : (
+                    <ImagePlus className="size-5 text-zinc-700" strokeWidth={1.5} aria-hidden="true" />
+                  )}
+                  <span className="text-[12.5px] font-medium text-zinc-700">
+                    {uploading ? "Memproses gambar…" : "Pilih Gambar QRIS"}
+                  </span>
+                  <span className="text-xs text-zinc-700">
+                    {dragActive ? "Lepaskan untuk mengunggah" : "Tarik & lepas di sini, atau klik · PNG/JPG/WebP"}
+                  </span>
+                </button>
+              </div>
             )}
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pick(e.target.files?.[0])} aria-label="Unggah gambar QRIS" />
-            <p className="text-xs text-zinc-700">Preview QRIS bersifat sesi — tersimpan otomatis pada rilis integrasi pembayaran.</p>
+
+            <input
+              ref={fileRef}
+              type="file"
+              accept={QRIS_ACCEPT}
+              className="hidden"
+              onChange={(e) => {
+                pick(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+              aria-label="Unggah gambar QRIS"
+            />
+
+            <div className="space-y-1.5">
+              <Label htmlFor="st-qris-nmid" className="text-[12.5px] text-zinc-600">
+                Nama Merchant / NMID QRIS <span className="text-zinc-400">(opsional)</span>
+              </Label>
+              <Input
+                id="st-qris-nmid"
+                value={nmid}
+                onChange={(e) => setNmid(e.target.value)}
+                onBlur={commitNmid}
+                placeholder="Kost Griya Nyaman / NMID: ID1020..."
+                className={inputCls}
+              />
+            </div>
+            <p className="text-xs leading-4 text-zinc-700">
+              Gambar tersimpan sebagai dataURL &amp; disinkronkan ke database — tampil tajam di
+              portal penyewa dan dapat diunduh penyewa untuk dipindai dari layar HP lain.
+            </p>
           </div>
         </SectionCard>
       </div>

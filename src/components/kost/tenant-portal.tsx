@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { QRCodeCanvas } from "qrcode.react";
+import { useMemo, useState } from "react";
 import {
   ArrowLeft,
   Bell,
@@ -36,13 +35,11 @@ import {
 import {
   AUTO_VERIFY_NOTE,
   QRIS_CHANNELS,
-  QRIS_NMID,
-  VA_ACCOUNTS,
-  buildQrisPayload,
+  QRIS_SCAN_GUIDE,
   portalInvoiceView,
-  qrisMerchantName,
   resolvePortalRoom,
   type PortalBannerTone,
+  type PortalRekening,
 } from "@/lib/tenant-portal";
 import { ReportIssueDrawer, type IssueDraft } from "./report-issue-drawer";
 import { FacilityBadge } from "./facility-badge";
@@ -57,6 +54,9 @@ interface TenantPortalProps {
   announcements?: Announcement[];
   /** Fasilitas bersama properti (dari Pengaturan → Katalog Fasilitas) */
   sharedFacilities?: string[];
+  /** Rekening & QRIS statis owner (cloud / Pengaturan) — kartu pembayaran.
+   *  `qrisImageUrl` hadir → tab "Scan QRIS" tampil; kosong → rekening bank saja. */
+  rekening?: PortalRekening;
   /** true = halaman publik /portal (tab terpisah, tanpa chrome owner) */
   standalone?: boolean;
   /** Kembali ke dashboard owner (mode pratinjau saja) */
@@ -67,7 +67,7 @@ interface TenantPortalProps {
   onSubmitIssue?: (draft: IssueDraft) => string;
 }
 
-type PayMethod = "qris" | "va";
+type PayMethod = "qris" | "bank";
 
 const BANNER_META: Record<
   PortalBannerTone,
@@ -235,17 +235,18 @@ export function TenantPortal({
   propertyName,
   announcements = [],
   sharedFacilities = [],
+  rekening,
   standalone = false,
   onExit,
   onOpenTickets,
   onSubmitIssue,
 }: TenantPortalProps) {
-  const [method, setMethod] = useState<PayMethod>("qris");
-  const [vaIdx, setVaIdx] = useState(0);
+  // Tab pembayaran — default mengikuti ketersediaan QRIS (Scan QRIS bila
+  // owner sudah mengunggah, selain itu Transfer Bank); null = belum digeser
+  const [tabOverride, setTabOverride] = useState<PayMethod | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   /** Dismiss sementara per id — banner muncul lagi pada kunjungan berikutnya */
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
-  const qrBoxRef = useRef<HTMLDivElement>(null);
 
   // ── Magic-link resolution: token → SATU kamar & tagihannya ────────────────
   const room = useMemo(() => resolvePortalRoom(token, rooms), [token, rooms]);
@@ -276,12 +277,12 @@ export function TenantPortal({
   const unpaid =
     invoice != null &&
     (invoice.status === "belumBayar" || invoice.status === "jatuhTempo" || invoice.status === "menunggak");
-  const qrisPayload = useMemo(
-    () => (unpaid && invoice ? buildQrisPayload(invoice.total, invoice.id, propertyName) : ""),
-    [unpaid, invoice, propertyName]
-  );
 
-  const va = VA_ACCOUNTS[vaIdx];
+  // ── Rekening & QRIS statis owner ──────────────────────────────────────
+  const hasQris = !!rekening?.qrisImageUrl;
+  const activeTab: PayMethod = tabOverride ?? (hasQris ? "qris" : "bank");
+  const qrisImageUrl = rekening?.qrisImageUrl;
+  const qrisMerchantLabel = rekening?.qrisNmid?.trim() || propertyName;
 
   // ── State 1 — token tidak valid / kamar tidak terdaftar lagi ───────────────
   if (!room) {
@@ -299,28 +300,50 @@ export function TenantPortal({
     );
   }
 
-  const downloadQr = () => {
-    const canvas = qrBoxRef.current?.querySelector("canvas");
-    if (!canvas) return;
+  /** Unduh gambar QRIS statis (dataURL / URL) — nama file rapi per properti */
+  const downloadQrisImage = () => {
+    if (!qrisImageUrl || !invoice) return;
     const a = document.createElement("a");
-    a.href = canvas.toDataURL("image/png");
-    a.download = `qris-${invoice!.id.replace("#", "")}.png`;
+    a.href = qrisImageUrl;
+    a.download = `qris-${propertyName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`;
+    a.rel = "noopener";
     a.click();
-    toast.success("QR Code diunduh", {
-      description: "Scan dengan aplikasi mobile banking / e-wallet untuk membayar.",
+    toast.success("Gambar QRIS diunduh", {
+      description: "Buka gambar di galeri, lalu scan dengan m-Banking / e-Wallet.",
     });
   };
 
-  const copyVa = async () => {
-    const digits = va.va.replace(/\s/g, "");
+  /** Salin teks ke clipboard — dipakai Salin Nominal & Salin Nomor Rekening */
+  const copyText = async (text: string, title: string, desc: string) => {
     try {
-      await navigator.clipboard.writeText(digits);
-      toast.success(`Nomor VA ${va.bank} disalin`, {
-        description: `${digits} — a.n. Hendra Wijaya`,
-      });
+      await navigator.clipboard.writeText(text);
+      toast.success(title, { description: desc });
     } catch {
-      toast.error("Gagal menyalin", { description: "Salin manual: " + digits });
+      toast.error("Gagal menyalin", { description: "Salin manual: " + text });
     }
+  };
+
+  const copyNominal = () =>
+    invoice &&
+    copyText(
+      String(invoice.total),
+      "Nominal tagihan disalin",
+      `${formatIDR(invoice.total)} — tempel saat memasukkan jumlah transfer.`,
+    );
+
+  const copyNoRek = () => {
+    const digits = (rekening?.noRek ?? "").replace(/\s/g, "");
+    if (!digits) {
+      toast.error("Nomor rekening belum tersedia", {
+        description: "Pengelola belum melengkapi rekening di Pengaturan.",
+      });
+      return;
+    }
+    void copyText(
+      digits,
+      `Nomor rekening ${rekening?.bank ?? ""} disalin`,
+      `${digits} — a.n. ${rekening?.atasNama ?? "pengelola"}`,
+    );
   };
 
   const handleSubmitIssue = (draft: IssueDraft): string => {
@@ -483,61 +506,69 @@ export function TenantPortal({
                     Pilih cara bayar — total {formatIDR(view.total)}
                   </p>
 
-                  {/* Method selector */}
-                  <div className="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Pilih metode pembayaran">
-                    <MethodOption
-                      active={method === "qris"}
-                      onSelect={() => setMethod("qris")}
-                      icon={<QrCode className="size-4" strokeWidth={1.75} />}
-                      title="QRIS"
-                      sub="Semua Bank & E-Wallet"
-                    />
-                    <MethodOption
-                      active={method === "va"}
-                      onSelect={() => setMethod("va")}
-                      icon={<Landmark className="size-4" strokeWidth={1.75} />}
-                      title="Virtual Account"
-                      sub="BCA · Mandiri · BRI"
-                    />
-                  </div>
+                  {/* Tab metode — Scan QRIS hanya tampil bila owner sudah unggah QRIS statis */}
+                  {hasQris && (
+                    <div className="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Pilih metode pembayaran">
+                      <MethodOption
+                        active={activeTab === "qris"}
+                        onSelect={() => setTabOverride("qris")}
+                        icon={<QrCode className="size-4" strokeWidth={1.75} />}
+                        title="Scan QRIS"
+                        sub="Semua Bank & E-Wallet"
+                      />
+                      <MethodOption
+                        active={activeTab === "bank"}
+                        onSelect={() => setTabOverride("bank")}
+                        icon={<Landmark className="size-4" strokeWidth={1.75} />}
+                        title="Transfer Bank"
+                        sub={rekening?.bank ?? "Transfer manual"}
+                      />
+                    </div>
+                  )}
 
-                  {method === "qris" ? (
+                  {activeTab === "qris" && qrisImageUrl ? (
+                    /* ── Tab Scan QRIS — gambar statis unggahan owner ── */
                     <div className="mt-4">
-                      <div
-                        ref={qrBoxRef}
-                        className="mx-auto w-fit rounded-lg border border-border bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
-                      >
-                        <QRCodeCanvas
-                          value={qrisPayload}
-                          size={172}
-                          marginSize={2}
-                          level="M"
-                          bgColor="#FFFFFF"
-                          fgColor="#0F172A"
-                          title={`QRIS ${formatIDR(view.total)} ${propertyName}`}
-                          className="block"
-                        />
+                      <div className="mx-auto w-full max-w-[260px]">
+                        {/* Kotak QRIS putih dengan padding — aman dipindai dari layar HP lain */}
+                        <div className="rounded-lg border border-border bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+                          <img
+                            src={qrisImageUrl}
+                            alt={`QRIS ${propertyName} — scan untuk membayar ${formatIDR(view.total)}`}
+                            className="block aspect-square w-full object-contain"
+                          />
+                        </div>
+                        <div className="mt-2.5 text-center">
+                          <p className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-700">
+                            {qrisMerchantLabel}
+                          </p>
+                          <p className="mt-1.5 text-[20px] font-bold tracking-tight tabular-nums text-zinc-900">
+                            {formatIDR(view.total)}
+                          </p>
+                        </div>
+                        <div className="mt-2.5 grid grid-cols-2 gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={downloadQrisImage}
+                            className="h-11 border-zinc-200 bg-white px-2 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50 sm:h-9"
+                          >
+                            <Download className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+                            Unduh QRIS
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={copyNominal}
+                            className="h-11 border-zinc-200 bg-white px-2 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50 sm:h-9"
+                          >
+                            <Copy className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+                            Salin Nominal
+                          </Button>
+                        </div>
                       </div>
-                      <div className="mt-3 text-center">
-                        <p className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-700">
-                          {qrisMerchantName(propertyName)}
-                        </p>
-                        <p className="mt-0.5 text-xs tabular-nums text-zinc-700">{QRIS_NMID}</p>
-                        <p className="mt-1.5 text-[20px] font-bold tracking-tight tabular-nums text-zinc-900">
-                          {formatIDR(view.total)}
-                        </p>
-                      </div>
-                      <div className="mt-3 flex justify-center">
-                        <Button
-                          variant="outline"
-                          onClick={downloadQr}
-                          className="h-8 border-zinc-200 bg-white px-3 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
-                        >
-                          <Download className="size-3.5 text-zinc-700" strokeWidth={1.75} />
-                          Unduh QR
-                        </Button>
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+                      <p className="mt-3 text-center text-xs leading-relaxed text-zinc-700">
+                        {QRIS_SCAN_GUIDE}
+                      </p>
+                      <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
                         <span className="text-xs text-zinc-700">Scan via</span>
                         {QRIS_CHANNELS.map((c) => (
                           <span
@@ -550,53 +581,52 @@ export function TenantPortal({
                       </div>
                     </div>
                   ) : (
+                    /* ── Tab Transfer Bank — rekening owner (fallback tanpa QRIS) ── */
                     <div className="mt-4">
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {VA_ACCOUNTS.map((acc, i) => (
-                          <button
-                            key={acc.bank}
-                            type="button"
-                            onClick={() => setVaIdx(i)}
-                            aria-pressed={vaIdx === i}
-                            className={cn(
-                              "h-9 rounded-md border text-[12.5px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20",
-                              vaIdx === i
-                                ? "border-zinc-900 bg-zinc-900 text-white"
-                                : "border-border bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
-                            )}
-                          >
-                            {acc.bank}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="mt-3 rounded-lg border border-border bg-zinc-50 p-3.5 text-center">
+                      <div className="rounded-lg border border-border bg-zinc-50 p-3.5 text-center">
                         <p className="text-xs font-semibold uppercase tracking-wider text-zinc-700">
-                          Nomor Virtual Account · {va.bank}
+                          Transfer ke Rekening · {rekening?.bank ?? "Bank"}
                         </p>
                         <p className="mt-1.5 font-mono text-[19px] font-bold tracking-[0.08em] tabular-nums text-zinc-900">
-                          {va.va}
+                          {rekening?.noRek || "Nomor rekening belum diatur"}
                         </p>
-                        <p className="mt-1 text-xs text-zinc-700">a.n. Hendra Wijaya — Pengelola Kost</p>
+                        <p className="mt-1 text-xs text-zinc-700">a.n. {rekening?.atasNama ?? propertyName}</p>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-white px-3.5 py-2.5">
+                        <div className="min-w-0">
+                          <p className="text-xs text-zinc-700">Nominal tagihan</p>
+                          <p className="text-[17px] font-bold tracking-tight tabular-nums text-zinc-900">
+                            {formatIDR(view.total)}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          onClick={copyNominal}
+                          className="h-11 shrink-0 border-zinc-200 bg-white px-3 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50 sm:h-8"
+                        >
+                          <Copy className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+                          Salin Nominal
+                        </Button>
                       </div>
                       <Button
-                        onClick={copyVa}
-                        className="mt-3 h-9 w-full bg-zinc-900 text-[13px] font-semibold text-white shadow-none hover:bg-zinc-800"
+                        onClick={copyNoRek}
+                        className="mt-2.5 h-11 w-full bg-zinc-900 text-[13px] font-semibold text-white shadow-none hover:bg-zinc-800 sm:h-9"
                       >
                         <Copy className="size-3.5" strokeWidth={1.75} />
-                        Salin Nomor
+                        Salin Nomor Rekening
                       </Button>
+
+                      {/* Auto-verification note — hanya pada alur transfer */}
+                      <div className="mt-3 flex items-start gap-2 rounded-md border border-border bg-zinc-50 px-3 py-2.5">
+                        <ShieldCheck
+                          className="mt-px size-3.5 shrink-0 text-emerald-600"
+                          strokeWidth={1.75}
+                          aria-hidden="true"
+                        />
+                        <p className="text-[12.5px] leading-snug text-zinc-600">{AUTO_VERIFY_NOTE}</p>
+                      </div>
                     </div>
                   )}
-
-                  {/* Auto-verification note */}
-                  <div className="mt-3 flex items-start gap-2 rounded-md border border-border bg-zinc-50 px-3 py-2.5">
-                    <ShieldCheck
-                      className="mt-px size-3.5 shrink-0 text-emerald-600"
-                      strokeWidth={1.75}
-                      aria-hidden="true"
-                    />
-                    <p className="text-[12.5px] leading-snug text-zinc-600">{AUTO_VERIFY_NOTE}</p>
-                  </div>
                 </section>
               )}
             </>

@@ -248,6 +248,8 @@ export default function IndoKostPage() {
             bank: p.bankName ?? s.rekening.bank,
             noRek: p.bankAccountNo ?? s.rekening.noRek,
             atasNama: p.bankAccountName ?? s.rekening.atasNama,
+            qrisImageUrl: p.qrisImageUrl ?? s.rekening.qrisImageUrl,
+            qrisNmid: p.qrisNmid ?? s.rekening.qrisNmid,
           },
         }));
       })
@@ -415,7 +417,8 @@ export default function IndoKostPage() {
       );
   };
 
-  /** Konteks pesan WA: nama properti + rekening cloud + link portal penyewa */
+  /** Konteks pesan WA: nama properti + rekening cloud + link portal penyewa.
+   *  qrisAvailable = QRIS statis terunggah → pesan menyebut opsi QRIS. */
   const waBillingContext = (inv: Invoice): WaBillingContext => {
     const origin = typeof window === "undefined" ? undefined : window.location.origin;
     const token = rooms.find((r) => r.id === inv.roomId)?.tenant?.portalToken;
@@ -427,6 +430,7 @@ export default function IndoKostPage() {
         holder: settings.rekening.atasNama,
       },
       portalUrl: token ? portalLink(token, origin) : `${origin ?? "https://unitku.id"}/portal`,
+      qrisAvailable: !!settings.rekening.qrisImageUrl,
     };
   };
 
@@ -714,6 +718,9 @@ export default function IndoKostPage() {
         payload.bankName = patch.rekening.bank;
         payload.bankAccountNo = patch.rekening.noRek;
         payload.bankAccountName = patch.rekening.atasNama;
+        // QRIS statis — undefined di-drop JSON, string/null dikirim apa adanya
+        payload.qrisImageUrl = patch.rekening.qrisImageUrl ?? null;
+        payload.qrisNmid = patch.rekening.qrisNmid ?? null;
       }
       api
         .updateProperty(payload)
@@ -1047,6 +1054,13 @@ export default function IndoKostPage() {
         announcements={announcements}
         propertyName={property}
         sharedFacilities={settings.facilities.shared.map((f) => f.label)}
+        rekening={{
+          bank: settings.rekening.bank,
+          noRek: settings.rekening.noRek,
+          atasNama: settings.rekening.atasNama,
+          qrisImageUrl: settings.rekening.qrisImageUrl,
+          qrisNmid: settings.rekening.qrisNmid,
+        }}
         onExit={() => setView("denah")}
         onOpenTickets={() => setView("komplain")}
         onSubmitIssue={handleCreateIssue}
@@ -1109,6 +1123,7 @@ export default function IndoKostPage() {
                   number: settings.rekening.noRek,
                   holder: settings.rekening.atasNama,
                 }}
+                qrisAvailable={!!settings.rekening.qrisImageUrl}
                 onGenerate={handleGenerateInvoices}
                 onMarkPaid={handleInvoiceMarkPaid}
                 onUpdateLines={handleUpdateInvoiceLines}

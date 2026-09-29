@@ -256,11 +256,16 @@ export interface WaBillingContext {
   bank: { bank: string; number: string; holder: string };
   /** URL absolut Portal Penyewa (window.location.origin saat klik) */
   portalUrl: string;
+  /** true = QRIS statis sudah diunggah owner — pesan menyebut opsi QRIS
+   *  dan header tautan menjadi "Kwitansi & Scan QRIS:" */
+  qrisAvailable?: boolean;
 }
 
 /**
  * Template "Tagih via WhatsApp" — pesan penagihan tagihan belum bayar.
  * Format persis sesuai spesifikasi: sapaan, rincian periode, rekening, link portal.
+ * Bila QRIS statis tersedia (ctx.qrisAvailable): tambah catatan QRIS setelah
+ * rekening dan header tautan menjadi "Kwitansi & Scan QRIS:".
  */
 export function buildBillingWaMessage(inv: Invoice, ctx: WaBillingContext): string {
   const sewa = inv.lines.find((l) => l.label === "Sewa Kamar")?.amount ?? inv.total;
@@ -281,8 +286,11 @@ export function buildBillingWaMessage(inv: Invoice, ctx: WaBillingContext): stri
     `Bank: *${ctx.bank.bank}*`,
     `No. Rekening: *${ctx.bank.number}*`,
     `A/N: *${ctx.bank.holder}*`,
+    ...(ctx.qrisAvailable
+      ? [`(Tersedia juga pembayaran via QRIS pada tautan kwitansi di bawah)`]
+      : []),
     ``,
-    `Kwitansi & rincian digital dapat diakses di:`,
+    ctx.qrisAvailable ? `Kwitansi & Scan QRIS:` : `Kwitansi & rincian digital dapat diakses di:`,
     ctx.portalUrl,
     ``,
     `Mohon konfirmasi dan kirimkan bukti transfer setelah melakukan pembayaran. Terima kasih!`,

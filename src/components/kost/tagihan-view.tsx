@@ -54,6 +54,8 @@ interface TagihanViewProps {
   propertyName: string;
   /** Rekening pembayaran aktif (cloud) — dicantumkan di pesan tagihan WA */
   bank: { bank: string; number: string; holder: string };
+  /** QRIS statis terunggah → pratinjau pesan WA menyebut opsi QRIS */
+  qrisAvailable?: boolean;
   /** Generator tagihan bulanan — POST /api/invoices (anti-duplikat server-side) */
   onGenerate: (periodKey: string) => Promise<void>;
   onMarkPaid: (inv: Invoice) => void;
@@ -73,6 +75,7 @@ export function TagihanView({
   onQueryChange,
   propertyName,
   bank,
+  qrisAvailable,
   onGenerate,
   onMarkPaid,
   onUpdateLines,
@@ -153,6 +156,7 @@ export function TagihanView({
       propertyName,
       bank,
       portalUrl: token ? portalLink(token, origin) : `${origin ?? "https://unitku.id"}/portal`,
+      qrisAvailable,
     };
   };
 

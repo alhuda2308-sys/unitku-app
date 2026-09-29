@@ -156,6 +156,8 @@ export interface ClientProperty {
   bankName: string | null;
   bankAccountNo: string | null;
   bankAccountName: string | null;
+  qrisImageUrl: string | null;
+  qrisNmid: string | null;
 }
 
 export function toClientProperty(property: Property): ClientProperty {
@@ -168,6 +170,8 @@ export function toClientProperty(property: Property): ClientProperty {
     bankName: property.bankName,
     bankAccountNo: property.bankAccountNo,
     bankAccountName: property.bankAccountName,
+    qrisImageUrl: property.qrisImageUrl,
+    qrisNmid: property.qrisNmid,
   };
 }
 

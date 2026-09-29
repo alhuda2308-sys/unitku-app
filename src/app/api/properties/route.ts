@@ -36,6 +36,8 @@ const STRING_FIELDS = [
   "bankName",
   "bankAccountNo",
   "bankAccountName",
+  "qrisImageUrl",
+  "qrisNmid",
 ] as const;
 
 type PropertyPatch = Partial<{
@@ -46,6 +48,8 @@ type PropertyPatch = Partial<{
   bankName: string | null;
   bankAccountNo: string | null;
   bankAccountName: string | null;
+  qrisImageUrl: string | null;
+  qrisNmid: string | null;
 }>;
 
 function pickPatch(body: Record<string, unknown>): PropertyPatch {

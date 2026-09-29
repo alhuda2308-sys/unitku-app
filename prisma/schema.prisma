@@ -30,6 +30,10 @@ model Property {
   bankName        String? // "BCA"
   bankAccountNo   String? // "1234567890"
   bankAccountName String? // "Hendra Wijaya"
+  // QRIS statis owner — dataURL gambar (PNG/JPG/WebP) + nama merchant / NMID
+  // (Pengaturan → Rekening & Pembayaran → kartu QRIS; tampil di portal & pesan WA)
+  qrisImageUrl    String?
+  qrisNmid        String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

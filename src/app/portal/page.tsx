@@ -15,6 +15,7 @@ import {
   subscribeSettings,
 } from "@/lib/app-settings";
 import { portalApi, type PortalData } from "@/lib/api-client";
+import type { PortalRekening } from "@/lib/tenant-portal";
 
 /**
  * Halaman publik Portal Penyewa — /portal?token=[portal_token]
@@ -61,6 +62,16 @@ function PortalByToken() {
     };
   }, [token]);
 
+  // Rekening & QRIS statis owner — cloud-first (Supabase), fallback pengaturan
+  // lokal perangkat ini agar pratinjau tetap hidup saat offline.
+  const rekening: PortalRekening = cloud?.rekening ?? {
+    bank: settings.rekening.bank,
+    noRek: settings.rekening.noRek,
+    atasNama: settings.rekening.atasNama,
+    qrisImageUrl: settings.rekening.qrisImageUrl,
+    qrisNmid: settings.rekening.qrisNmid,
+  };
+
   return (
     <TenantPortal
       token={token}
@@ -69,6 +80,7 @@ function PortalByToken() {
       announcements={mirror.announcements}
       propertyName={cloud?.propertyName ?? mirror.propertyName}
       sharedFacilities={settings.facilities.shared.map((f) => f.label)}
+      rekening={rekening}
       standalone
     />
   );
