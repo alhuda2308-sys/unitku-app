@@ -6,6 +6,8 @@
 //          (roomId/reporter eksplisit). Foto dikirim sebagai dataURL hasil
 //          kompresi klien (canvas) sehingga bisa dipratinjau lintas perangkat.
 // PATCH  : ubah status (menunggu → dikerjakan → selesai) & penugasan teknisi.
+// DELETE : hapus tiket permanen (?id=TKT-xxx) — dipanggil dari tombol "Hapus
+//          Tiket" (kolom Aksi / kartu mobile) setelah konfirmasi AlertDialog.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -51,8 +53,8 @@ async function reportedSortNow(): Promise<bigint> {
   const mi = String(d.getUTCMinutes()).padStart(2, "0");
   const nowSort = BigInt(`${y}${mo}${da}${hh}${mi}`);
   const agg = await db.ticket.aggregate({ _max: { reportedSort: true } });
-  const maxExisting = agg._max.reportedSort ?? 0n;
-  return nowSort > maxExisting ? nowSort : maxExisting + 1n;
+  const maxExisting = agg._max.reportedSort ?? BigInt(0);
+  return nowSort > maxExisting ? nowSort : maxExisting + BigInt(1);
 }
 
 /** "29 Sep" — label tanggal WIB utk catatan selesai */
@@ -218,8 +220,8 @@ export async function PATCH(request: NextRequest) {
     const data: {
       status?: string;
       selesaiLabel?: string | null;
-      teknisiName?: string;
-      teknisiPhone?: string;
+      teknisiName?: string | null;
+      teknisiPhone?: string | null;
     } = {};
 
     if (body.status !== undefined) {
@@ -264,5 +266,28 @@ export async function PATCH(request: NextRequest) {
   } catch (err) {
     console.error("[api/tickets PATCH]", err);
     return NextResponse.json({ error: "Gagal memperbarui tiket." }, { status: 500 });
+  }
+}
+
+/** Hapus permanen tiket komplain — ?id=TKT-xxx (dari dialog konfirmasi owner) */
+export async function DELETE(request: NextRequest) {
+  try {
+    await ensureSeed();
+    const id = new URL(request.url).searchParams.get("id")?.trim() ?? "";
+    if (!id) {
+      return NextResponse.json({ error: "Parameter id tiket wajib diisi." }, { status: 400 });
+    }
+    try {
+      await db.ticket.delete({ where: { id } });
+      return NextResponse.json({ ok: true, id });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+        return NextResponse.json({ error: "Tiket tidak ditemukan." }, { status: 404 });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error("[api/tickets DELETE]", err);
+    return NextResponse.json({ error: "Gagal menghapus tiket." }, { status: 500 });
   }
 }

@@ -17,10 +17,21 @@ import {
   Plus,
   Search,
   ShowerHead,
+  Trash2,
   Wrench,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -79,6 +90,8 @@ interface MaintenancePanelProps {
   query: string;
   onQueryChange: (q: string) => void;
   onStatusChange: (ticket: Ticket, status: TicketStatus) => void;
+  /** Hapus permanen tiket (dipanggil setelah konfirmasi dialog); parent sync DB + toast */
+  onDeleteTicket: (ticket: Ticket) => void;
   /** Parent creates the ticket (live metric + sidebar badge update); returns the new id */
   onCreateTicket: (draft: CreateTicketDraft) => string;
 }
@@ -368,6 +381,47 @@ function QuickStatusButton({
   return null;
 }
 
+/** Tombol ikon hapus tiket — merah lembut, tooltip "Hapus Tiket", buka dialog konfirmasi */
+function DeleteTicketButton({
+  ticket,
+  onRequestDelete,
+  size,
+}: {
+  ticket: Ticket;
+  onRequestDelete: (ticket: Ticket) => void;
+  /** compact = baris tabel desktop; full = kartu mobile */
+  size: "compact" | "full";
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => onRequestDelete(ticket)}
+          className={cn(
+            "shrink-0 border-red-200 bg-red-50 text-red-600 shadow-none hover:border-red-300 hover:bg-red-100 hover:text-red-700",
+            size === "compact" ? "h-7 w-7" : "h-9 w-9"
+          )}
+          aria-label={`Hapus Tiket — ${ticket.id} (${ticketSubject(ticket)})`}
+        >
+          <Trash2
+            className={size === "compact" ? "size-3.5" : "size-4"}
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        className="border border-zinc-200 bg-white text-zinc-700 shadow-md"
+      >
+        Hapus Tiket
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /** Kartu tiket komplain untuk layar ponsel (< md): pelapor + unit + status —
  *  keluhan (judul, urgensi, deskripsi, foto) — aksi Ubah Status & Chat WA. */
 function MobileTicketCard({
@@ -377,6 +431,7 @@ function MobileTicketCard({
   onOpenPenyewa,
   onDispatchTeknisi,
   onZoom,
+  onRequestDelete,
 }: {
   ticket: Ticket;
   technicians: TechnicianContact[];
@@ -384,6 +439,7 @@ function MobileTicketCard({
   onOpenPenyewa: (ticket: Ticket) => void;
   onDispatchTeknisi: (ticket: Ticket, tech: TicketContact) => void;
   onZoom: (src: string, ticket: Ticket) => void;
+  onRequestDelete: (ticket: Ticket) => void;
 }) {
   const meta = TICKET_STATUS_META[ticket.status];
   const urgensi = TICKET_URGENSI_META[ticket.urgensi];
@@ -536,6 +592,8 @@ function MobileTicketCard({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          {/* Hapus Tiket — konfirmasi dulu sebelum delete permanen */}
+          <DeleteTicketButton ticket={ticket} onRequestDelete={onRequestDelete} size="full" />
         </div>
       </div>
     </li>
@@ -549,11 +607,14 @@ export function MaintenancePanel({
   query,
   onQueryChange,
   onStatusChange,
+  onDeleteTicket,
   onCreateTicket,
 }: MaintenancePanelProps) {
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [zoom, setZoom] = useState<{ src: string; ticket: Ticket } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  /** Tiket yang menunggu konfirmasi hapus (AlertDialog) — null = tertutup */
+  const [deleteTarget, setDeleteTarget] = useState<Ticket | null>(null);
 
   // ── Kontak teknisi (cloud) — pill On-call & tombol Chat Teknisi ──────────
   const [technicians, setTechnicians] = useState<TechnicianContact[]>([]);
@@ -984,6 +1045,13 @@ export function MaintenancePanel({
                             ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
+
+                        {/* Hapus Tiket — ikon tong sampah merah lembut + tooltip */}
+                        <DeleteTicketButton
+                          ticket={ticket}
+                          onRequestDelete={setDeleteTarget}
+                          size="compact"
+                        />
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1015,6 +1083,7 @@ export function MaintenancePanel({
                 onOpenPenyewa={openPenyewaWa}
                 onDispatchTeknisi={dispatchTeknisiWa}
                 onZoom={(src, t) => setZoom({ src, ticket: t })}
+                onRequestDelete={setDeleteTarget}
               />
             ))}
           </ul>
@@ -1041,6 +1110,51 @@ export function MaintenancePanel({
         technicians={technicians}
         onTechniciansChange={setTechnicians}
       />
+
+      {/* Konfirmasi hapus tiket — cegah salah klik, aksi destruktif permanen */}
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-bold text-zinc-900">
+              Hapus Tiket Komplain?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-[13px] leading-5 text-zinc-700">
+                <p>
+                  Apakah Anda yakin ingin menghapus tiket {deleteTarget?.id} (
+                  {deleteTarget ? ticketSubject(deleteTarget) : ""} - {deleteTarget?.reporterName})?
+                  Tindakan ini tidak dapat dibatalkan.
+                </p>
+                {deleteTarget && (
+                  <p className="rounded-md border border-border bg-zinc-50 px-2.5 py-2 text-[12.5px] text-zinc-700">
+                    <span className="font-semibold text-zinc-900">{deleteTarget.judul}</span>
+                    <br />
+                    {deleteTarget.kategori} — {deleteTarget.deskripsi}
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="h-9 text-[13px] font-medium">Batal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const target = deleteTarget;
+                setDeleteTarget(null);
+                if (target) onDeleteTicket(target);
+              }}
+              className="h-9 bg-red-600 text-[13px] font-semibold text-white shadow-none hover:bg-red-700 focus-visible:ring-red-600/40"
+            >
+              Ya, Hapus Tiket
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Photo zoom dialog */}
       <Dialog open={zoom !== null} onOpenChange={(o) => !o && setZoom(null)}>

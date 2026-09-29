@@ -22,8 +22,16 @@ const ORDER = [{ isPrimary: "desc" }, { createdAt: "asc" }, { id: "asc" }] as co
 /** Validasi & rapikan payload kontak — kembalikan data bersih atau pesan error */
 function normalizeContact(
   body: Record<string, unknown>,
+  partial: false,
+): { data: Prisma.TechnicianContactUncheckedCreateInput } | { error: string };
+function normalizeContact(
+  body: Record<string, unknown>,
+  partial: true,
+): { data: Prisma.TechnicianContactUncheckedUpdateInput } | { error: string };
+function normalizeContact(
+  body: Record<string, unknown>,
   partial: boolean,
-): { data: Record<string, string | boolean> } | { error: string } {
+): { data: unknown } | { error: string } {
   const data: Record<string, string | boolean> = {};
 
   if (!partial || body.name !== undefined) {

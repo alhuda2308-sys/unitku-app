@@ -1044,6 +1044,22 @@ export default function IndoKostPage() {
       });
   };
 
+  /** Hapus permanen tiket — optimistic remove (statistik & tab ikut update),
+   *  lalu DELETE ke database; gagal → toast error + refetch supaya tetap tampil. */
+  const handleDeleteTicket = (ticket: Ticket) => {
+    setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+    toast.success(`Tiket ${ticket.id} berhasil dihapus`, {
+      description: `${ticketSubject(ticket)} · ${ticket.kategori} — dihapus permanen dari database.`,
+    });
+    api.deleteTicket(ticket.id).catch((err: unknown) => {
+      toast.error("Gagal menghapus tiket di database", { description: errMsg(err) });
+      api
+        .getTickets()
+        .then((res) => setTickets(res.tickets))
+        .catch(() => {});
+    });
+  };
+
   /** Shared ticket creator (modal owner + portal webhook) — optimistic + POST API.
    *  Tiket tampil instan secara lokal; begitu server merespons, digantikan versi
    *  kanonik database (id #TKT-xxx resmi) agar konsisten lintas perangkat. */
@@ -1243,6 +1259,7 @@ export default function IndoKostPage() {
                 query={query}
                 onQueryChange={setQuery}
                 onStatusChange={handleTicketStatus}
+                onDeleteTicket={handleDeleteTicket}
                 onCreateTicket={handleCreateTicket}
               />
             ) : view === "pengumuman" ? (

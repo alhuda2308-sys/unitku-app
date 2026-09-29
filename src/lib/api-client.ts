@@ -239,6 +239,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ id, ...patch }),
     }),
+  /** Hapus permanen tiket komplain (setelah konfirmasi owner) */
+  deleteTicket: (id: string) =>
+    request<{ ok: true }>(`/api/tickets?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
 
   // /api/technicians — Kontak Teknisi (Komplain & Pemeliharaan)
   getTechnicians: () =>
