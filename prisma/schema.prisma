@@ -1,11 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Kelola Kost, Kontrakan & Unit Sewa Tanpa Ribet
-// Prisma schema — PostgreSQL (Supabase)
+// Prisma schema — SQLite (fallback lokal; Supabase opsional via .env)
 //
 // Nilai status/kategori mengikuti tipe TS di src/lib (kost-data.ts,
 // kost-invoices.ts, ticket-data.ts, kost-cashflow.ts) dan disimpan sebagai
 // String agar mudah dikembangkan antar versi tanpa migrasi enum.
-// Field array memakai JSONB / tabel anak (aturan: tidak ada tipe list skalar).
+// Field array memakai Json / tabel anak (aturan: tidak ada tipe list skalar).
 // ─────────────────────────────────────────────────────────────────────────────
 
 generator client {
@@ -13,9 +13,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")      // runtime — transaction pooler (pgbouncer :6543)
-  directUrl = env("DIRECT_URL")        // migrasi/db push — koneksi langsung (:5432)
+  provider = "sqlite"
+  url      = "file:../db/custom.db"
 }
 
 // ── Properti ─────────────────────────────────────────────────────────────────
