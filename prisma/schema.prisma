@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Kelola Kost, Kontrakan & Unit Sewa Tanpa Ribet
-// Prisma schema — SQLite (fallback lokal; Supabase opsional via .env)
+// Prisma schema — PostgreSQL (Supabase) — wajib utk deployment Vercel serverless
 //
 // Nilai status/kategori mengikuti tipe TS di src/lib (kost-data.ts,
 // kost-invoices.ts, ticket-data.ts, kost-cashflow.ts) dan disimpan sebagai
@@ -13,10 +13,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  // connection_limit=1 → satu koneksi per proses: query diserialisasi agar
-  // request paralel (rooms+invoices+cash+seed) tidak memicu SQLITE_BUSY.
-  url      = "file:../db/custom.db?connection_limit=1"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ── Properti ─────────────────────────────────────────────────────────────────

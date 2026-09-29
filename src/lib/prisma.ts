@@ -55,9 +55,41 @@ function ensureDatabaseEnv(): void {
     const value = read("DIRECT_URL");
     if (value) process.env.DIRECT_URL = value;
   }
+
+  // Diagnostik deployment (khususnya Vercel serverless): bila URL tetap bukan
+  // postgres, Prisma pasti gagal validasi protokol — log pesan yang jelas &
+  // actionable agar penyebabnya langsung terbaca di Runtime Logs.
+  if (!process.env.DATABASE_URL?.startsWith("postgres")) {
+    const masked =
+      process.env.DATABASE_URL?.slice(0, 20).replace(/:\/\/.*/, "://***") ??
+      "(tidak terisi)";
+    console.error(
+      "[UnitKu DB] DATABASE_URL tidak valid untuk PostgreSQL — dapat:",
+      masked,
+      "\n  → Prisma provider = postgresql; Vercel serverless TIDAK mendukung SQLite file.",
+      "\n  → Perbaikan: isi Environment Variables di Vercel (Project → Settings →",
+      "    Environment Variables): DATABASE_URL = postgresql://…pooler.supabase.com:6543/postgres?pgbouncer=true",
+      "    dan DIRECT_URL = postgresql://…pooler.supabase.com:5432/postgres, lalu Redeploy.",
+    );
+  }
 }
 
 ensureDatabaseEnv();
+
+/** Log sekali per proses — memperjelas koneksi mana yang dipakai runtime */
+function logDatasourceOnce(): void {
+  const target = process.env.DATABASE_URL ?? "";
+  const host = target.match(/@([^:/?]+)/)?.[1] ?? "unknown";
+  const kind = target.startsWith("postgres")
+    ? target.includes(":6543")
+      ? "supabase-pooler(:6543)"
+      : "postgresql"
+    : target.startsWith("file:")
+      ? "sqlite"
+      : "TIDAK VALID";
+  console.log(`[UnitKu DB] Prisma init — provider=postgresql, target=${kind}, host=${host}`);
+}
+logDatasourceOnce();
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
