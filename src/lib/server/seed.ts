@@ -15,6 +15,7 @@ import { db } from "@/lib/prisma";
 import { ROOMS, parseDateLabel, seededPortalToken } from "@/lib/kost-data";
 import { INVOICES } from "@/lib/kost-invoices";
 import { CASH_ENTRIES, dateSortFromLabel, type CashType } from "@/lib/kost-cashflow";
+import { TICKETS } from "@/lib/ticket-data";
 
 /** Properti utama (id sama dengan settings.properties[0] agar switcher konsisten) */
 export const SEED_PROPERTY_ID = "kgp";
@@ -31,7 +32,12 @@ export function ensureSeed(): Promise<void> {
 
 async function runSeed(): Promise<void> {
   const existing = await db.property.findUnique({ where: { id: SEED_PROPERTY_ID } });
-  if (existing) return;
+  if (existing) {
+    // Database sudah ter-seed dari proses/sesi sebelumnya — tiket adalah tabel
+    // yang lebih baru: pastikan terisi (idempoten) agar modul Komplain hidup.
+    await seedTicketsIfEmpty();
+    return;
+  }
 
   const roomCount = await db.room.count();
   if (roomCount > 0) {
@@ -46,6 +52,7 @@ async function runSeed(): Promise<void> {
         alamat: "Jl. Cendana Raya No. 45, Cibinong, Bogor",
       },
     });
+    await seedTicketsIfEmpty();
     return;
   }
 
@@ -159,6 +166,36 @@ async function runSeed(): Promise<void> {
       },
     ],
   });
+
+  // ── Tiket komplain & pemeliharaan (Sep 2026) ───────────────────────────────
+  await seedTicketsIfEmpty();
+}
+
+/** Seed tiket demo — idempoten: hanya bila tabel masih kosong */
+async function seedTicketsIfEmpty(): Promise<void> {
+  const count = await db.ticket.count();
+  if (count > 0) return;
+  await db.ticket.createMany({
+    data: TICKETS.map((t) => ({
+      id: t.id,
+      roomId: t.sumber === "penyewa" ? (t.roomId ?? null) : null,
+      lokasi: t.lokasi ?? null,
+      sumber: t.sumber,
+      judul: t.judul,
+      urgensi: t.urgensi,
+      reporterName: t.reporterName,
+      reporterPhone: t.reporterPhone,
+      kategori: t.kategori,
+      deskripsi: t.deskripsi,
+      photos: t.photos,
+      status: t.status,
+      reportedLabel: t.reportedLabel,
+      reportedSort: BigInt(t.reportedSort),
+      teknisiName: t.teknisi?.name ?? null,
+      teknisiPhone: t.teknisi?.phone ?? null,
+      selesaiLabel: t.selesaiLabel ?? null,
+    })),
+  });
 }
 
 /** ID transaksi kas berikutnya — keluar "KX-012", masuk "KM-001", … (lanjutan seed) */
@@ -170,4 +207,14 @@ export async function nextCashId(type: CashType = "keluar"): Promise<string> {
     return match ? Math.max(m, Number(match[1])) : m;
   }, 0);
   return `${prefix}-${String(max + 1).padStart(3, "0")}`;
+}
+
+/** ID tiket berikutnya — max #TKT-N existing + 1 ("#TKT-042") */
+export async function nextTicketId(): Promise<string> {
+  const ids = await db.ticket.findMany({ select: { id: true } });
+  const max = ids.reduce((m, row) => {
+    const n = Number(row.id.replace(/[^0-9]/g, ""));
+    return Number.isFinite(n) ? Math.max(m, n) : m;
+  }, 0);
+  return `#TKT-${String(max + 1).padStart(3, "0")}`;
 }

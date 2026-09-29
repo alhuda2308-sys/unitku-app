@@ -184,10 +184,13 @@ model Ticket {
   reporterPhone String   @default("")
   kategori      String   @default("Lainnya") // AC | Kelistrikan/Lampu | dst.
   deskripsi     String   @default("")
-  photos        Json     @default("[]") // string[] URL foto (JSONB)
+  photos        Json     @default("[]") // string[] URL/dataURL foto (JSONB)
   status        String   @default("menunggu") // menunggu | dikerjakan | selesai
   reportedLabel String // "Hari ini, 09:15 WIB"
-  reportedSort  Int      @default(0) // sort monotonic (terbaru dulu)
+  reportedSort  BigInt   @default(0) // sort monotonic yyyyMMddHHmm (terbaru dulu)
+  teknisiName   String? // nama teknisi yang ditugaskan
+  teknisiPhone  String? // kontak teknisi (link WA)
+  selesaiLabel  String? // "Selesai 25 Sep, 10:30 WIB" — terisi saat status selesai
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

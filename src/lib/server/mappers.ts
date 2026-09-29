@@ -10,8 +10,9 @@
 import { dateToLabel, MONTH_NAMES, type Room as ClientRoom, type Tenant as ClientTenant } from "@/lib/kost-data";
 import type { Invoice as ClientInvoice, InvoiceStatus, InvoiceLine as ClientInvoiceLine } from "@/lib/kost-invoices";
 import type { CashEntry as ClientCashEntry } from "@/lib/kost-cashflow";
+import type { Ticket as ClientTicket, TicketContact } from "@/lib/ticket-data";
 import type { StaffAccessMember, StaffAccessRole } from "@/lib/staff-access";
-import type { CashEntry, Invoice, InvoiceLine, Property, Room, StaffMember, Tenant } from "@prisma/client";
+import type { CashEntry, Invoice, InvoiceLine, Property, Room, StaffMember, Tenant, Ticket } from "@prisma/client";
 import { db } from "@/lib/prisma";
 
 // ── Invoice ──────────────────────────────────────────────────────────────────
@@ -121,6 +122,36 @@ export function toClientCashEntry(entry: CashEntry): ClientCashEntry {
     amount: entry.amount,
     source: entry.source || undefined,
     attachment: entry.attachment ?? undefined,
+  };
+}
+
+// ── Tiket Komplain & Pemeliharaan ───────────────────────────────────────
+
+export function toClientTicket(t: Ticket): ClientTicket {
+  const teknisi: TicketContact | undefined =
+    t.teknisiName && t.teknisiPhone
+      ? { name: t.teknisiName, phone: t.teknisiPhone }
+      : t.teknisiName
+        ? { name: t.teknisiName, phone: "" }
+        : undefined;
+
+  return {
+    id: t.id,
+    ...(t.roomId ? { roomId: t.roomId } : {}),
+    ...(t.lokasi ? { lokasi: t.lokasi } : {}),
+    sumber: t.sumber as ClientTicket["sumber"],
+    judul: t.judul,
+    urgensi: t.urgensi as ClientTicket["urgensi"],
+    reporterName: t.reporterName,
+    reporterPhone: t.reporterPhone,
+    kategori: t.kategori as ClientTicket["kategori"],
+    deskripsi: t.deskripsi,
+    photos: Array.isArray(t.photos) ? (t.photos as string[]) : [],
+    status: t.status as ClientTicket["status"],
+    reportedLabel: t.reportedLabel,
+    reportedSort: Number(t.reportedSort),
+    ...(teknisi ? { teknisi } : {}),
+    ...(t.selesaiLabel ? { selesaiLabel: t.selesaiLabel } : {}),
   };
 }
 

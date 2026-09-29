@@ -9,6 +9,7 @@
 import type { Room as ClientRoom, RoomStatus } from "@/lib/kost-data";
 import type { Invoice as ClientInvoice } from "@/lib/kost-invoices";
 import type { CashEntry as ClientCashEntry, CashType } from "@/lib/kost-cashflow";
+import type { Ticket as ClientTicket } from "@/lib/ticket-data";
 import type { StaffAccessMember } from "@/lib/staff-access";
 import type { ClientProperty } from "@/lib/server/mappers";
 import type { PortalRekening } from "./tenant-portal";
@@ -194,6 +195,36 @@ export const api = {
     }),
   deleteStaff: (id: string) =>
     request<{ ok: true }>(`/api/staff?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  // /api/tickets — Komplain & Pemeliharaan
+  getTickets: () => request<{ tickets: ClientTicket[] }>("/api/tickets"),
+  /** Laporan masalah dari Portal Penyewa — foto dataURL (kompres canvas di klien) */
+  createTicket: (payload: {
+    portalToken?: string;
+    sumber?: string;
+    roomId?: string;
+    lokasi?: string;
+    reporterName?: string;
+    reporterPhone?: string;
+    judul?: string;
+    kategori: string;
+    deskripsi: string;
+    urgensi?: string;
+    photos?: string[];
+  }) =>
+    request<{ ticket: ClientTicket }>("/api/tickets", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  /** Tandai dikerjakan / selesai & penugasan teknisi */
+  updateTicket: (
+    id: string,
+    patch: { status?: string; teknisiName?: string; teknisiPhone?: string },
+  ) =>
+    request<{ ticket: ClientTicket }>("/api/tickets", {
+      method: "PATCH",
+      body: JSON.stringify({ id, ...patch }),
+    }),
 
   // /api/reset — Zona Berbahaya
   resetData: (mode: "demo" | "factory") =>

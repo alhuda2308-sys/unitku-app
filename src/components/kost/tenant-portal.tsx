@@ -22,6 +22,7 @@ import { toast } from "@/lib/toast";
 import { BRAND_NAME, BRAND_TAGLINE } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api-client";
 import { formatIDR, type Room } from "@/lib/kost-data";
 import type { Invoice } from "@/lib/kost-invoices";
 import {
@@ -346,7 +347,36 @@ export function TenantPortal({
     );
   };
 
-  const handleSubmitIssue = (draft: IssueDraft): string => {
+  const handleSubmitIssue = (draft: IssueDraft): string | Promise<string> => {
+    // ── Portal nyata (/portal?token=…) — simpan tiket ke database via API ──
+    if (token) {
+      return api
+        .createTicket({
+          portalToken: token,
+          kategori: draft.kategori,
+          deskripsi: draft.catatan,
+          photos: draft.photos,
+        })
+        .then((res) => {
+          setReportOpen(false);
+          toast.success(`Laporan terkirim — ${res.ticket.id}`, {
+            description: `${draft.kategori} · Kamar ${room.id} · ${
+              draft.photos.length > 0 ? `${draft.photos.length} foto lampiran` : "tanpa foto"
+            }. Pengelola akan menindaklanjuti.`,
+            duration: 9000,
+          });
+          return res.ticket.id;
+        })
+        .catch((err: unknown) => {
+          toast.error("Laporan gagal terkirim", {
+            description:
+              err instanceof Error ? err.message : "Periksa koneksi internet lalu coba lagi.",
+          });
+          throw err; // drawer tetap terbuka — penyewa bisa mengulang
+        });
+    }
+
+    // ── Pratinjau tertanam dashboard owner — tiket lokal (mock) ────────────
     if (onSubmitIssue && tenant) {
       const ticketId = onSubmitIssue(draft);
       setReportOpen(false);

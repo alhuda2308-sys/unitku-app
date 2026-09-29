@@ -85,7 +85,7 @@ export const TICKET_STATUS_META: Record<
   { label: string; pill: string; dot: string }
 > = {
   menunggu: {
-    label: "Menunggu",
+    label: "Perlu Ditangani",
     pill: "bg-amber-50 text-amber-700 border-amber-200",
     dot: "bg-amber-500",
   },

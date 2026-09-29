@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { fileToCompressedDataUrl } from "@/lib/image-compress";
 import type { Room } from "@/lib/kost-data";
 import {
   COMMON_AREAS,
@@ -89,18 +90,19 @@ export function CreateTicketModal({
       ? roomId !== "" && selectedRoom?.tenant != null
       : lokasiFinal.length >= 3);
 
-  const addFiles = (files: FileList | null) => {
+  const addFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const room = MAX_PHOTOS - photos.length;
     const picked = Array.from(files).slice(0, room);
     if (picked.length === 0) {
       return;
     }
-    setPhotos((prev) => [...prev, ...picked.map((f) => URL.createObjectURL(f))]);
+    // dataURL terkompresi — tiket persist di database & bisa dilihat lintas perangkat
+    const encoded = await Promise.all(picked.map((f) => fileToCompressedDataUrl(f)));
+    setPhotos((prev) => [...prev, ...encoded]);
   };
 
   const removePhoto = (src: string) => {
-    URL.revokeObjectURL(src);
     setPhotos((prev) => prev.filter((p) => p !== src));
   };
 
@@ -408,7 +410,7 @@ export function CreateTicketModal({
               multiple
               className="sr-only"
               onChange={(e) => {
-                addFiles(e.target.files);
+                void addFiles(e.target.files);
                 e.target.value = "";
               }}
               aria-label="Unggah foto kerusakan"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ImagePlus, Send, X } from "lucide-react";
+import { Camera, FolderOpen, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,32 +22,39 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ISSUE_CATEGORIES, type IssueCategory } from "@/lib/tenant-portal";
+import { fileToCompressedDataUrl } from "@/lib/image-compress";
 
 export interface IssueDraft {
   kategori: IssueCategory;
   catatan: string;
-  /** Object URLs of locally uploaded photos (max 3) */
+  /** DataURL foto terkompresi (kamera/galeri) — persist & pratinjau lintas perangkat */
   photos: string[];
 }
 
 interface ReportIssueDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Parent creates the owner-side ticket; returns the new ticket id */
-  onSubmit: (draft: IssueDraft) => string;
+  /** Parent membuat tiket (API nyata / lokal) — resolve dengan id tiket, reject bila gagal */
+  onSubmit: (draft: IssueDraft) => string | Promise<string>;
   /** Label kamar pelapor — "Kamar 104" (token-driven, dari portal) */
   roomLabel?: string;
 }
 
 const MAX_PHOTOS = 3;
 
+const sourceButtonCls =
+  "flex h-[68px] flex-1 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-zinc-300 bg-zinc-50 text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-white hover:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20";
+
 export function ReportIssueDrawer({ open, onOpenChange, onSubmit, roomLabel }: ReportIssueDrawerProps) {
   const [kategori, setKategori] = useState<IssueCategory | "">("");
   const [catatan, setCatatan] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [submitting, setSubmitting] = useState(false);
+  /** Ref input kamera (kamera belakang HP) & galeri — dua pintu masuk berbeda */
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
 
-  const addFiles = (files: FileList | null) => {
+  const addFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const room = MAX_PHOTOS - photos.length;
     const picked = Array.from(files).slice(0, room);
@@ -60,23 +67,36 @@ export function ReportIssueDrawer({ open, onOpenChange, onSubmit, roomLabel }: R
         description: `${files.length - picked.length} foto dilewati.`,
       });
     }
-    setPhotos((prev) => [...prev, ...picked.map((f) => URL.createObjectURL(f))]);
+    try {
+      const encoded = await Promise.all(picked.map((f) => fileToCompressedDataUrl(f)));
+      setPhotos((prev) => [...prev, ...encoded]);
+    } catch {
+      toast.error("Gagal memproses foto", {
+        description: "Coba ambil ulang foto atau pilih berkas lain.",
+      });
+    }
   };
 
   const removePhoto = (src: string) => {
-    URL.revokeObjectURL(src);
     setPhotos((prev) => prev.filter((p) => p !== src));
   };
 
-  const canSubmit = kategori !== "" && catatan.trim().length >= 5;
+  const canSubmit = kategori !== "" && catatan.trim().length >= 5 && !submitting;
 
   const handleSubmit = () => {
-    if (!kategori) return;
-    onSubmit({ kategori, catatan: catatan.trim(), photos });
-    // Blob URLs stay alive — the owner ticket list still renders them
-    setKategori("");
-    setCatatan("");
-    setPhotos([]);
+    if (!kategori || submitting) return;
+    const draft: IssueDraft = { kategori, catatan: catatan.trim(), photos };
+    setSubmitting(true);
+    Promise.resolve(onSubmit(draft))
+      .then(() => {
+        setKategori("");
+        setCatatan("");
+        setPhotos([]);
+      })
+      .catch(() => {
+        /* toast error sudah ditampilkan parent — drawer tetap terbuka utk diulang */
+      })
+      .finally(() => setSubmitting(false));
   };
 
   return (
@@ -114,7 +134,7 @@ export function ReportIssueDrawer({ open, onOpenChange, onSubmit, roomLabel }: R
             </Select>
           </div>
 
-          {/* Foto kerusakan */}
+          {/* Foto kerusakan — kamera langsung & galeri */}
           <div className="space-y-1.5">
             <Label className="text-[12.5px] font-medium text-zinc-700">
               Foto Kerusakan{" "}
@@ -122,17 +142,31 @@ export function ReportIssueDrawer({ open, onOpenChange, onSubmit, roomLabel }: R
                 (opsional, maks. {MAX_PHOTOS})
               </span>
             </Label>
+            {/* Input kamera — capture=environment membuka kamera belakang di HP */}
             <input
-              ref={fileRef}
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="sr-only"
+              onChange={(e) => {
+                void addFiles(e.target.files);
+                e.target.value = "";
+              }}
+              aria-label="Ambil foto langsung dengan kamera"
+            />
+            {/* Input galeri — pilih berkas dari penyimpanan */}
+            <input
+              ref={galleryRef}
               type="file"
               accept="image/*"
               multiple
               className="sr-only"
               onChange={(e) => {
-                addFiles(e.target.files);
+                void addFiles(e.target.files);
                 e.target.value = "";
               }}
-              aria-label="Unggah foto kerusakan"
+              aria-label="Pilih foto dari galeri"
             />
             <div className="flex gap-2">
               {photos.map((src) => (
@@ -152,16 +186,30 @@ export function ReportIssueDrawer({ open, onOpenChange, onSubmit, roomLabel }: R
                 </div>
               ))}
               {photos.length < MAX_PHOTOS && (
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  className="flex h-[68px] flex-1 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-zinc-300 bg-zinc-50 text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-white hover:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
-                >
-                  <ImagePlus className="size-4" strokeWidth={1.75} />
-                  <span className="text-xs font-medium">Unggah Foto</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => cameraRef.current?.click()}
+                    className={sourceButtonCls}
+                  >
+                    <Camera className="size-4" strokeWidth={1.75} />
+                    <span className="text-xs font-medium leading-tight">Ambil Foto Langsung</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => galleryRef.current?.click()}
+                    className={sourceButtonCls}
+                  >
+                    <FolderOpen className="size-4" strokeWidth={1.75} />
+                    <span className="text-xs font-medium leading-tight">Pilih dari Galeri</span>
+                  </button>
+                </>
               )}
             </div>
+            <p className="flex items-center gap-1 text-xs text-zinc-700">
+              <ImagePlus className="size-3" strokeWidth={1.75} aria-hidden="true" />
+              Foto terkompresi otomatis — jelas dilihat pengelola &amp; teknisi.
+            </p>
           </div>
 
           {/* Catatan */}
@@ -189,8 +237,12 @@ export function ReportIssueDrawer({ open, onOpenChange, onSubmit, roomLabel }: R
             disabled={!canSubmit}
             className="h-10 w-full bg-zinc-900 text-[13px] font-semibold text-white shadow-none hover:bg-zinc-800 disabled:bg-zinc-200 disabled:text-zinc-700"
           >
-            <Send className="size-4" />
-            Kirim Laporan ke Pengelola
+            {submitting ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Send className="size-4" />
+            )}
+            {submitting ? "Mengirim laporan…" : "Kirim Laporan ke Pengelola"}
           </Button>
         </DrawerFooter>
       </DrawerContent>

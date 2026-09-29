@@ -11,6 +11,7 @@ import {
   Info,
   KeyRound,
   Phone,
+  PlayCircle,
   Plus,
   Search,
   ShowerHead,
@@ -95,10 +96,17 @@ function CategoryIcon({ kategori }: { kategori: TicketCategory }) {
 /** Build the prefilled WhatsApp text for penyewa / teknisi contact */
 function buildWaText(ticket: Ticket, role: "penyewa" | "teknisi"): string {
   if (role === "penyewa") {
+    // Pesan konfirmasi perbaikan — menyesuaikan status tiket terkini
+    const statusLine =
+      ticket.status === "selesai"
+        ? "Perbaikan sudah SELESAI dikerjakan. Mohon konfirmasi kondisi fasilitasnya sudah baik kembali."
+        : ticket.status === "dikerjakan"
+          ? "Perbaikan SEDANG dikerjakan oleh teknisi kami. Mohon kesediaannya menunggu jadwal penyelesaian."
+          : "Laporan sudah kami terima dan akan segera dijadwalkan ke teknisi. Terima kasih atas laporannya.";
     return [
       `Halo ${ticket.reporterName},`,
       `menindaklanjuti laporan ${ticket.kategori} pada ${ticket.id} (${ticketSubject(ticket)}).`,
-      `Laporan sudah kami terima dan akan segera dijadwalkan ke teknisi. Terima kasih atas laporannya.`,
+      statusLine,
       `${BRAND_WA_LINE}.`,
     ].join(" ");
   }
@@ -114,6 +122,59 @@ function buildWaText(ticket: Ticket, role: "penyewa" | "teknisi"): string {
 
 const HEAD_CELL =
   "h-9 bg-white px-3 text-xs font-semibold uppercase tracking-wide text-zinc-700 shadow-[inset_0_-1px_0_var(--border)]";
+
+/** Tombol aksi cepat status — "Tandai Sedang Dikerjakan" / "Selesai Diperbaiki */
+function QuickStatusButton({
+  ticket,
+  onStatusChange,
+  size,
+}: {
+  ticket: Ticket;
+  onStatusChange: (ticket: Ticket, status: TicketStatus) => void;
+  /** compact = baris tabel desktop; full = tombol lebar kartu mobile */
+  size: "compact" | "full";
+}) {
+  if (ticket.status === "menunggu") {
+    const label = "Tandai Sedang Dikerjakan";
+    return (
+      <Button
+        variant="outline"
+        size={size === "compact" ? "sm" : "default"}
+        onClick={() => onStatusChange(ticket, "dikerjakan")}
+        className={cn(
+          "border-amber-200 bg-amber-50 font-medium text-amber-700 shadow-none hover:bg-amber-100 hover:text-amber-800",
+          size === "compact"
+            ? "h-7 gap-1 px-2 text-xs"
+            : "h-9 w-full gap-1.5 text-[12.5px] font-semibold"
+        )}
+        aria-label={`${label} — tiket ${ticket.id}`}
+      >
+        <PlayCircle className="size-3.5" strokeWidth={2} aria-hidden="true" />
+        {size === "compact" ? "Kerjakan" : label}
+      </Button>
+    );
+  }
+  if (ticket.status === "dikerjakan") {
+    const label = "Selesai Diperbaiki";
+    return (
+      <Button
+        size={size === "compact" ? "sm" : "default"}
+        onClick={() => onStatusChange(ticket, "selesai")}
+        className={cn(
+          "bg-emerald-600 font-medium text-white shadow-none hover:bg-emerald-700",
+          size === "compact"
+            ? "h-7 gap-1 px-2 text-xs"
+            : "h-9 w-full gap-1.5 text-[12.5px] font-semibold"
+        )}
+        aria-label={`${label} — tiket ${ticket.id}`}
+      >
+        <Check className="size-3.5" strokeWidth={2.25} aria-hidden="true" />
+        {size === "compact" ? "Selesaikan" : label}
+      </Button>
+    );
+  }
+  return null;
+}
 
 /** Kartu tiket komplain untuk layar ponsel (< md): pelapor + unit + status —
  *  keluhan (judul, urgensi, deskripsi, foto) — aksi Ubah Status & Chat WA. */
@@ -217,68 +278,53 @@ function MobileTicketCard({
         )}
       </div>
 
-      {/* Footer: aksi */}
-      <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2.5">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              className="h-8 flex-1 border-zinc-200 bg-white px-2 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
-              aria-label={`Ubah status tiket ${ticket.id}, saat ini ${meta.label}`}
-            >
-              <Check className="size-3.5" strokeWidth={2} />
-              Ubah Status
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-48">
-            <DropdownMenuLabel className="text-xs text-zinc-700">Ubah Status</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {TICKET_STATUSES.map((s) => (
-              <DropdownMenuItem
-                key={s}
-                onClick={() => onStatusChange(ticket, s)}
-                className="justify-between text-[13px]"
+      {/* Footer: aksi langsung — status cepat + WhatsApp + kontrol penuh */}
+      <div className="mt-2.5 space-y-2 border-t border-border pt-2.5">
+        {/* Aksi cepat status — kontekstual (Tandai Sedang Dikerjakan / Selesai Diperbaiki) */}
+        <QuickStatusButton ticket={ticket} onStatusChange={onStatusChange} size="full" />
+        <div className="flex items-center gap-2">
+          {/* Hubungi via WhatsApp — aksi langsung sesuai peran required */}
+          <Button
+            onClick={() => onOpenWa(ticket, isFasilitas ? "teknisi" : "penyewa")}
+            className="h-9 min-w-0 flex-1 gap-1.5 bg-green-600 text-[12.5px] font-semibold text-white shadow-none hover:bg-green-700"
+            aria-label={`Hubungi ${isFasilitas ? "Teknisi" : "Penyewa"} via WhatsApp — tiket ${ticket.id}`}
+          >
+            <WaIcon className="size-4 shrink-0" />
+            <span className="truncate">
+              {isFasilitas ? "Hubungi Teknisi via WhatsApp" : "Hubungi Penyewa via WhatsApp"}
+            </span>
+          </Button>
+          {/* Ubah Status — kontrol penuh (semua status) */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-9 shrink-0 gap-1 border-zinc-200 bg-white px-2.5 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                aria-label={`Ubah status tiket ${ticket.id}, saat ini ${meta.label}`}
               >
-                <span className="flex items-center gap-2">
-                  <span className={cn("size-1.5 rounded-full", TICKET_STATUS_META[s].dot)} />
-                  {TICKET_STATUS_META[s].label}
-                </span>
-                {s === ticket.status && <Check className="size-3.5 text-zinc-900" />}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              className="h-8 flex-1 border-green-200 bg-green-50 px-2 text-[12.5px] font-medium text-green-700 shadow-none hover:bg-green-100 hover:text-green-800"
-              aria-label={`Chat WhatsApp Penyewa atau Teknisi untuk ${ticket.id}`}
-            >
-              <WaIcon className="size-3.5" />
-              Chat WA
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-60">
-            <DropdownMenuLabel className="text-xs text-zinc-700">
-              Chat WA Penyewa / Teknisi
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {!isFasilitas && (
-              <DropdownMenuItem onClick={() => onOpenWa(ticket, "penyewa")} className="text-[13px]">
-                <WaIcon className="size-3.5 text-green-600" />
-                <span className="min-w-0 flex-1 truncate">Chat Penyewa — {ticket.reporterName}</span>
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={() => onOpenWa(ticket, "teknisi")} className="text-[13px]">
-              <Wrench className="size-3.5 text-zinc-700" />
-              <span className="min-w-0 flex-1 truncate">
-                Chat Teknisi — {(ticket.teknisi ?? ONCALL_TEKNISI).name}
-              </span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                <Check className="size-3.5" strokeWidth={2} />
+                Status
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel className="text-xs text-zinc-700">Ubah Status</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {TICKET_STATUSES.map((s) => (
+                <DropdownMenuItem
+                  key={s}
+                  onClick={() => onStatusChange(ticket, s)}
+                  className="justify-between text-[13px]"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className={cn("size-1.5 rounded-full", TICKET_STATUS_META[s].dot)} />
+                    {TICKET_STATUS_META[s].label}
+                  </span>
+                  {s === ticket.status && <Check className="size-3.5 text-zinc-900" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </li>
   );
@@ -414,7 +460,7 @@ export function MaintenancePanel({
           onValueChange={setStatusTab}
           options={[
             { value: "all", label: "Semua Komplain" },
-            { value: "menunggu", label: "Menunggu Tindakan" },
+            { value: "menunggu", label: "Perlu Ditangani" },
             { value: "dikerjakan", label: "Sedang Dikerjakan" },
             { value: "selesai", label: "Selesai" },
           ]}
@@ -426,7 +472,7 @@ export function MaintenancePanel({
             onChange={setStatusTab}
             tabs={[
               { value: "all", label: "Semua", count: counts.all },
-              { value: "menunggu", label: "Menunggu", count: counts.menunggu },
+              { value: "menunggu", label: "Perlu Ditangani", count: counts.menunggu },
               { value: "dikerjakan", label: "Dikerjakan", count: counts.dikerjakan },
               { value: "selesai", label: "Selesai", count: counts.selesai },
             ]}
@@ -603,10 +649,54 @@ export function MaintenancePanel({
                       )}
                     </TableCell>
 
-                    {/* Aksi: Ubah Status + Chat WA Penyewa/Teknisi */}
+                    {/* Aksi: status cepat + WhatsApp langsung + kontrol penuh */}
                     <TableCell className="py-2.5 pr-4">
                       <div className="flex items-center justify-end gap-1.5">
-                        {/* Ubah Status */}
+                        {/* Aksi cepat — Tandai Sedang Dikerjakan / Selesai Diperbaiki */}
+                        <QuickStatusButton
+                          ticket={ticket}
+                          onStatusChange={onStatusChange}
+                          size="compact"
+                        />
+
+                        {/* Hubungi via WhatsApp — aksi langsung (penyewa / teknisi fasilitas) */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openWa(ticket, isFasilitas ? "teknisi" : "penyewa")}
+                          className="h-7 gap-1 border-green-200 bg-green-50 px-2 text-xs font-medium text-green-700 shadow-none hover:bg-green-100 hover:text-green-800"
+                          aria-label={`Hubungi ${isFasilitas ? "Teknisi" : `Penyewa ${ticket.reporterName}`} via WhatsApp — tiket ${ticket.id}`}
+                        >
+                          <WaIcon className="size-3.5" />
+                          <span className="hidden lg:inline">
+                            {isFasilitas ? "Hubungi Teknisi" : "Hubungi Penyewa"}
+                          </span>
+                        </Button>
+
+                        {/* Chat teknisi — tiket penyewa (ikon ringkas) */}
+                        {!isFasilitas && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openWa(ticket, "teknisi")}
+                                className="h-7 w-7 border-zinc-200 bg-white px-0 text-zinc-700 shadow-none hover:bg-zinc-50"
+                                aria-label={`Chat Teknisi ${(ticket.teknisi ?? ONCALL_TEKNISI).name} — tiket ${ticket.id}`}
+                              >
+                                <Wrench className="size-3.5" strokeWidth={1.75} />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="top"
+                              className="border border-zinc-200 bg-white text-zinc-700 shadow-md"
+                            >
+                              Chat Teknisi — {(ticket.teknisi ?? ONCALL_TEKNISI).name}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+
+                        {/* Ubah Status — kontrol penuh */}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -636,57 +726,6 @@ export function MaintenancePanel({
                                 {s === ticket.status && <Check className="size-3.5 text-zinc-900" />}
                               </DropdownMenuItem>
                             ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-
-                        {/* Chat WA Penyewa / Teknisi */}
-                        <DropdownMenu>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 gap-1 border-green-200 bg-green-50 px-2 text-xs font-medium text-green-700 shadow-none hover:bg-green-100 hover:text-green-800"
-                                  aria-label={`Chat WhatsApp Penyewa atau Teknisi untuk ${ticket.id}`}
-                                >
-                                  <WaIcon className="size-3.5" />
-                                  <span className="hidden lg:inline">Chat WA</span>
-                                </Button>
-                              </DropdownMenuTrigger>
-                            </TooltipTrigger>
-                            <TooltipContent
-                              side="top"
-                              className="border border-zinc-200 bg-white text-zinc-700 shadow-md md:hidden"
-                            >
-                              Chat WA Penyewa / Teknisi
-                            </TooltipContent>
-                          </Tooltip>
-                          <DropdownMenuContent align="end" className="w-60">
-                            <DropdownMenuLabel className="text-xs text-zinc-700">
-                              Chat WA Penyewa / Teknisi
-                            </DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            {!isFasilitas && (
-                              <DropdownMenuItem
-                                onClick={() => openWa(ticket, "penyewa")}
-                                className="text-[13px]"
-                              >
-                                <WaIcon className="size-3.5 text-green-600" />
-                                <span className="min-w-0 flex-1 truncate">
-                                  Chat Penyewa — {ticket.reporterName}
-                                </span>
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem
-                              onClick={() => openWa(ticket, "teknisi")}
-                              className="text-[13px]"
-                            >
-                              <Wrench className="size-3.5 text-zinc-700" />
-                              <span className="min-w-0 flex-1 truncate">
-                                Chat Teknisi — {(ticket.teknisi ?? ONCALL_TEKNISI).name}
-                              </span>
-                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>

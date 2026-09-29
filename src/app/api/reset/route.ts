@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
     const factory = body.mode === "factory";
 
     await db.tenant.deleteMany();
+    await db.ticket.deleteMany(); // komplain demo ikut dibersihkan
     await db.invoice.deleteMany(); // invoice_lines ikut ter-cascade
     await db.cashEntry.deleteMany();
     if (factory) {

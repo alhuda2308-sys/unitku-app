@@ -1,0 +1,268 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// /api/tickets — Komplain & Pemeliharaan (Supabase)
+//
+// GET    : daftar tiket (terbaru dulu — reportedSort desc)
+// POST   : buat tiket baru — sumber Portal Penyewa (portalToken) atau owner
+//          (roomId/reporter eksplisit). Foto dikirim sebagai dataURL hasil
+//          kompresi klien (canvas) sehingga bisa dipratinjau lintas perangkat.
+// PATCH  : ubah status (menunggu → dikerjakan → selesai) & penugasan teknisi.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { NextResponse, type NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
+import { db } from "@/lib/prisma";
+import { ensureSeed, nextTicketId } from "@/lib/server/seed";
+import { toClientTicket } from "@/lib/server/mappers";
+import {
+  TICKET_CATEGORIES,
+  TICKET_STATUSES,
+  TICKET_URGENSI,
+  type TicketCategory,
+  type TicketStatus,
+  type TicketUrgensi,
+} from "@/lib/ticket-data";
+
+export const dynamic = "force-dynamic";
+
+/** Batas aman payload foto (dataURL) — klien mengompres via canvas sebelum kirim */
+const MAX_PHOTOS = 3;
+const MAX_PHOTO_LENGTH = 1_600_000; // ~1.6 MB per foto (base64)
+
+/** WIB "sekarang" — server berjalan UTC, pelapor memakai Waktu Indonesia Barat */
+function wibNow(): Date {
+  return new Date(Date.now() + 7 * 60 * 60 * 1000);
+}
+
+/** "Hari ini, 14:05 WIB" — label waktu lapor tiket baru */
+function reportedLabelNow(): string {
+  const d = wibNow();
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `Hari ini, ${hh}:${mm} WIB`;
+}
+
+/** Sort monotonic yyyyMMddHHmm (WIB) — dijamin > seluruh sort existing */
+async function reportedSortNow(): Promise<bigint> {
+  const d = wibNow();
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(d.getUTCDate()).padStart(2, "0");
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mi = String(d.getUTCMinutes()).padStart(2, "0");
+  const nowSort = BigInt(`${y}${mo}${da}${hh}${mi}`);
+  const agg = await db.ticket.aggregate({ _max: { reportedSort: true } });
+  const maxExisting = agg._max.reportedSort ?? 0n;
+  return nowSort > maxExisting ? nowSort : maxExisting + 1n;
+}
+
+/** "29 Sep" — label tanggal WIB utk catatan selesai */
+function wibDateShort(): string {
+  const d = wibNow();
+  const bulan = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+  return `${d.getUTCDate()} ${bulan[d.getUTCMonth()] ?? ""}`;
+}
+
+/** Validasi & normalisasi daftar foto (dataURL / path statis) */
+function normalizePhotos(input: unknown): string[] | string {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input)) return "Foto harus berupa array.";
+  const photos = input.filter(
+    (p): p is string => typeof p === "string" && p.trim().length > 0,
+  );
+  if (photos.length > MAX_PHOTOS) {
+    return `Maksimal ${MAX_PHOTOS} foto lampiran.`;
+  }
+  for (const p of photos) {
+    if (p.length > MAX_PHOTO_LENGTH) {
+      return "Ukuran foto terlalu besar — coba ambil ulang foto.";
+    }
+  }
+  return photos;
+}
+
+export async function GET() {
+  try {
+    await ensureSeed();
+    const tickets = await db.ticket.findMany({
+      orderBy: [{ reportedSort: "desc" }, { id: "desc" }],
+    });
+    return NextResponse.json({ tickets: tickets.map(toClientTicket) });
+  } catch (err) {
+    console.error("[api/tickets GET]", err);
+    return NextResponse.json({ error: "Gagal memuat tiket komplain." }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    await ensureSeed();
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+
+    const kategori = typeof body.kategori === "string" ? body.kategori.trim() : "";
+    const deskripsi = typeof body.deskripsi === "string" ? body.deskripsi.trim() : "";
+    if (!kategori) {
+      return NextResponse.json({ error: "Kategori masalah wajib dipilih." }, { status: 400 });
+    }
+    if (!TICKET_CATEGORIES.includes(kategori as TicketCategory)) {
+      return NextResponse.json({ error: "Kategori masalah tidak dikenal." }, { status: 400 });
+    }
+    if (deskripsi.length < 3) {
+      return NextResponse.json(
+        { error: "Catatan keluhan minimal 3 karakter." },
+        { status: 400 },
+      );
+    }
+    const photos = normalizePhotos(body.photos);
+    if (typeof photos === "string") {
+      return NextResponse.json({ error: photos }, { status: 400 });
+    }
+
+    const urgensi = (
+      TICKET_URGENSI.includes(body.urgensi as TicketUrgensi) ? body.urgensi : "sedang"
+    ) as TicketUrgensi;
+
+    // ── Resolusi pelapor: portalToken → roomId → field eksplisit ────────────
+    let roomId: string | null = null;
+    let lokasi: string | null = null;
+    let reporterName = typeof body.reporterName === "string" ? body.reporterName.trim() : "";
+    let reporterPhone = typeof body.reporterPhone === "string" ? body.reporterPhone.trim() : "";
+    let judul = typeof body.judul === "string" ? body.judul.trim() : "";
+
+    /** Sumber tiket — portal/penyewa (default) atau pemeliharaan fasilitas owner */
+    const sumber = body.sumber === "fasilitas" ? "fasilitas" : "penyewa";
+
+    const portalToken = typeof body.portalToken === "string" ? body.portalToken.trim() : "";
+    if (portalToken) {
+      const tenant = await db.tenant.findFirst({
+        where: { portalToken },
+        include: { room: true },
+      });
+      if (!tenant) {
+        return NextResponse.json(
+          { error: "Token portal tidak valid — laporan tidak terkait kamar." },
+          { status: 403 },
+        );
+      }
+      roomId = tenant.roomId;
+      reporterName = tenant.name;
+      reporterPhone = tenant.phone;
+      judul = judul || "Laporan via Portal Penyewa";
+    }
+
+    if (!roomId && typeof body.roomId === "string" && body.roomId.trim()) {
+      const room = await db.room.findUnique({
+        where: { id: body.roomId.trim() },
+        include: { tenant: true },
+      });
+      if (room) {
+        roomId = room.id;
+        if (room.tenant) {
+          reporterName = reporterName || room.tenant.name;
+          reporterPhone = reporterPhone || room.tenant.phone;
+        }
+      } else {
+        roomId = body.roomId.trim(); // kamar custom — tetap catat id-nya
+      }
+    }
+
+    // Tiket fasilitas umum (owner) — lokasi area bersama, tanpa kamar
+    if (sumber === "fasilitas") {
+      lokasi = typeof body.lokasi === "string" ? body.lokasi.trim() : "";
+      if (!lokasi) {
+        return NextResponse.json(
+          { error: "Lokasi fasilitas wajib diisi untuk tiket pemeliharaan." },
+          { status: 400 },
+        );
+      }
+      roomId = null;
+      if (!reporterName) reporterName = "Pengelola";
+    }
+
+    if (!reporterName) reporterName = "Pengelola";
+    if (!judul) judul = "Laporan Komplain";
+
+    const ticket = await db.ticket.create({
+      data: {
+        id: await nextTicketId(),
+        roomId,
+        lokasi,
+        sumber,
+        judul,
+        urgensi,
+        reporterName,
+        reporterPhone,
+        kategori,
+        deskripsi,
+        photos,
+        status: "menunggu",
+        reportedLabel: reportedLabelNow(),
+        reportedSort: await reportedSortNow(),
+      },
+    });
+    return NextResponse.json({ ticket: toClientTicket(ticket) }, { status: 201 });
+  } catch (err) {
+    console.error("[api/tickets POST]", err);
+    return NextResponse.json({ error: "Gagal mengirim laporan komplain." }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    await ensureSeed();
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    if (!id) {
+      return NextResponse.json({ error: "Parameter id tiket wajib diisi." }, { status: 400 });
+    }
+
+    const data: {
+      status?: string;
+      selesaiLabel?: string | null;
+      teknisiName?: string;
+      teknisiPhone?: string;
+    } = {};
+
+    if (body.status !== undefined) {
+      const status = typeof body.status === "string" ? body.status.trim() : "";
+      if (!TICKET_STATUSES.includes(status as TicketStatus)) {
+        return NextResponse.json({ error: "Status tiket tidak dikenal." }, { status: 400 });
+      }
+      data.status = status;
+      if (status === "selesai") {
+        const d = wibNow();
+        const hh = String(d.getUTCHours()).padStart(2, "0");
+        const mm = String(d.getUTCMinutes()).padStart(2, "0");
+        data.selesaiLabel = `Selesai ${wibDateShort()}, ${hh}:${mm} WIB`;
+      } else {
+        data.selesaiLabel = null;
+      }
+    }
+    if (body.teknisiName !== undefined) {
+      data.teknisiName =
+        typeof body.teknisiName === "string" ? body.teknisiName.trim() || null : null;
+    }
+    if (body.teknisiPhone !== undefined) {
+      data.teknisiPhone =
+        typeof body.teknisiPhone === "string" ? body.teknisiPhone.trim() || null : null;
+    }
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json(
+        { error: "Tidak ada perubahan yang dikirim (status/teknisi)." },
+        { status: 400 },
+      );
+    }
+
+    try {
+      const ticket = await db.ticket.update({ where: { id }, data });
+      return NextResponse.json({ ticket: toClientTicket(ticket) });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+        return NextResponse.json({ error: "Tiket tidak ditemukan." }, { status: 404 });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error("[api/tickets PATCH]", err);
+    return NextResponse.json({ error: "Gagal memperbarui tiket." }, { status: 500 });
+  }
+}

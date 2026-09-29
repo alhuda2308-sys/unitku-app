@@ -219,6 +219,22 @@ export default function IndoKostPage() {
     });
   }, []);
 
+  // ── Bootstrap tiket komplain dari database (cloud-first, fallback mock demo)
+  useEffect(() => {
+    let alive = true;
+    api
+      .getTickets()
+      .then((res) => {
+        if (alive) setTickets(res.tickets);
+      })
+      .catch(() => {
+        /* offline — dataset demo lokal tetap dipakai */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   /** Tombol "Coba Sambungkan Ulang" pada banner offline */
   const handleRetrySync = () => {
     loadDashboard().catch((err: unknown) => {
@@ -994,6 +1010,7 @@ export default function IndoKostPage() {
 
   const handleTicketStatus = (ticket: Ticket, status: TicketStatus) => {
     if (status === ticket.status) return;
+    // Optimistic — status baru langsung tampil, database disinkronkan belakangan
     setTickets((prev) =>
       prev.map((t) =>
         t.id === ticket.id
@@ -1010,19 +1027,57 @@ export default function IndoKostPage() {
         TICKET_URGENSI_META[ticket.urgensi].label
       }`,
     });
+    api
+      .updateTicket(ticket.id, { status })
+      .then((res) => {
+        // Samakan label selesai dengan kanonik server ("Selesai 29 Sep, 14:05 WIB")
+        setTickets((prev) =>
+          prev.map((t) => (t.id === res.ticket.id ? { ...t, ...res.ticket } : t))
+        );
+      })
+      .catch((err: unknown) => {
+        toast.error("Status tiket gagal tersimpan", { description: errMsg(err) });
+        api
+          .getTickets()
+          .then((res) => setTickets(res.tickets))
+          .catch(() => {});
+      });
   };
 
-  /** Shared ticket creator (modal owner + portal webhook) — newest-first sort key */
+  /** Shared ticket creator (modal owner + portal webhook) — optimistic + POST API.
+   *  Tiket tampil instan secara lokal; begitu server merespons, digantikan versi
+   *  kanonik database (id #TKT-xxx resmi) agar konsisten lintas perangkat. */
   const insertTicket = (draft: CreateTicketDraft): Ticket => {
-    const ticket = ticketFromDraft(draft, tickets);
-    setTickets((prev) => [ticket, ...prev]);
-    return ticket;
+    const temp = ticketFromDraft(draft, tickets);
+    setTickets((prev) => [temp, ...prev]);
+    api
+      .createTicket({
+        sumber: draft.sumber,
+        roomId: draft.roomId,
+        lokasi: draft.lokasi,
+        reporterName: draft.reporterName,
+        reporterPhone: draft.reporterPhone,
+        judul: draft.judul,
+        kategori: draft.kategori,
+        deskripsi: draft.deskripsi,
+        urgensi: draft.urgensi,
+        photos: draft.photos,
+      })
+      .then((res) => {
+        setTickets((prev) => prev.map((t) => (t.id === temp.id ? res.ticket : t)));
+      })
+      .catch((err: unknown) => {
+        toast.error("Tiket gagal tersimpan ke database", {
+          description: `${errMsg(err)} — tiket hanya tampil di perangkat ini.`,
+        });
+      });
+    return temp;
   };
 
   /** "+ Buat Laporan Komplain / Maintenance" modal → new Menunggu ticket (metrics & badge live) */
   const handleCreateTicket = (draft: CreateTicketDraft): string => {
     const ticket = insertTicket(draft);
-    toast.success(`Tiket ${ticket.id} dibuat — status Menunggu`, {
+    toast.success(`Tiket ${ticket.id} dibuat — status Perlu Ditangani`, {
       description: `${ticket.judul} · ${ticketSubject(ticket)} · urgensi ${
         TICKET_URGENSI_META[ticket.urgensi].label
       }${ticket.photos.length > 0 ? ` · ${ticket.photos.length} foto lampiran` : ""}.`,
