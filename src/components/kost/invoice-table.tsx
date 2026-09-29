@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Eye, Info, MoreHorizontal, Pencil, XCircle } from "lucide-react";
+import { Check, Eye, Info, MessageSquareText, MoreHorizontal, Pencil, Wallet, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -19,15 +19,21 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatIDR, initialsOf } from "@/lib/kost-data";
-import type { Invoice } from "@/lib/kost-invoices";
+import { isInvoiceUnpaid, periodShortLabel, type Invoice } from "@/lib/kost-invoices";
 import { InvoiceStatusBadge } from "./invoice-status-badge";
 import { WaIcon } from "./wa-icon";
 
 interface InvoiceTableProps {
   invoices: Invoice[];
-  onSendWa: (inv: Invoice) => void;
+  /** Tombol hijau "Tagih via WhatsApp" — buka wa.me langsung dgn template tagihan */
+  onTagihWa: (inv: Invoice) => void;
+  /** Kirim kwitansi lunas via WA (invoice berstatus Lunas/Verifikasi) */
+  onReceiptWa: (inv: Invoice) => void;
+  /** Pratinjau & edit pesan sebelum kirim (menu titik tiga) */
+  onPreviewWa: (inv: Invoice) => void;
   onMarkPaid: (inv: Invoice) => void;
   onVerify: (inv: Invoice) => void;
+  /** "Edit / Tambah Biaya" — modal rincian add-on sebelum tagihan dikirim */
   onEdit: (inv: Invoice) => void;
   onCancel: (inv: Invoice) => void;
   onReceipt: (inv: Invoice) => void;
@@ -46,7 +52,7 @@ function BreakdownTooltip({ invoice }: { invoice: Invoice }) {
           aria-label={`Rincian biaya ${invoice.id}`}
         >
           <span className="text-[12.5px] text-zinc-600">
-            {invoice.lines.length > 1 ? "Sewa + Listrik" : "Sewa"}
+            {invoice.lines.length > 1 ? `Sewa + ${invoice.lines.length - 1} biaya` : "Sewa"}
           </span>
           <Info className="size-3 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
         </span>
@@ -75,10 +81,12 @@ function BreakdownTooltip({ invoice }: { invoice: Invoice }) {
 }
 
 const HEAD_CELL =
-  "h-9 bg-white px-3 text-xs font-semibold uppercase tracking-wide text-zinc-700 shadow-[inset_0_-1px_0_var(--border)]";
+  "h-9 bg-white px-2.5 text-xs font-semibold uppercase tracking-wide text-zinc-700 shadow-[inset_0_-1px_0_var(--border)]";
 
 interface MobileCardHandlers {
-  onSendWa: (inv: Invoice) => void;
+  onTagihWa: (inv: Invoice) => void;
+  onReceiptWa: (inv: Invoice) => void;
+  onPreviewWa: (inv: Invoice) => void;
   onMarkPaid: (inv: Invoice) => void;
   onVerify: (inv: Invoice) => void;
   onEdit: (inv: Invoice) => void;
@@ -87,10 +95,9 @@ interface MobileCardHandlers {
 }
 
 /** Kartu invoice ringkas untuk layar ponsel (< md):
- *  Atas: kamar · penghuni + badge status — Tengah: no. invoice · periode —
- *  Bawah: total (bold) + aksi ringkas (WA & titik tiga). */
+ *  Tombol WA hijau besar selebar kartu (mudah dijangkau satu tangan ≥44px). */
 function MobileInvoiceCard({ invoice: inv, ...handlers }: { invoice: Invoice } & MobileCardHandlers) {
-  const paid = inv.status === "lunas" || inv.status === "verifikasi";
+  const paid = !isInvoiceUnpaid(inv);
   return (
     <li className="rounded-lg border border-border bg-white p-3">
       {/* Baris atas: kamar & penghuni + status */}
@@ -126,54 +133,64 @@ function MobileInvoiceCard({ invoice: inv, ...handlers }: { invoice: Invoice } &
         <span className="min-w-0 truncate tabular-nums">{inv.periodLabel}</span>
       </div>
 
-      {/* Baris bawah: total nominal + aksi ringkas */}
-      <div className="mt-2.5 flex items-end justify-between gap-2 border-t border-border pt-2.5">
-        <div className="min-w-0">
-          <p className="text-[13px] font-bold tabular-nums text-zinc-900">{formatIDR(inv.total)}</p>
-          {inv.paidAt && (
-            <p className="mt-0.5 text-xs tabular-nums text-zinc-700">Diterima {inv.paidAt}</p>
+      {/* Tombol aksi cepat WA — selebar kartu, target sentuh ≥44px */}
+      <div className="mt-2.5 border-t border-border pt-2.5">
+        {paid ? (
+          <Button
+            onClick={() => handlers.onReceiptWa(inv)}
+            className="h-11 w-full bg-emerald-600 text-[13px] font-semibold text-white shadow-none hover:bg-emerald-700"
+          >
+            <WaIcon className="size-4" />
+            Kirim Kwitansi Lunas via WA
+          </Button>
+        ) : (
+          <Button
+            onClick={() => handlers.onTagihWa(inv)}
+            className="h-11 w-full bg-emerald-600 text-[13px] font-semibold text-white shadow-none hover:bg-emerald-700"
+          >
+            <WaIcon className="size-4" />
+            Tagih via WhatsApp
+          </Button>
+        )}
+
+        <div className="mt-2 flex items-center gap-1.5">
+          {!paid && (
+            <Button
+              variant="outline"
+              className="h-10 flex-1 border-emerald-200 bg-emerald-50 px-2 text-[12.5px] font-semibold text-emerald-700 shadow-none hover:bg-emerald-100"
+              onClick={() => handlers.onMarkPaid(inv)}
+            >
+              <Check className="size-3.5" strokeWidth={2.25} />
+              Tandai Lunas
+            </Button>
           )}
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                className="size-9 rounded-md border-green-200 bg-green-50 text-green-700 shadow-none hover:bg-green-100 hover:text-green-800 disabled:border-zinc-200 disabled:bg-zinc-50 disabled:text-zinc-300"
-                disabled={paid}
-                onClick={() => handlers.onSendWa(inv)}
-                aria-label={`Kirim Tagihan WA untuk ${inv.id}`}
-              >
-                <WaIcon className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="border border-zinc-200 bg-white text-zinc-700 shadow-md">
-              {paid ? "Sudah dibayar" : "Kirim Tagihan WA"}
-            </TooltipContent>
-          </Tooltip>
+          {!paid && (
+            <Button
+              variant="outline"
+              className="h-10 flex-1 border-zinc-200 bg-white px-2 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+              onClick={() => handlers.onEdit(inv)}
+            >
+              <Pencil className="size-3.5" strokeWidth={1.75} />
+              Edit Biaya
+            </Button>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
                 size="icon"
-                className="size-9 rounded-md border-zinc-200 bg-white text-zinc-700 shadow-none hover:bg-zinc-50"
+                className="size-10 shrink-0 rounded-md border-zinc-200 bg-white text-zinc-700 shadow-none hover:bg-zinc-50"
                 aria-label={`Aksi lainnya untuk ${inv.id}`}
               >
                 <MoreHorizontal className="size-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              {!paid && (
-                <DropdownMenuItem
-                  onClick={() => handlers.onMarkPaid(inv)}
-                  className="text-[13px] [&_svg]:text-emerald-600"
-                >
-                  <Check />
-                  Tandai Lunas
-                </DropdownMenuItem>
-              )}
+              <DropdownMenuItem onClick={() => handlers.onPreviewWa(inv)} className="text-[13px]">
+                <MessageSquareText />
+                Pratinjau Pesan WA
+              </DropdownMenuItem>
               {inv.status === "verifikasi" && (
                 <DropdownMenuItem
                   onClick={() => handlers.onVerify(inv)}
@@ -183,11 +200,12 @@ function MobileInvoiceCard({ invoice: inv, ...handlers }: { invoice: Invoice } &
                   Konfirmasi Pembayaran
                 </DropdownMenuItem>
               )}
-              {(!paid || inv.status === "verifikasi") && <DropdownMenuSeparator />}
-              <DropdownMenuItem onClick={() => handlers.onEdit(inv)} className="text-[13px]">
-                <Pencil />
-                Edit Tagihan
-              </DropdownMenuItem>
+              {paid && (
+                <DropdownMenuItem onClick={() => handlers.onEdit(inv)} className="text-[13px]">
+                  <Pencil />
+                  Edit Tagihan
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => handlers.onReceipt(inv)} className="text-[13px]">
                 <Eye />
                 Lihat Kwitansi
@@ -205,13 +223,26 @@ function MobileInvoiceCard({ invoice: inv, ...handlers }: { invoice: Invoice } &
           </DropdownMenu>
         </div>
       </div>
+
+      {/* Total nominal */}
+      <div className="mt-2.5 flex items-end justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[13px] font-bold tabular-nums text-zinc-900">{formatIDR(inv.total)}</p>
+          {inv.paidAt && (
+            <p className="mt-0.5 text-xs tabular-nums text-zinc-700">Diterima {inv.paidAt}</p>
+          )}
+        </div>
+        <span className="shrink-0 text-xs tabular-nums text-zinc-700">Tempo {inv.dueDate}</span>
+      </div>
     </li>
   );
 }
 
 export function InvoiceTable({
   invoices,
-  onSendWa,
+  onTagihWa,
+  onReceiptWa,
+  onPreviewWa,
   onMarkPaid,
   onVerify,
   onEdit,
@@ -220,23 +251,22 @@ export function InvoiceTable({
   emptyTitle,
   emptyDescription,
 }: InvoiceTableProps) {
-  const isPaid = (inv: Invoice) => inv.status === "lunas" || inv.status === "verifikasi";
+  const isPaid = (inv: Invoice) => !isInvoiceUnpaid(inv);
 
   return (
     <>
       {/* Desktop (md+): tabel scrollable dengan header sticky */}
       <div className="hidden max-h-[620px] overflow-auto overscroll-contain rounded-lg border border-border bg-white scrollbar-thin md:block">
       {/* Plain <table> so the scroll container is the direct ancestor (sticky header) */}
-      <table className="w-full min-w-[920px] border-collapse text-[13px]">
+      <table className="w-full min-w-[1060px] border-collapse text-[13px]">
         <caption className="sr-only">Daftar tagihan sewa bulanan</caption>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className={`${HEAD_CELL} pl-4 text-left`}>No. Invoice</TableHead>
             <TableHead className={`${HEAD_CELL} text-left`}>Kamar &amp; Penghuni</TableHead>
-            <TableHead className={`${HEAD_CELL} text-left`}>Periode Sewa</TableHead>
+            <TableHead className={`${HEAD_CELL} text-left`}>Periode</TableHead>
             <TableHead className={`${HEAD_CELL} text-left`}>Rincian Biaya</TableHead>
-            <TableHead className={`${HEAD_CELL} text-right`}>Total Nominal</TableHead>
-            <TableHead className={`${HEAD_CELL} text-left`}>Jatuh Tempo</TableHead>
+            <TableHead className={`${HEAD_CELL} text-right`}>Total</TableHead>
             <TableHead className={`${HEAD_CELL} text-left`}>Status</TableHead>
             <TableHead className={`${HEAD_CELL} pr-4 text-right`}>Aksi</TableHead>
           </TableRow>
@@ -244,7 +274,7 @@ export function InvoiceTable({
         <TableBody>
           {invoices.length === 0 ? (
             <TableRow className="hover:bg-transparent">
-              <TableCell colSpan={8} className="py-14 text-center">
+              <TableCell colSpan={7} className="py-14 text-center">
                 <Info className="mx-auto size-5 text-zinc-300" strokeWidth={1.5} aria-hidden="true" />
                 <p className="mt-2 text-[13px] font-medium text-zinc-700">{emptyTitle}</p>
                 <p className="mt-0.5 text-xs text-zinc-700">{emptyDescription}</p>
@@ -286,9 +316,9 @@ export function InvoiceTable({
                   </div>
                 </TableCell>
 
-                {/* Periode Sewa */}
+                {/* Periode Sewa — ringkas (label penuh ada di kartu mobile & CSV) */}
                 <TableCell className="py-2 text-[12.5px] tabular-nums whitespace-nowrap text-zinc-600">
-                  {inv.periodLabel}
+                  <span title={inv.periodLabel}>{periodShortLabel(inv.periodKey)}</span>
                 </TableCell>
 
                 {/* Rincian Biaya */}
@@ -303,46 +333,43 @@ export function InvoiceTable({
                   </span>
                 </TableCell>
 
-                {/* Jatuh Tempo */}
-                <TableCell className="py-2 text-[12.5px] tabular-nums whitespace-nowrap text-zinc-600">
-                  {inv.dueDate}
-                </TableCell>
-
-                {/* Status */}
+                {/* Status + tempo/pelunasan (kolom Jatuh Tempo digabung di sini) */}
                 <TableCell className="py-2">
                   <div className="flex flex-col items-start gap-1">
                     <InvoiceStatusBadge invoice={inv} />
-                    {inv.paidAt && (
+                    {inv.paidAt ? (
                       <span className="text-xs tabular-nums text-zinc-700">
                         Diterima {inv.paidAt}
                       </span>
+                    ) : (
+                      <span className="text-xs tabular-nums text-zinc-700">Tempo {inv.dueDate}</span>
                     )}
                   </div>
                 </TableCell>
 
                 {/* Aksi */}
                 <TableCell className="py-2 pr-4">
-                  <div className="flex items-center justify-end gap-1">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="size-7 rounded-md border-green-200 bg-green-50 text-green-700 shadow-none hover:bg-green-100 hover:text-green-800 disabled:border-zinc-200 disabled:bg-zinc-50 disabled:text-zinc-300"
-                          disabled={isPaid(inv)}
-                          onClick={() => onSendWa(inv)}
-                          aria-label={`Kirim Tagihan WA untuk ${inv.id}`}
-                        >
-                          <WaIcon className="size-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        side="top"
-                        className="border border-zinc-200 bg-white text-zinc-700 shadow-md"
+                  <div className="flex items-center justify-end gap-1.5">
+                    {isPaid(inv) ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 border-emerald-200 bg-emerald-50 px-2 text-[12.5px] font-semibold text-emerald-700 shadow-none hover:bg-emerald-100"
+                        onClick={() => onReceiptWa(inv)}
                       >
-                        {isPaid(inv) ? "Sudah dibayar" : "Kirim Tagihan WA"}
-                      </TooltipContent>
-                    </Tooltip>
+                        <WaIcon className="size-3" />
+                        Kirim Kwitansi via WA
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="h-7 bg-emerald-600 px-2.5 text-[12.5px] font-semibold text-white shadow-none hover:bg-emerald-700"
+                        onClick={() => onTagihWa(inv)}
+                      >
+                        <WaIcon className="size-3" />
+                        Tagih via WhatsApp
+                      </Button>
+                    )}
 
                     {!isPaid(inv) && (
                       <Button
@@ -368,6 +395,10 @@ export function InvoiceTable({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem onClick={() => onPreviewWa(inv)} className="text-[13px]">
+                          <MessageSquareText />
+                          Pratinjau Pesan WA
+                        </DropdownMenuItem>
                         {inv.status === "verifikasi" && (
                           <>
                             <DropdownMenuItem
@@ -377,13 +408,19 @@ export function InvoiceTable({
                               <Check />
                               Konfirmasi Pembayaran
                             </DropdownMenuItem>
-                            <DropdownMenuSeparator />
                           </>
                         )}
-                        <DropdownMenuItem onClick={() => onEdit(inv)} className="text-[13px]">
-                          <Pencil />
-                          Edit Tagihan
-                        </DropdownMenuItem>
+                        {!isPaid(inv) ? (
+                          <DropdownMenuItem onClick={() => onEdit(inv)} className="text-[13px]">
+                            <Wallet />
+                            Edit / Tambah Biaya
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => onEdit(inv)} className="text-[13px]">
+                            <Pencil />
+                            Edit Tagihan
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => onReceipt(inv)} className="text-[13px]">
                           <Eye />
                           Lihat Kwitansi
@@ -422,7 +459,9 @@ export function InvoiceTable({
               <MobileInvoiceCard
                 key={inv.id}
                 invoice={inv}
-                onSendWa={onSendWa}
+                onTagihWa={onTagihWa}
+                onReceiptWa={onReceiptWa}
+                onPreviewWa={onPreviewWa}
                 onMarkPaid={onMarkPaid}
                 onVerify={onVerify}
                 onEdit={onEdit}

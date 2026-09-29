@@ -111,8 +111,24 @@ export const api = {
 
   // /api/invoices
   getInvoices: () => request<{ invoices: ClientInvoice[] }>("/api/invoices"),
+  /** Generator tagihan bulanan — pindai kamar terisi, buat draft invoice periode terpilih */
+  generateInvoices: (periodKey: string) =>
+    request<{ created: ClientInvoice[]; scanned: number; skipped: number }>("/api/invoices", {
+      method: "POST",
+      body: JSON.stringify({ periodKey }),
+    }),
+  /** Perbarui rincian add-on sebelum tagihan dikirim ("Simpan & Siap Ditagih") */
+  updateInvoiceLines: (
+    id: string,
+    lines: { label: string; amount: number }[],
+  ) =>
+    request<{ invoice: ClientInvoice }>("/api/invoices", {
+      method: "PATCH",
+      body: JSON.stringify({ id, lines }),
+    }),
+  /** Tandai lunas — server juga mencatat pemasukan ke Buku Kas (cashEntry) */
   markInvoicePaid: (id: string) =>
-    request<{ invoice: ClientInvoice; room: ClientRoom }>("/api/invoices", {
+    request<{ invoice: ClientInvoice; room: ClientRoom; cashEntry?: ClientCashEntry }>("/api/invoices", {
       method: "PATCH",
       body: JSON.stringify({ id, status: "lunas" }),
     }),

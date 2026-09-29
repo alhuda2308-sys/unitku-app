@@ -273,7 +273,9 @@ export function TenantPortal({
   }, [room, invoices]);
 
   const view = useMemo(() => (invoice ? portalInvoiceView(invoice) : null), [invoice]);
-  const unpaid = invoice != null && (invoice.status === "jatuhTempo" || invoice.status === "menunggak");
+  const unpaid =
+    invoice != null &&
+    (invoice.status === "belumBayar" || invoice.status === "jatuhTempo" || invoice.status === "menunggak");
   const qrisPayload = useMemo(
     () => (unpaid && invoice ? buildQrisPayload(invoice.total, invoice.id, propertyName) : ""),
     [unpaid, invoice, propertyName]

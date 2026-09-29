@@ -9,10 +9,20 @@
 //   Pengingat WA terkirim: 18
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { formatIDR } from "./kost-data";
+import { MONTH_NAMES } from "./kost-data";
 import { BRAND_WA_FOOTER } from "./brand";
 
-export type InvoiceStatus = "lunas" | "verifikasi" | "jatuhTempo" | "menunggak";
+export type InvoiceStatus =
+  | "belumBayar" // baru di-generate, belum jatuh tempo
+  | "lunas"
+  | "verifikasi"
+  | "jatuhTempo"
+  | "menunggak";
+
+/** Status invoice yang masih menunggu pembayaran (tombol WA tagih aktif) */
+export function isInvoiceUnpaid(inv: Invoice): boolean {
+  return inv.status === "belumBayar" || inv.status === "jatuhTempo" || inv.status === "menunggak";
+}
 
 export interface InvoiceLine {
   label: string;
@@ -36,8 +46,62 @@ export interface Invoice {
   paidAt?: string;
 }
 
-export const CURRENT_PERIOD_KEY = "2026-09";
+export const CURRENT_PERIOD_KEY = "2026-09"; // periode dataset seed
 export const CURRENT_PERIOD_LABEL = "1 Sep – 30 Sep 2026";
+
+// ── Periode dinamis (mengikuti tanggal berjalan — new Date()) ───────────────
+
+export const FULL_MONTH_NAMES = [
+  "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+  "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+] as const;
+
+/** Date → periodKey "2026-09" */
+export function periodKeyOf(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Bulan & tahun berjalan (new Date()) — default selector periode generator */
+export function currentPeriodKey(now: Date = new Date()): string {
+  return periodKeyOf(now);
+}
+
+/** "2026-09" → "1 Sep – 30 Sep 2026" (label periode sewa) */
+export function periodLabelFromKey(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  if (!y || !m) return key;
+  const lastDay = new Date(y, m, 0).getDate();
+  return `1 ${MONTH_NAMES[m - 1]} – ${lastDay} ${MONTH_NAMES[m - 1]} ${y}`;
+}
+
+/** "2026-09" → "September 2026" (nama bulan penuh — template WA) */
+export function periodFullLabel(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  if (!y || !m) return key;
+  return `${FULL_MONTH_NAMES[m - 1]} ${y}`;
+}
+
+/** "2026-09" → "Sep 2026" (label ringkas dropdown) */
+export function periodShortLabel(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  if (!y || !m) return key;
+  return `${MONTH_NAMES[m - 1]} ${y}`;
+}
+
+/** Opsi periode dropdown: bulan berjalan ± (berikutnya & 3 lalu) — dinamis */
+export function buildMonthOptions(now: Date = new Date()): { key: string; label: string; tag?: string }[] {
+  const options: { key: string; label: string; tag?: string }[] = [];
+  for (let offset = 1; offset >= -3; offset--) {
+    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const key = periodKeyOf(d);
+    options.push({
+      key,
+      label: periodShortLabel(key),
+      ...(offset === 0 ? { tag: "Bulan Berjalan" } : {}),
+    });
+  }
+  return options;
+}
 
 export const BANK_ACCOUNT = {
   bank: "BCA",
@@ -45,20 +109,17 @@ export const BANK_ACCOUNT = {
   holder: "Hendra Wijaya",
 };
 
-export const MONTH_OPTIONS = [
-  { key: "2026-10", label: "Okt 2026" },
-  { key: "2026-09", label: "Sep 2026", tag: "Bulan Berjalan" },
-  { key: "2026-08", label: "Agu 2026" },
-  { key: "2026-07", label: "Jul 2026" },
-  { key: "2026-06", label: "Jun 2026" },
-];
-
 // ── Status metadata ──────────────────────────────────────────────────────────
 
 export const INVOICE_STATUS_META: Record<
   InvoiceStatus,
   { label: string; pill: string; tabLabel: string }
 > = {
+  belumBayar: {
+    label: "Belum Bayar",
+    pill: "bg-zinc-100 text-zinc-700 border-zinc-200",
+    tabLabel: "Belum Bayar",
+  },
   lunas: {
     label: "Lunas",
     pill: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -185,6 +246,74 @@ export interface InvoiceStats {
   byStatus: Record<InvoiceStatus, number>;
 }
 
+/** "1500000" → "1.500.000" (tanpa prefiks Rp — untuk template WA "Rp {nominal}") */
+function waAmount(amount: number): string {
+  return amount.toLocaleString("id-ID");
+}
+
+export interface WaBillingContext {
+  propertyName: string;
+  bank: { bank: string; number: string; holder: string };
+  /** URL absolut Portal Penyewa (window.location.origin saat klik) */
+  portalUrl: string;
+}
+
+/**
+ * Template "Tagih via WhatsApp" — pesan penagihan tagihan belum bayar.
+ * Format persis sesuai spesifikasi: sapaan, rincian periode, rekening, link portal.
+ */
+export function buildBillingWaMessage(inv: Invoice, ctx: WaBillingContext): string {
+  const sewa = inv.lines.find((l) => l.label === "Sewa Kamar")?.amount ?? inv.total;
+  const addons = inv.lines.filter((l) => l.label !== "Sewa Kamar");
+  const nama = inv.tenantName ?? "Penyewa";
+  const addonLines = addons.map((l) => `- ${l.label}: Rp ${waAmount(l.amount)}`).join("\n");
+  return [
+    `Halo Kak ${nama}, salam dari manajemen ${ctx.propertyName}. 🙏`,
+    ``,
+    `Berikut rincian tagihan sewa untuk periode *${periodFullLabel(inv.periodKey)}*:`,
+    `- Unit/Kamar: *${inv.roomId}*`,
+    `- Biaya Sewa: Rp ${waAmount(sewa)}`,
+    ...(addons.length > 0 ? [addonLines] : []),
+    `- *Total Tagihan: Rp ${waAmount(inv.total)}*`,
+    `- Jatuh Tempo: *${inv.dueDate}*`,
+    ``,
+    `Pembayaran dapat ditransfer ke:`,
+    `Bank: *${ctx.bank.bank}*`,
+    `No. Rekening: *${ctx.bank.number}*`,
+    `A/N: *${ctx.bank.holder}*`,
+    ``,
+    `Kwitansi & rincian digital dapat diakses di:`,
+    ctx.portalUrl,
+    ``,
+    `Mohon konfirmasi dan kirimkan bukti transfer setelah melakukan pembayaran. Terima kasih!`,
+    ``,
+    BRAND_WA_FOOTER,
+  ].join("\n");
+}
+
+/** Pesan kwitansi LUNAS — pengganti tombol tagihan setelah pembayaran diterima */
+export function buildReceiptWaMessage(inv: Invoice, ctx: WaBillingContext): string {
+  const nama = inv.tenantName ?? "Penyewa";
+  return [
+    `Halo Kak ${nama}, salam dari manajemen ${ctx.propertyName}. 🙏`,
+    ``,
+    `Pembayaran sewa untuk periode *${periodFullLabel(inv.periodKey)}* telah kami terima. ✅`,
+    ``,
+    `Berikut rincian kwitansi digital:`,
+    `- Unit/Kamar: *${inv.roomId}*`,
+    `- *Total Dibayar: Rp ${waAmount(inv.total)}*`,
+    `- Tanggal Pembayaran: *${inv.paidAt ?? "hari ini"}*`,
+    `- Status: *LUNAS*`,
+    ``,
+    `Kwitansi & rincian digital dapat diakses di:`,
+    ctx.portalUrl,
+    ``,
+    `Terima kasih telah membayar tepat waktu. 🙏`,
+    ``,
+    BRAND_WA_FOOTER,
+  ].join("\n");
+}
+
 export function computeInvoiceStats(invoices: Invoice[]): InvoiceStats {
   const totalBilled = invoices.reduce((a, i) => a + i.total, 0);
   const received = invoices
@@ -196,9 +325,10 @@ export function computeInvoiceStats(invoices: Invoice[]): InvoiceStats {
     received,
     unpaid,
     receivedPct: totalBilled ? Math.round((received / totalBilled) * 100) : 0,
-    unpaidCount: invoices.filter((i) => i.status === "menunggak" || i.status === "jatuhTempo").length,
+    unpaidCount: invoices.filter(isInvoiceUnpaid).length,
     totalCount: invoices.length,
     byStatus: {
+      belumBayar: invoices.filter((i) => i.status === "belumBayar").length,
       lunas: invoices.filter((i) => i.status === "lunas").length,
       verifikasi: invoices.filter((i) => i.status === "verifikasi").length,
       jatuhTempo: invoices.filter((i) => i.status === "jatuhTempo").length,
@@ -208,28 +338,5 @@ export function computeInvoiceStats(invoices: Invoice[]): InvoiceStats {
 }
 
 // ── WhatsApp message template ────────────────────────────────────────────────
-
-export function buildWaMessage(inv: Invoice, propertyName: string): string {
-  const lines = inv.lines.map((l) => `• ${l.label}: ${formatIDR(l.amount)}`).join("\n");
-  const salam = inv.tenantName ? `Yth. ${inv.tenantName} (Kamar ${inv.roomId}),` : `Kamar ${inv.roomId},`;
-  return [
-    `*${propertyName.toUpperCase()}*`,
-    `Tagihan Sewa — Periode ${inv.periodLabel}`,
-    ``,
-    salam,
-    ``,
-    `Berikut rincian tagihan sewa bulan ini:`,
-    lines,
-    ``,
-    `*Total: ${formatIDR(inv.total)}*`,
-    `Jatuh tempo: *${inv.dueDate}*`,
-    ``,
-    `Pembayaran dapat dilakukan via transfer:`,
-    `${BANK_ACCOUNT.bank} ${BANK_ACCOUNT.number}`,
-    `a.n. ${BANK_ACCOUNT.holder}`,
-    ``,
-    `Setelah transfer, mohon kirim bukti pembayaran ke nomor ini agar dapat segera kami verifikasi. Terima kasih.`,
-    ``,
-    BRAND_WA_FOOTER,
-  ].join("\n");
-}
+// Template lama buildWaMessage digantikan buildBillingWaMessage (tagihan) &
+// buildReceiptWaMessage (kwitansi lunas) di atas — format spesifikasi WA baru.

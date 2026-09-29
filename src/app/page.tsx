@@ -62,8 +62,13 @@ import {
 } from "@/lib/kost-data";
 import {
   INVOICES,
+  buildBillingWaMessage,
+  buildReceiptWaMessage,
   type Invoice,
+  type InvoiceLine,
+  type WaBillingContext,
 } from "@/lib/kost-invoices";
+import { portalLink } from "@/lib/tenant-portal";
 import {
   CASH_ENTRIES,
   type CashEntry,
@@ -340,11 +345,12 @@ export default function IndoKostPage() {
     }
     api
       .markInvoicePaid(invoiceId)
-      .then(({ invoice, room }) => {
+      .then(({ invoice, room, cashEntry }) => {
         updateInvoices((prev) => prev.map((i) => (i.id === invoice.id ? invoice : i)));
         updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+        if (cashEntry) updateCashEntries((prev) => [cashEntry, ...prev]);
         toast.success(`Pembayaran Kamar ${room.id} dicatat lunas`, {
-          description: `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"} · tersimpan ke cloud.`,
+          description: `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""} · tersimpan ke cloud.`,
         });
       })
       .catch((err: unknown) =>
@@ -354,20 +360,106 @@ export default function IndoKostPage() {
 
   const handleMarkPaid = (room: Room) => markRoomPaid(room.id);
 
-  /** Tagihan table "Tandai Lunas / Konfirmasi" — server-first, kamar ikut disinkronkan */
+  /** Tagihan table "Tandai Lunas / Konfirmasi" — server-first, kamar & Buku Kas ikut disinkronkan */
   const handleInvoiceMarkPaid = (inv: Invoice) => {
     api
       .markInvoicePaid(inv.id)
-      .then(({ invoice, room }) => {
+      .then(({ invoice, room, cashEntry }) => {
         updateInvoices((prev) => prev.map((i) => (i.id === invoice.id ? invoice : i)));
         updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+        if (cashEntry) updateCashEntries((prev) => [cashEntry, ...prev]);
         toast.success(`Kamar ${inv.roomId} ditandai lunas`, {
-          description: `${inv.id} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}.`,
+          description: `${invoice.id} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""}.`,
         });
       })
       .catch((err: unknown) =>
         toast.error("Gagal menandai lunas", { description: errMsg(err) }),
       );
+  };
+
+  /** Generator tagihan bulanan — pindai kamar terisi, terbitkan draft baru */
+  const handleGenerateInvoices = async (periodKey: string) => {
+    try {
+      const res = await api.generateInvoices(periodKey);
+      if (res.created.length > 0) {
+        updateInvoices((prev) => [...res.created, ...prev]);
+        await refreshDashboard(); // sinkronkan pill status kamar dari server
+        toast.success(
+          `${res.created.length} tagihan dibuat untuk ${periodKey.replace("-", " ")}`,
+          {
+            description: `${res.scanned} kamar terisi dipindai · ${res.skipped} sudah ditagih sebelumnya (anti-duplikat) · tersimpan ke cloud.`,
+          },
+        );
+      } else {
+        toast.info(`Semua tagihan sudah terbit`, {
+          description: `${res.scanned} kamar terisi dipindai — tidak ada tagihan baru untuk periode ini.`,
+        });
+      }
+    } catch (err: unknown) {
+      toast.error("Generator tagihan gagal", { description: errMsg(err) });
+    }
+  };
+
+  /** "Simpan & Siap Ditagih" — perbarui rincian add-on invoice */
+  const handleUpdateInvoiceLines = (inv: Invoice, lines: InvoiceLine[]) => {
+    api
+      .updateInvoiceLines(inv.id, lines)
+      .then(({ invoice }) => {
+        updateInvoices((prev) => prev.map((i) => (i.id === invoice.id ? invoice : i)));
+        toast.success(`Rincian ${invoice.id} disimpan — siap ditagih`, {
+          description: `Kamar ${invoice.roomId} · total ${formatIDR(invoice.total)} (${invoice.lines.length} baris biaya).`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menyimpan rincian tagihan", { description: errMsg(err) }),
+      );
+  };
+
+  /** Konteks pesan WA: nama properti + rekening cloud + link portal penyewa */
+  const waBillingContext = (inv: Invoice): WaBillingContext => {
+    const origin = typeof window === "undefined" ? undefined : window.location.origin;
+    const token = rooms.find((r) => r.id === inv.roomId)?.tenant?.portalToken;
+    return {
+      propertyName: property,
+      bank: {
+        bank: settings.rekening.bank,
+        number: settings.rekening.noRek,
+        holder: settings.rekening.atasNama,
+      },
+      portalUrl: token ? portalLink(token, origin) : `${origin ?? "https://unitku.id"}/portal`,
+    };
+  };
+
+  /** Buka WhatsApp dgn pesan terkode — shared utk tagihan & kwitansi lunas */
+  const openWaFor = (inv: Invoice, message: string, label: string) => {
+    const digits = (inv.tenantPhone ?? "").replace(/[^0-9]/g, "");
+    if (!digits) {
+      toast.error("Nomor WhatsApp penyewa belum tersedia", {
+        description: `Kamar ${inv.roomId} — lengkapi No. WhatsApp penghuni terlebih dahulu.`,
+      });
+      return;
+    }
+    const waUrl = `${waLink(digits)}?text=${encodeURIComponent(message)}`;
+    const opened = window.open(waUrl, "_blank", "noopener,noreferrer");
+    if (opened) {
+      toast.success(`${label} — Kamar ${inv.roomId}`, {
+        description: `${inv.tenantName ?? "Penyewa"} · ${formatIDR(inv.total)} → draf WhatsApp terbuka.`,
+      });
+    } else {
+      toast.warning("Browser memblokir pop-up WhatsApp", {
+        description: "Izinkan pop-up untuk situs ini, lalu tekan tombol sekali lagi.",
+      });
+    }
+  };
+
+  /** Tombol hijau "Tagih via WhatsApp" — wa.me dgn template tagihan rapi */
+  const handleTagihWa = (inv: Invoice) => {
+    openWaFor(inv, buildBillingWaMessage(inv, waBillingContext(inv)), "Draf tagihan dibuka");
+  };
+
+  /** "Kirim Kwitansi Lunas via WA" — konfirmasi pembayaran diterima */
+  const handleReceiptWa = (inv: Invoice) => {
+    openWaFor(inv, buildReceiptWaMessage(inv, waBillingContext(inv)), "Kwitansi lunas dibuka");
   };
 
   const handleInvoiceCancel = (inv: Invoice) => {
@@ -1008,10 +1100,20 @@ export default function IndoKostPage() {
             {view === "tagihan" ? (
               <TagihanView
                 invoices={invoices}
+                rooms={rooms}
                 query={query}
                 onQueryChange={setQuery}
                 propertyName={property}
+                bank={{
+                  bank: settings.rekening.bank,
+                  number: settings.rekening.noRek,
+                  holder: settings.rekening.atasNama,
+                }}
+                onGenerate={handleGenerateInvoices}
                 onMarkPaid={handleInvoiceMarkPaid}
+                onUpdateLines={handleUpdateInvoiceLines}
+                onTagihWa={handleTagihWa}
+                onReceiptWa={handleReceiptWa}
                 onCancelInvoice={handleInvoiceCancel}
               />
             ) : view === "komplain" ? (

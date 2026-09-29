@@ -13,28 +13,38 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatIDR, initialsOf, waLink } from "@/lib/kost-data";
-import { buildWaMessage, type Invoice } from "@/lib/kost-invoices";
+import {
+  buildBillingWaMessage,
+  buildReceiptWaMessage,
+  isInvoiceUnpaid,
+  type Invoice,
+  type WaBillingContext,
+} from "@/lib/kost-invoices";
 import { WaIcon } from "./wa-icon";
 
 interface WaReminderModalProps {
   invoice: Invoice | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  propertyName: string;
+  /** Konteks pesan: nama properti, rekening bank, URL portal penyewa */
+  context: WaBillingContext | null;
   onSent: (inv: Invoice) => void;
 }
 
 /** Inner body keyed by invoice id so the template state resets on every open */
 function WaModalBody({
   invoice,
-  propertyName,
+  context,
   onSent,
 }: {
   invoice: Invoice;
-  propertyName: string;
+  context: WaBillingContext;
   onSent: (inv: Invoice) => void;
 }) {
-  const [message, setMessage] = useState(() => buildWaMessage(invoice, propertyName));
+  const receipt = !isInvoiceUnpaid(invoice);
+  const [message, setMessage] = useState(() =>
+    receipt ? buildReceiptWaMessage(invoice, context) : buildBillingWaMessage(invoice, context),
+  );
   const [sent, setSent] = useState(false);
 
   const handleCopy = async () => {
@@ -49,19 +59,23 @@ function WaModalBody({
   const handleOpenWa = () => {
     onSent(invoice);
     setSent(true);
-    toast.success(`Pengingat ditandai terkirim — Kamar ${invoice.roomId}`, {
-      description: `${invoice.tenantName ?? "Penyewa"} · ${formatIDR(invoice.total)}`,
-    });
+    toast.success(
+      receipt ? `Kwitansi ditandai terkirim — Kamar ${invoice.roomId}` : `Pengingat ditandai terkirim — Kamar ${invoice.roomId}`,
+      {
+        description: `${invoice.tenantName ?? "Penyewa"} · ${formatIDR(invoice.total)}`,
+      },
+    );
   };
 
   return (
     <>
       <DialogHeader className="border-b border-border p-4">
         <DialogTitle className="text-[15px] font-bold tracking-tight text-zinc-900">
-          Preview Tagihan WhatsApp — Kamar {invoice.roomId}
+          {receipt ? "Kirim Kwitansi Lunas via WhatsApp" : "Tagih via WhatsApp"} — Kamar {invoice.roomId}
         </DialogTitle>
         <DialogDescription className="text-[12.5px] text-zinc-700">
           {invoice.id} · Periode {invoice.periodLabel}
+          {receipt && " — pembayaran telah diterima"}
         </DialogDescription>
       </DialogHeader>
 
@@ -105,7 +119,7 @@ function WaModalBody({
             id="wa-message"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            rows={13}
+            rows={15}
             className="w-full resize-none rounded-lg border border-border bg-white p-3 font-sans text-[12.5px] leading-5 text-zinc-800 placeholder:text-zinc-600 focus:border-zinc-300 focus:outline-none focus:ring-2 focus:ring-zinc-900/5"
             aria-label="Isi pesan WhatsApp"
           />
@@ -133,19 +147,19 @@ function WaModalBody({
           }
         >
           <WaIcon className="size-4" />
-          {sent ? "Terkirim ✓" : "Buka WhatsApp Web / App"}
+          {sent ? "Terkirim ✓" : receipt ? "Kirim Kwitansi via WA" : "Buka WhatsApp Web / App"}
         </a>
       </DialogFooter>
     </>
   );
 }
 
-export function WaReminderModal({ invoice, open, onOpenChange, propertyName, onSent }: WaReminderModalProps) {
+export function WaReminderModal({ invoice, open, onOpenChange, context, onSent }: WaReminderModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[520px] gap-0 p-0" aria-describedby={undefined}>
-        {invoice && (
-          <WaModalBody key={invoice.id} invoice={invoice} propertyName={propertyName} onSent={onSent} />
+        {invoice && context && (
+          <WaModalBody key={`${invoice.id}:${invoice.status}`} invoice={invoice} context={context} onSent={onSent} />
         )}
       </DialogContent>
     </Dialog>

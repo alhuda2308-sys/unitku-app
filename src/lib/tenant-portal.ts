@@ -165,6 +165,10 @@ export function portalInvoiceView(inv: Invoice): PortalInvoiceView {
       tone = "rose";
       text = `Menunggak — jatuh tempo ${inv.dueDate}. Segera lakukan pembayaran.`;
       break;
+    case "belumBayar":
+      tone = "amber";
+      text = `Tagihan diterbitkan — jatuh tempo ${inv.dueDate}.`;
+      break;
     default: // jatuhTempo
       tone = "amber";
       text = `Menunggu Pembayaran — jatuh tempo ${inv.dueDate}.`;

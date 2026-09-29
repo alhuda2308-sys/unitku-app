@@ -1,7 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarDays, ChevronDown, Download, FileSpreadsheet, FileText, Plus, Search } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronDown,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+  Plus,
+  Search,
+  Users,
+} from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,17 +23,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { formatIDR } from "@/lib/kost-data";
+import { formatIDR, type Room } from "@/lib/kost-data";
+import { portalLink } from "@/lib/tenant-portal";
 import {
+  buildMonthOptions,
   computeInvoiceStats,
-  CURRENT_PERIOD_KEY,
+  currentPeriodKey,
   invoiceBadgeLabel,
-  MONTH_OPTIONS,
+  periodShortLabel,
   type Invoice,
+  type InvoiceLine,
   type InvoiceStatus,
+  type WaBillingContext,
 } from "@/lib/kost-invoices";
 import { SegmentedTabs, type SegmentedTabItem } from "./segmented-tabs";
 import { InvoiceTable } from "./invoice-table";
+import { InvoiceEditModal } from "./invoice-edit-modal";
 import { WaReminderModal } from "./wa-reminder-modal";
 import { MetricCard } from "./metric-card";
 
@@ -32,35 +47,60 @@ type StatusTab = InvoiceStatus | "all";
 interface TagihanViewProps {
   /** Lifted to the dashboard — updates live when rooms are deleted / data is reset */
   invoices: Invoice[];
+  /** Kamar (utk hitungan kamar terisi & tautan portal penyewa di pesan WA) */
+  rooms: Room[];
   query: string;
   onQueryChange: (q: string) => void;
   propertyName: string;
+  /** Rekening pembayaran aktif (cloud) — dicantumkan di pesan tagihan WA */
+  bank: { bank: string; number: string; holder: string };
+  /** Generator tagihan bulanan — POST /api/invoices (anti-duplikat server-side) */
+  onGenerate: (periodKey: string) => Promise<void>;
   onMarkPaid: (inv: Invoice) => void;
+  /** "Simpan & Siap Ditagih" — PATCH rincian add-on */
+  onUpdateLines: (inv: Invoice, lines: InvoiceLine[]) => void;
+  /** Tombol hijau "Tagih via WhatsApp" — buka wa.me langsung (page handler) */
+  onTagihWa: (inv: Invoice) => void;
+  /** Kirim kwitansi lunas via WA (page handler) */
+  onReceiptWa: (inv: Invoice) => void;
   onCancelInvoice: (inv: Invoice) => void;
 }
 
 export function TagihanView({
   invoices,
+  rooms,
   query,
   onQueryChange,
   propertyName,
+  bank,
+  onGenerate,
   onMarkPaid,
+  onUpdateLines,
+  onTagihWa,
+  onReceiptWa,
   onCancelInvoice,
 }: TagihanViewProps) {
+  // Periode dinamis — default bulan & tahun berjalan (new Date())
+  const monthOptions = useMemo(() => buildMonthOptions(), []);
+  const [monthKey, setMonthKey] = useState(currentPeriodKey);
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
-  const [monthKey, setMonthKey] = useState(CURRENT_PERIOD_KEY);
+  const [generating, setGenerating] = useState(false);
+
+  // Modal states
   const [waInvoice, setWaInvoice] = useState<Invoice | null>(null);
+  const [editInvoice, setEditInvoice] = useState<Invoice | null>(null);
+  const [savingLines, setSavingLines] = useState(false);
   const [waExtra, setWaExtra] = useState(0);
-  // Base reminder count tracks the (possibly reset) dataset; extra bumps are session-local.
   const waCount = (invoices.length > 0 ? 18 : 0) + waExtra;
 
-  // Metrics are pinned to the current month ("Bulan Berjalan")
+  const occupiedCount = useMemo(() => rooms.filter((r) => r.tenant).length, [rooms]);
+
+  // Metrics & tabs reflect the selected period
   const stats = useMemo(
-    () => computeInvoiceStats(invoices.filter((i) => i.periodKey === CURRENT_PERIOD_KEY)),
-    [invoices]
+    () => computeInvoiceStats(invoices.filter((i) => i.periodKey === monthKey)),
+    [invoices, monthKey]
   );
 
-  // Tabs & table reflect the selected month
   const monthInvoices = useMemo(
     () => invoices.filter((i) => i.periodKey === monthKey),
     [invoices, monthKey]
@@ -83,6 +123,7 @@ export function TagihanView({
   const monthCounts = useMemo(
     () => ({
       all: monthInvoices.length,
+      belumBayar: monthInvoices.filter((i) => i.status === "belumBayar").length,
       menunggak: monthInvoices.filter((i) => i.status === "menunggak").length,
       jatuhTempo: monthInvoices.filter((i) => i.status === "jatuhTempo").length,
       verifikasi: monthInvoices.filter((i) => i.status === "verifikasi").length,
@@ -91,20 +132,38 @@ export function TagihanView({
     [monthInvoices]
   );
 
-  const monthLabel = MONTH_OPTIONS.find((m) => m.key === monthKey)?.label ?? monthKey;
-  const isCurrentMonth = monthKey === CURRENT_PERIOD_KEY;
+  const monthLabel = periodShortLabel(monthKey);
+  const isCurrentMonth = monthKey === currentPeriodKey();
 
   /** Satu sumber data tab status — dirender segmented (sm+) & pill geser (ponsel) */
   const statusTabs: SegmentedTabItem<StatusTab>[] = [
     { value: "all", label: "Semua", count: monthCounts.all },
+    { value: "belumBayar", label: "Belum Bayar", count: monthCounts.belumBayar },
     { value: "menunggak", label: "Menunggak", count: monthCounts.menunggak },
     { value: "jatuhTempo", label: "Jatuh Tempo H-3", count: monthCounts.jatuhTempo },
     { value: "verifikasi", label: "Menunggu Verifikasi", count: monthCounts.verifikasi },
     { value: "lunas", label: "Lunas", count: monthCounts.lunas },
   ];
 
-  const handleMarkPaid = (inv: Invoice) => {
-    onMarkPaid(inv);
+  /** Konteks pesan WA utk pratinjau — link portal mengikuti origin aktif */
+  const waContextFor = (inv: Invoice): WaBillingContext => {
+    const origin = typeof window === "undefined" ? undefined : window.location.origin;
+    const token = rooms.find((r) => r.id === inv.roomId)?.tenant?.portalToken;
+    return {
+      propertyName,
+      bank,
+      portalUrl: token ? portalLink(token, origin) : `${origin ?? "https://unitku.id"}/portal`,
+    };
+  };
+
+  const handleGenerate = async () => {
+    if (generating) return;
+    setGenerating(true);
+    try {
+      await onGenerate(monthKey);
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const handleVerify = (inv: Invoice) => {
@@ -122,8 +181,18 @@ export function TagihanView({
     setWaExtra((c) => c + 1);
   };
 
+  const handleSaveLines = (inv: Invoice, lines: InvoiceLine[]) => {
+    setSavingLines(true);
+    try {
+      onUpdateLines(inv, lines);
+    } finally {
+      setSavingLines(false);
+      setEditInvoice(null);
+    }
+  };
+
   const exportCsv = () => {
-    const rows = invoices.filter((i) => i.periodKey === CURRENT_PERIOD_KEY);
+    const rows = invoices.filter((i) => i.periodKey === monthKey);
     const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
     const lines = rows.map((i) =>
       [i.id, i.roomId, i.tenantName ?? "Kamar kosong", i.periodLabel, i.dueDate, i.total, invoiceBadgeLabel(i)]
@@ -135,10 +204,10 @@ export function TagihanView({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "unitku-tagihan-sep-2026.csv";
+    a.download = `unitku-tagihan-${monthKey}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Laporan CSV diunduh", { description: `${rows.length} invoice · Sep 2026` });
+    toast.success("Laporan CSV diunduh", { description: `${rows.length} invoice · ${monthLabel}` });
   };
 
   return (
@@ -148,7 +217,7 @@ export function TagihanView({
         <div>
           <h1 className="text-lg font-bold tracking-tight text-zinc-900">Tagihan &amp; Pembayaran</h1>
           <p className="mt-0.5 max-w-xl text-[12.5px] text-zinc-700">
-            Kelola invoice sewa bulanan, tagihan tambahan, dan pengingat WhatsApp
+            Generator tagihan bulanan, tagih via WhatsApp, dan pantau pembayaran sewa
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -185,35 +254,104 @@ export function TagihanView({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Button
-            onClick={() =>
-              toast.info(
-                invoices.length > 0
-                  ? `Semua ${invoices.length} kamar sudah ditagih untuk Sep 2026.`
-                  : "Belum ada data tagihan — tambahkan kamar & penghuni terlebih dahulu.",
-                {
-                  description: "Tagihan tambahan (listrik, laundry, denda) dapat dibuat pada fase pengembangan berikutnya.",
-                }
-              )
-            }
-            className="h-9 bg-zinc-900 px-3 text-[13px] font-semibold text-white shadow-none hover:bg-zinc-800"
-          >
-            <Plus className="size-4" strokeWidth={2} />
-            <span className="hidden sm:inline">Buat Tagihan Baru</span>
-            <span className="sm:hidden">Tagihan</span>
-          </Button>
         </div>
       </div>
+
+      {/* ── Generator Tagihan Bulanan — panel aksi atas ─────────────────────── */}
+      <section
+        aria-label="Generator tagihan bulanan"
+        className="rounded-lg border border-border bg-white p-3 sm:p-4"
+      >
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-[13px] font-bold tracking-tight text-zinc-900">
+              Generator Tagihan Bulanan
+            </h2>
+            <p className="mt-0.5 text-[12.5px] text-zinc-700">
+              Pindai semua kamar terisi &amp; terbitkan draft tagihan periode terpilih — duplikasi
+              dicegah otomatis per kamar.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {/* Selector periode bulan & tahun (default: bulan berjalan) */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="h-9 w-full justify-between border-zinc-200 bg-white px-3 text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50 sm:w-auto sm:justify-center sm:gap-2 lg:w-[190px]"
+                >
+                  <span className="flex items-center gap-2">
+                    <CalendarDays className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+                    {monthLabel}
+                  </span>
+                  {isCurrentMonth && (
+                    <span className="rounded border border-emerald-200 bg-emerald-50 px-1 py-px text-xs font-semibold text-emerald-700">
+                      Bulan Berjalan
+                    </span>
+                  )}
+                  <ChevronDown className="size-3.5 text-zinc-700 sm:hidden lg:inline" strokeWidth={1.75} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel className="text-xs text-zinc-700">Periode Tagihan</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {monthOptions.map((m) => (
+                  <DropdownMenuItem
+                    key={m.key}
+                    onClick={() => setMonthKey(m.key)}
+                    className="justify-between text-[13px]"
+                  >
+                    <span className="flex items-center gap-2">
+                      {m.label}
+                      {m.tag && (
+                        <span className="rounded border border-emerald-200 bg-emerald-50 px-1 py-px text-xs font-semibold text-emerald-700">
+                          {m.tag}
+                        </span>
+                      )}
+                    </span>
+                    {monthKey === m.key && <span className="text-xs text-zinc-700">aktif</span>}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Tombol utama generator */}
+            <Button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="h-9 bg-zinc-900 px-3 text-[13px] font-semibold text-white shadow-none hover:bg-zinc-800 disabled:opacity-70"
+            >
+              {generating ? (
+                <Loader2 className="size-4 animate-spin" strokeWidth={2} aria-hidden="true" />
+              ) : (
+                <Plus className="size-4" strokeWidth={2} />
+              )}
+              {generating ? "Memindai kamar…" : "Generate Tagihan Bulan Ini"}
+            </Button>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-2.5 text-[12.5px] text-zinc-700">
+          <span className="inline-flex items-center gap-1.5">
+            <Users className="size-3.5 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
+            {occupiedCount} kamar terisi siap ditagih
+          </span>
+          <span className="tabular-nums">
+            {monthCounts.all} tagihan sudah terbit untuk {monthLabel}
+          </span>
+          <span className="tabular-nums text-zinc-700">
+            {monthCounts.belumBayar + monthCounts.menunggak + monthCounts.jatuhTempo} belum bayar
+          </span>
+        </div>
+      </section>
 
       {/* Metric summary — ponsel: 2 kolom rapat dgn tipografi proporsional */}
       <section aria-label="Ringkasan tagihan" className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
         <MetricCard
           dot="bg-zinc-300"
-          label="Total Tagihan Bulan Ini"
+          label={`Total Tagihan ${monthLabel}`}
           mobileLabel="Total Tagihan"
           value={formatIDR(stats.totalBilled)}
-          sub={`${stats.totalCount} invoice · ${stats.totalCount} kamar`}
+          sub={`${stats.totalCount} invoice · ${monthLabel}`}
         />
         <MetricCard
           dot="bg-emerald-500"
@@ -227,7 +365,7 @@ export function TagihanView({
           label="Belum Bayar / Menunggak"
           mobileLabel="Belum Bayar"
           value={formatIDR(stats.unpaid)}
-          sub={`${stats.unpaidCount} kamar · ${stats.byStatus.menunggak} menunggak · ${stats.byStatus.jatuhTempo} jatuh tempo`}
+          sub={`${stats.unpaidCount} kamar · ${stats.byStatus.belumBayar} baru · ${stats.byStatus.menunggak} menunggak`}
           valueClass="text-rose-600"
         />
         <MetricCard
@@ -236,7 +374,7 @@ export function TagihanView({
           mobileLabel="Pengingat WA"
           value={String(waCount)}
           unit="WA Sent"
-          sub="via WhatsApp · Sep 2026"
+          sub={`via WhatsApp · ${monthLabel}`}
         />
       </section>
 
@@ -303,69 +441,40 @@ export function TagihanView({
           />
         </div>
 
-        {/* Periode — ponsel: baris sendiri selebar penuh agar dropdown tidak sempit */}
+        {/* Info periode aktif (selector periode ada di panel Generator di atas) */}
         <div className="w-full sm:ml-auto sm:w-auto">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                className="h-9 w-full justify-center border-zinc-200 bg-white px-3 text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50 sm:w-auto"
-              >
-                <CalendarDays className="size-3.5 text-zinc-700" strokeWidth={1.75} />
-                {monthLabel}
-                {isCurrentMonth && (
-                  <span className="rounded border border-emerald-200 bg-emerald-50 px-1 py-px text-xs font-semibold text-emerald-700">
-                    Bulan Berjalan
-                  </span>
-                )}
-                <ChevronDown className="size-3.5 text-zinc-700" strokeWidth={1.75} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuLabel className="text-xs text-zinc-700">Periode Tagihan</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {MONTH_OPTIONS.map((m) => (
-                <DropdownMenuItem
-                  key={m.key}
-                  onClick={() => setMonthKey(m.key)}
-                  className="justify-between text-[13px]"
-                >
-                  <span className="flex items-center gap-2">
-                    {m.label}
-                    {m.tag && (
-                      <span className="rounded border border-emerald-200 bg-emerald-50 px-1 py-px text-xs font-semibold text-emerald-700">
-                        {m.tag}
-                      </span>
-                    )}
-                  </span>
-                  {monthKey === m.key && <span className="text-xs text-zinc-700">aktif</span>}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <span className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 text-[13px] font-medium text-zinc-700 sm:w-auto">
+            <CalendarDays className="size-3.5 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
+            Periode {monthLabel}
+            {isCurrentMonth && (
+              <span className="rounded border border-emerald-200 bg-emerald-50 px-1 py-px text-xs font-semibold text-emerald-700">
+                Bulan Berjalan
+              </span>
+            )}
+          </span>
         </div>
       </section>
 
       {/* Invoices table */}
       <InvoiceTable
         invoices={filtered}
-        onSendWa={(inv) => setWaInvoice(inv)}
-        onMarkPaid={handleMarkPaid}
+        onTagihWa={onTagihWa}
+        onReceiptWa={onReceiptWa}
+        onPreviewWa={(inv) => setWaInvoice(inv)}
+        onMarkPaid={onMarkPaid}
         onVerify={handleVerify}
-        onEdit={(inv) =>
-          toast.info("Edit tagihan", { description: `${inv.id} — formulir edit tersedia di Phase 3.` })
-        }
+        onEdit={(inv) => setEditInvoice(inv)}
         onCancel={handleCancel}
         onReceipt={(inv) =>
           toast.info("Kwitansi", {
             description: `${inv.id} · ${formatIDR(inv.total)} — pratinjau kwitansi menyusul di Phase 3.`,
           })
         }
-        emptyTitle={isCurrentMonth ? "Tidak ada invoice yang cocok" : `Tidak ada invoice untuk ${monthLabel}`}
+        emptyTitle={isCurrentMonth ? "Tidak ada invoice yang cocok" : `Tidak ada tagihan untuk ${monthLabel}`}
         emptyDescription={
           isCurrentMonth
             ? "Coba ubah filter status atau kata kunci pencarian."
-            : "Data mock hanya tersedia untuk Sep 2026 (bulan berjalan)."
+            : `Belum ada tagihan terbit untuk ${monthLabel} — gunakan Generator Tagihan Bulanan di atas.`
         }
       />
 
@@ -373,14 +482,25 @@ export function TagihanView({
         Menampilkan {filtered.length} dari {invoices.length} invoice · {monthLabel}
       </p>
 
-      {/* WA reminder modal */}
+      {/* Modal Edit / Tambah Biaya (sebelum tagihan dikirim) */}
+      <InvoiceEditModal
+        invoice={editInvoice}
+        open={editInvoice !== null}
+        onOpenChange={(o) => {
+          if (!o) setEditInvoice(null);
+        }}
+        onSave={handleSaveLines}
+        saving={savingLines}
+      />
+
+      {/* WA preview modal (pratinjau & salin pesan) */}
       <WaReminderModal
         invoice={waInvoice}
         open={waInvoice !== null}
         onOpenChange={(o) => {
           if (!o) setWaInvoice(null);
         }}
-        propertyName={propertyName}
+        context={waInvoice ? waContextFor(waInvoice) : null}
         onSent={handleSent}
       />
     </div>
