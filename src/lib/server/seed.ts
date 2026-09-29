@@ -14,8 +14,7 @@
 import { db } from "@/lib/prisma";
 import { ROOMS, parseDateLabel, seededPortalToken } from "@/lib/kost-data";
 import { INVOICES } from "@/lib/kost-invoices";
-import { CASH_ENTRIES } from "@/lib/kost-cashflow";
-import { dateSortFromLabel } from "@/lib/kost-cashflow";
+import { CASH_ENTRIES, dateSortFromLabel, type CashType } from "@/lib/kost-cashflow";
 
 /** Properti utama (id sama dengan settings.properties[0] agar switcher konsisten) */
 export const SEED_PROPERTY_ID = "kgp";
@@ -162,12 +161,13 @@ async function runSeed(): Promise<void> {
   });
 }
 
-/** ID transaksi kas berikutnya — "KX-012", "KX-013", … (lanjutan seed) */
-export async function nextCashId(): Promise<string> {
+/** ID transaksi kas berikutnya — keluar "KX-012", masuk "KM-001", … (lanjutan seed) */
+export async function nextCashId(type: CashType = "keluar"): Promise<string> {
+  const prefix = type === "masuk" ? "KM" : "KX";
   const ids = await db.cashEntry.findMany({ select: { id: true } });
   const max = ids.reduce((m, row) => {
-    const match = /^KX-(\d+)$/.exec(row.id);
+    const match = new RegExp(`^${prefix}-(\\d+)$`).exec(row.id);
     return match ? Math.max(m, Number(match[1])) : m;
   }, 0);
-  return `KX-${String(max + 1).padStart(3, "0")}`;
+  return `${prefix}-${String(max + 1).padStart(3, "0")}`;
 }

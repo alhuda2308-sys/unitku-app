@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
 
     const entry = await db.cashEntry.create({
       data: {
-        id: await nextCashId(),
+        id: await nextCashId(d.type),
         type: d.type,
         category: d.category,
         description: d.description,

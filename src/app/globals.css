@@ -1363,3 +1363,41 @@
     animation: none;
   }
 }
+
+/* ── UnitKu — Cetak Laporan Buku Kas (@media print) ───────────────────────────
+   #kas-print-portal dirender via React portal ke <body>, tersembunyi di layar
+   dan hanya tampil saat mencetak; seluruh anak <body> lain disembunyikan agar
+   hasil cetak bersih tanpa elemen navigasi/tombol web. */
+#kas-print-portal {
+  display: none;
+}
+@media print {
+  html,
+  body {
+    background: #fff !important;
+  }
+  body > *:not(#kas-print-portal) {
+    display: none !important;
+  }
+  #kas-print-portal {
+    display: block !important;
+    background: #fff;
+    color: #09090b;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  #kas-print-portal * {
+    color: inherit !important;
+  }
+  #kas-print-portal thead {
+    display: table-header-group; /* ulangi header tabel di tiap halaman */
+  }
+  #kas-print-portal tr,
+  #kas-print-portal .print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  @page {
+    margin: 14mm;
+  }
+}

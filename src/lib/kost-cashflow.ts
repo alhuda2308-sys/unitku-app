@@ -25,8 +25,24 @@ export const EXPENSE_CATEGORIES = [
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
-/** Income categories (masuk) */
+/** Income categories (masuk) — dipakai dataset seed */
 export const INCOME_CATEGORIES = ["Sewa Kamar", "Deposit", "Parkir", "Denda", "Lainnya"] as const;
+
+/** Kategori pemasukan manual — dropdown modal "+ Tambah Pemasukan" (Buku Kas) */
+export const MANUAL_INCOME_CATEGORIES = [
+  "Pelunasan Sewa Manual / Tunai",
+  "Denda Keterlambatan",
+  "Deposit / Jaminan Masuk",
+  "Layanan Tambahan (Laundry / Galon / Parkir Tambahan)",
+  "Lain-lain",
+] as const;
+export type ManualIncomeCategory = (typeof MANUAL_INCOME_CATEGORIES)[number];
+
+/** Metode pembayaran modal pemasukan — label UI → nilai kanonik sumber dana (CASH_SOURCES) */
+export const INCOME_METHODS = [
+  { label: "Tunai (Cash)", value: "Kas Tunai" },
+  { label: "Transfer Rekening", value: "Transfer Rekening Bank" },
+] as const;
 
 /** Sumber dana / metode pembayaran transaksi kas */
 export const CASH_SOURCES = ["Kas Tunai", "Transfer Rekening Bank"] as const;

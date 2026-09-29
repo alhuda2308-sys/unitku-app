@@ -52,6 +52,7 @@ import { RoomAddModal } from "@/components/kost/room-add-modal";
 import { RoomManageModal, type RoomPatch } from "@/components/kost/room-manage-modal";
 import type { CheckoutPayload } from "@/components/kost/checkout-dialog";
 import type { ExpenseDraft } from "@/components/kost/expense-modal";
+import type { IncomeDraft } from "@/components/kost/income-modal";
 import type { IssueDraft } from "@/components/kost/report-issue-drawer";
 import {
   formatDateLabel,
@@ -648,6 +649,29 @@ export default function IndoKostPage() {
       );
   };
 
+  /** Pemasukan manual (modal "+ Tambah Pemasukan") — type masuk langsung ke Buku Kas */
+  const handleAddIncome = (draft: IncomeDraft) => {
+    const dateLabel = formatDateLabel(draft.tanggal);
+    api
+      .addCash({
+        type: "masuk",
+        category: draft.category,
+        description: draft.description,
+        amount: draft.amount,
+        dateLabel,
+        source: draft.source,
+      })
+      .then(({ entry }) => {
+        updateCashEntries((prev) => [entry, ...prev]);
+        toast.success(`Pemasukan ${formatIDR(draft.amount)} tercatat`, {
+          description: `${draft.category} · ${draft.description} · ${dateLabel} · tersimpan ke cloud.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal mencatat pemasukan", { description: errMsg(err) }),
+      );
+  };
+
   /** Edit pengeluaran manual — perubahan langsung tersinkron ke database */
   const handleUpdateExpense = (entry: CashEntry, draft: ExpenseDraft) => {
     const dateLabel = formatDateLabel(draft.tanggal);
@@ -1190,8 +1214,10 @@ export default function IndoKostPage() {
               <KasView
                 entries={cashEntries}
                 onAddExpense={handleAddExpense}
+                onAddIncome={handleAddIncome}
                 onUpdateExpense={handleUpdateExpense}
                 onDeleteEntry={handleDeleteEntry}
+                propertyName={property}
                 staffRole={staffSession?.role ?? null}
               />
             ) : view === "pengaturan" ? (

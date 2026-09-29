@@ -1,13 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDownLeft,
   ArrowUpRight,
   Banknote,
   ChevronDown,
+  Download,
+  FileSpreadsheet,
   Landmark,
+  Minus,
   MoreHorizontal,
+  Plus,
+  Printer,
   ReceiptText,
   ShieldAlert,
   Trash2,
@@ -15,6 +21,7 @@ import {
   TrendingUp,
   PencilLine,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,6 +34,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -50,26 +58,33 @@ import {
 import { MetricCard } from "./metric-card";
 import { SegmentedTabs } from "./segmented-tabs";
 import { ExpenseModal, type ExpenseDraft } from "./expense-modal";
+import { IncomeModal, type IncomeDraft } from "./income-modal";
 import { computeCashStats, type CashEntry } from "@/lib/kost-cashflow";
 import {
   buildMonthOptions,
   currentPeriodKey,
   periodShortLabel,
 } from "@/lib/kost-invoices";
-import { formatIDR, MONTH_NAMES } from "@/lib/kost-data";
+import { formatDateLabel, formatIDR, MONTH_NAMES, todayISO } from "@/lib/kost-data";
 import type { StaffAccessRole } from "@/lib/staff-access";
 import { cn } from "@/lib/utils";
 
 interface KasViewProps {
   entries: CashEntry[];
   onAddExpense: (draft: ExpenseDraft) => void;
+  onAddIncome: (draft: IncomeDraft) => void;
   onUpdateExpense: (entry: CashEntry, draft: ExpenseDraft) => void;
   onDeleteEntry: (entry: CashEntry) => void;
+  /** Nama properti aktif — kop laporan cetak */
+  propertyName: string;
   /** Role sesi staf aktif — null/undefined = owner penuh */
   staffRole?: StaffAccessRole | null;
 }
 
 type FlowFilter = "semua" | "masuk" | "keluar";
+
+/** Shim mount-status aman SSR — untuk render portal cetak hanya di klien */
+const emptySubscribe = () => () => {};
 
 const HEAD_CELL =
   "h-9 bg-white px-3 text-xs font-semibold uppercase tracking-wide text-zinc-700 shadow-[inset_0_-1px_0_var(--border)]";
@@ -111,14 +126,16 @@ function SourceChip({ source }: { source?: string }) {
 export function KasView({
   entries,
   onAddExpense,
+  onAddIncome,
   onUpdateExpense,
   onDeleteEntry,
+  propertyName,
   staffRole = null,
 }: KasViewProps) {
   const isStaffView = staffRole !== null;
-  /** Owner & Admin Operasional boleh mencatat pengeluaran harian */
+  /** Owner & Admin Operasional boleh mencatat pemasukan/pengeluaran harian */
   const canRecord = !isStaffView || staffRole === "ADMIN_OPERASIONAL";
-  /** Edit/hapus catatan = owner saja */
+  /** Edit/hapus catatan & laporan keuangan = owner saja */
   const canModify = !isStaffView;
 
   const monthOptions = useMemo(() => buildMonthOptions(), []);
@@ -126,9 +143,17 @@ export function KasView({
   const [flow, setFlow] = useState<FlowFilter>("semua");
   const [category, setCategory] = useState("all");
   const [expenseOpen, setExpenseOpen] = useState(false);
+  const [incomeOpen, setIncomeOpen] = useState(false);
   const [editing, setEditing] = useState<CashEntry | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<CashEntry | null>(null);
   const [preview, setPreview] = useState<CashEntry | null>(null);
+  /** Stempel tanggal cetak pada laporan (stabil per mount, aman hydration) */
+  const [printedLabel] = useState(() => formatDateLabel(todayISO()));
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
 
   const monthEntries = useMemo(
     () =>
@@ -152,10 +177,53 @@ export function KasView({
     [monthEntries, flow, category]
   );
 
+  /** Urutan kronologis — untuk saldo berjalan CSV & tabel laporan cetak */
+  const chronoEntries = useMemo(
+    () => [...monthEntries].sort((a, b) => a.dateSort - b.dateSort),
+    [monthEntries]
+  );
+
   const stats = computeCashStats(monthEntries);
   const monthLabel = periodShortLabel(month);
   const monthTag = monthOptions.find((m) => m.key === month)?.tag;
   const netPositive = stats.net >= 0;
+
+  /** Ekspor CSV/Excel — kolom spesifikasi + saldo berjalan, urut kronologis bulan terpilih */
+  const exportCsv = () => {
+    let saldo = 0;
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    const lines = chronoEntries.map((e) => {
+      const nominal = e.type === "masuk" ? e.amount : -e.amount;
+      saldo += nominal;
+      return [
+        e.dateLabel,
+        e.type === "masuk" ? "Masuk" : "Keluar",
+        e.category,
+        e.description,
+        e.source ?? "Kas Tunai",
+        nominal,
+        saldo,
+      ]
+        .map(esc)
+        .join(",");
+    });
+    const csv =
+      "\uFEFF" +
+      ["Tanggal,Tipe,Kategori,Keterangan,Metode,Nominal,Saldo", ...lines].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `unitku-kas-${month}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Laporan CSV diunduh", {
+      description: `${chronoEntries.length} transaksi · ${monthLabel} · saldo berjalan disertakan.`,
+    });
+  };
+
+  /** Cetak laporan — jendela print browser memakai layout khusus @media print */
+  const printReport = () => window.print();
 
   /** Reset kategori bila pindah bulan/arus & kategori tidak lagi tersedia — via derived value */
   const categoryValue =
@@ -207,20 +275,61 @@ export function KasView({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          {canRecord && (
-            <Button
-              onClick={() => {
-                setEditing(null);
-                setExpenseOpen(true);
-              }}
-              className="h-9 bg-orange-600 px-3 text-[13px] font-semibold text-white shadow-none hover:bg-orange-700"
-            >
-              <span aria-hidden="true" className="text-[15px] leading-none">−</span>
-              Catat Pengeluaran
-            </Button>
+          {/* Ekspor & cetak laporan (khusus owner) — di sisi kanan filter periode */}
+          {canModify && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="h-9 border-zinc-200 bg-white px-3 text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                >
+                  <Download className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+                  <span className="hidden sm:inline">Ekspor Data</span>
+                  <span className="sm:hidden">Ekspor</span>
+                  <ChevronDown className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="text-xs text-zinc-700">
+                  Laporan Buku Kas · {monthLabel}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={exportCsv} className="text-[13px]">
+                  <FileSpreadsheet className="text-zinc-700" />
+                  Ekspor ke CSV / Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={printReport} className="text-[13px]">
+                  <Printer className="text-zinc-700" />
+                  Cetak Laporan / Simpan PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </div>
+
+      {/* Panel aksi atas Buku Kas — pemasukan & pengeluaran berdampingan */}
+      {canRecord && (
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
+          <Button
+            onClick={() => setIncomeOpen(true)}
+            className="h-11 bg-emerald-600 px-3 text-[13px] font-semibold text-white shadow-none hover:bg-emerald-700 sm:h-9 sm:px-3.5"
+          >
+            <Plus className="size-4" strokeWidth={2.25} />
+            Tambah Pemasukan
+          </Button>
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setExpenseOpen(true);
+            }}
+            className="h-11 bg-orange-600 px-3 text-[13px] font-semibold text-white shadow-none hover:bg-orange-700 sm:h-9 sm:px-3.5"
+          >
+            <Minus className="size-4" strokeWidth={2.25} />
+            Catat Pengeluaran
+          </Button>
+        </div>
+      )}
 
       {/* Notice staf — laporan keuangan sensitif dibatasi */}
       {isStaffView && (
@@ -684,6 +793,91 @@ export function KasView({
             : null
         }
       />
+
+      {/* Modal pemasukan manual — key remount agar form selalu bersih saat dibuka */}
+      <IncomeModal
+        key={incomeOpen ? "income-open" : "income-closed"}
+        open={incomeOpen}
+        onOpenChange={setIncomeOpen}
+        onSubmit={onAddIncome}
+      />
+
+      {/* Laporan cetak — tersembunyi di layar, tampil hanya saat window.print() (@media print) */}
+      {mounted &&
+        canModify &&
+        createPortal(
+          <div id="kas-print-portal" className="bg-white text-zinc-900">
+            <header className="border-b-2 border-zinc-900 pb-3 print-avoid-break">
+              <h1 className="text-xl font-bold tracking-tight">{propertyName}</h1>
+              <p className="mt-0.5 text-[12px]">
+                Laporan Buku Kas &amp; Arus Keuangan — Periode {monthLabel}
+              </p>
+            </header>
+
+            <section className="mt-3 grid grid-cols-3 gap-2 print-avoid-break">
+              <div className="rounded border border-zinc-400 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide">Total Pemasukan</p>
+                <p className="mt-0.5 text-[14px] font-bold tabular-nums">+{formatIDR(stats.masuk)}</p>
+              </div>
+              <div className="rounded border border-zinc-400 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide">Total Pengeluaran</p>
+                <p className="mt-0.5 text-[14px] font-bold tabular-nums">−{formatIDR(stats.keluar)}</p>
+              </div>
+              <div className="rounded border-2 border-zinc-900 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide">Laba Bersih</p>
+                <p className="mt-0.5 text-[14px] font-bold tabular-nums">
+                  {netPositive ? "+" : "−"}
+                  {formatIDR(Math.abs(stats.net))}
+                </p>
+              </div>
+            </section>
+
+            <table className="mt-4 w-full border-collapse text-left text-[11px]">
+              <caption className="sr-only">
+                Rincian transaksi kas periode {monthLabel}
+              </caption>
+              <thead>
+                <tr className="border-b-2 border-zinc-900">
+                  <th className="py-1.5 pr-2 font-semibold">Tanggal</th>
+                  <th className="py-1.5 pr-2 font-semibold">Tipe</th>
+                  <th className="py-1.5 pr-2 font-semibold">Kategori</th>
+                  <th className="py-1.5 pr-2 font-semibold">Keterangan</th>
+                  <th className="py-1.5 pr-2 font-semibold">Metode</th>
+                  <th className="py-1.5 text-right font-semibold">Nominal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {chronoEntries.map((e) => (
+                  <tr key={e.id} className="border-b border-zinc-300">
+                    <td className="whitespace-nowrap py-1.5 pr-2 tabular-nums">{e.dateLabel}</td>
+                    <td className="py-1.5 pr-2">{e.type === "masuk" ? "Masuk" : "Keluar"}</td>
+                    <td className="py-1.5 pr-2">{e.category}</td>
+                    <td className="py-1.5 pr-2">{e.description}</td>
+                    <td className="py-1.5 pr-2">{e.source ?? "Kas Tunai"}</td>
+                    <td className="whitespace-nowrap py-1.5 text-right tabular-nums">
+                      {e.type === "masuk" ? "+" : "−"}
+                      {formatIDR(e.amount)}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-b-2 border-zinc-900 font-bold">
+                  <td colSpan={5} className="py-1.5 pr-2 text-right">
+                    Saldo Akhir Periode
+                  </td>
+                  <td className="whitespace-nowrap py-1.5 text-right tabular-nums">
+                    {netPositive ? "+" : "−"}
+                    {formatIDR(Math.abs(stats.net))}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <footer className="mt-3 text-[10px]">
+              Dicetak {printedLabel} · UnitKu — Laporan dihasilkan otomatis dari Buku Kas digital.
+            </footer>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
