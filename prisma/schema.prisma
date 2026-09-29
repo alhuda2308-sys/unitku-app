@@ -14,7 +14,9 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:../db/custom.db"
+  // connection_limit=1 → satu koneksi per proses: query diserialisasi agar
+  // request paralel (rooms+invoices+cash+seed) tidak memicu SQLITE_BUSY.
+  url      = "file:../db/custom.db?connection_limit=1"
 }
 
 // ── Properti ─────────────────────────────────────────────────────────────────

@@ -81,31 +81,146 @@ function nowLabel(): string {
   return new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Klasifikasi penyebab error untuk log console — network vs HTTP vs server */
+function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    const cause = err.cause instanceof Error ? ` (penyebab: ${err.cause.message})` : "";
+    return `${err.message}${cause}`;
+  }
+  return String(err);
+}
+
+async function fetchDashboardData(): Promise<{
+  rooms: Room[];
+  invoices: Invoice[];
+  cashEntries: CashEntry[];
+}> {
+  const [r, i, c] = await Promise.all([api.getRooms(), api.getInvoices(), api.getCash()]);
+  return { rooms: r.rooms, invoices: i.invoices, cashEntries: c.entries };
+}
+
+// ── Auto-recovery mode offline ────────────────────────────────────────────────
+// Saat masuk mode offline (DB benar-benar tak terjangkau setelah retry),
+// polling murah ke /api/health mendeteksi kapan database kembali hidup →
+// data dimuat ulang otomatis & banner menghilang tanpa sentuhan pengguna.
+
+const RECOVERY_INTERVAL_MS = 8_000;
+const RECOVERY_MAX_ATTEMPTS = 24; // ± 3 menit, lalu serahkan ke tombol retry
+
+let recoveryTimer: ReturnType<typeof setInterval> | null = null;
+let recoveryAttempts = 0;
+let onlineListenerBound = false;
+
+function stopRecoveryPolling(): void {
+  if (recoveryTimer !== null) {
+    clearInterval(recoveryTimer);
+    recoveryTimer = null;
+  }
+}
+
+/** Muat ulang data tanpa mengubah status (tanpa skeleton) — utk pemulihan otomatis */
+async function recoverDashboard(): Promise<boolean> {
+  try {
+    const data = await fetchDashboardData();
+    stopRecoveryPolling();
+    console.info("[UnitKu] Database kembali terjangkau — dashboard disinkronkan ulang.");
+    setState({ ...data, status: "ready", syncedAt: nowLabel() });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function pollHealthOnce(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/health", { cache: "no-store" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function startRecoveryPolling(): void {
+  if (recoveryTimer !== null) return;
+  recoveryAttempts = 0;
+  recoveryTimer = setInterval(() => {
+    recoveryAttempts += 1;
+    if (recoveryAttempts > RECOVERY_MAX_ATTEMPTS) {
+      stopRecoveryPolling();
+      console.info(
+        `[UnitKu] Pemulihan otomatis dihentikan setelah ${RECOVERY_MAX_ATTEMPTS} percobaan — gunakan tombol "Coba Sambungkan Ulang".`,
+      );
+      return;
+    }
+    void pollHealthOnce().then((up) => {
+      if (up) void recoverDashboard();
+    });
+  }, RECOVERY_INTERVAL_MS);
+
+  // Browser baru saja online kembali (WiFi/kuota tersambung) → coba segera
+  if (typeof window !== "undefined" && !onlineListenerBound) {
+    onlineListenerBound = true;
+    window.addEventListener("online", () => {
+      if (state.status === "offline") {
+        console.info("[UnitKu] Koneksi perangkat kembali online — mencoba sinkron…");
+        void pollHealthOnce().then((up) => {
+          if (up) void recoverDashboard();
+        });
+      }
+    });
+  }
+}
+
 /**
  * Muat data dari cloud (kamar + tagihan + kas). Status "loading" → skeleton
- * layar penuh; gagal → status "offline" + fallback dataset demo. Melempar
- * error agar pemanggil menampilkan toast.
+ * layar penuh; kegagalan sementara di-retry otomatis (warm-up server,
+ * SQLITE_BUSY, dsb. tidak langsung menjatuhkan mode offline). Setelah 3
+ * percobaan gagal → status "offline" + fallback dataset demo + polling
+ * /api/health utk pemulihan otomatis. Melempar error agar pemanggil
+ * menampilkan toast.
  */
 export async function loadDashboard(): Promise<void> {
   setState({ status: "loading" });
-  try {
-    const [r, i, c] = await Promise.all([api.getRooms(), api.getInvoices(), api.getCash()]);
-    setState({
-      rooms: r.rooms,
-      invoices: i.invoices,
-      cashEntries: c.entries,
-      status: "ready",
-      syncedAt: nowLabel(),
-    });
-  } catch (err) {
-    setState({
-      rooms: ROOMS,
-      invoices: INVOICES,
-      cashEntries: CASH_ENTRIES,
-      status: "offline",
-    });
-    throw err;
+  const attempts: [number, number][] = [
+    [1, 0],
+    [2, 500],
+    [3, 1_800],
+  ];
+  let lastError: unknown = null;
+  for (const [n, waitMs] of attempts) {
+    if (waitMs > 0) await delay(waitMs);
+    try {
+      const data = await fetchDashboardData();
+      stopRecoveryPolling();
+      if (n > 1) console.info(`[UnitKu] Sinkron berhasil pada percobaan ke-${n}.`);
+      setState({ ...data, status: "ready", syncedAt: nowLabel() });
+      return;
+    } catch (err) {
+      lastError = err;
+      console.warn(
+        `[UnitKu] Percobaan sinkron ${n}/${attempts.length} gagal: ${describeError(err)}`,
+      );
+    }
   }
+  // Benar-benar gagal → mode offline + fallback demo + log akar masalah
+  console.error(
+    "[UnitKu] MODE OFFLINE diaktifkan — database tidak terjangkau setelah 3 percobaan.",
+    "\n  Penyebab:",
+    describeError(lastError),
+    "\n  (Detail permintaan gagal: lihat log [UnitKu API] di atas — network error / HTTP 4xx-5xx)",
+  );
+  setState({
+    rooms: ROOMS,
+    invoices: INVOICES,
+    cashEntries: CASH_ENTRIES,
+    status: "offline",
+  });
+  startRecoveryPolling();
+  throw lastError;
 }
 
 /**
@@ -114,15 +229,16 @@ export async function loadDashboard(): Promise<void> {
  */
 export async function refreshDashboard(): Promise<void> {
   try {
-    const [r, i, c] = await Promise.all([api.getRooms(), api.getInvoices(), api.getCash()]);
+    const data = await fetchDashboardData();
     setState({
-      rooms: r.rooms,
-      invoices: i.invoices,
-      cashEntries: c.entries,
+      ...data,
       status: "ready",
       syncedAt: nowLabel(),
     });
-  } catch {
+  } catch (err) {
     /* biarkan data saat ini — caller sudah menampilkan toast error */
+    console.warn(
+      `[UnitKu] Refresh data gagal (data saat ini tetap dipakai): ${describeError(err)}`,
+    );
   }
 }

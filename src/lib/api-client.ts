@@ -16,6 +16,7 @@ import type { ClientProperty } from "@/lib/server/mappers";
 import type { PortalRekening } from "./tenant-portal";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const method = init?.method ?? "GET";
   let res: Response;
   try {
     res = await fetch(url, {
@@ -23,12 +24,24 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       headers: init?.body ? { "Content-Type": "application/json" } : undefined,
       ...init,
     });
-  } catch {
-    throw new Error("Tidak dapat terhubung ke server — periksa koneksi internet.");
+  } catch (cause) {
+    // Network error sungguhan (server mati, DNS, CORS, offline) — log penyebab
+    // aslinya agar terlihat jelas di console browser (F12), jangan ditelan.
+    console.error(
+      `[UnitKu API] ${method} ${url} → network error:`,
+      cause instanceof Error ? cause.message : cause,
+    );
+    throw new Error("Tidak dapat terhubung ke server — periksa koneksi internet.", {
+      cause,
+    });
   }
   const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
   if (!res.ok) {
-    throw new Error(body?.error ?? `Permintaan gagal (${res.status}).`);
+    // HTTP error (404 endpoint salah, 500 Prisma/DB, dsb.) — log status + pesan
+    // server supaya akar masalahnya langsung terbaca di console.
+    const message = body?.error ?? `Permintaan gagal (${res.status}).`;
+    console.error(`[UnitKu API] ${method} ${url} → HTTP ${res.status}: ${message}`);
+    throw new Error(message);
   }
   return body as T;
 }
