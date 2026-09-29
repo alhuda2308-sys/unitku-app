@@ -78,6 +78,7 @@ import { cn } from "@/lib/utils";
 import { DangerZone } from "./danger-zone";
 import { WaIcon } from "./wa-icon";
 import { StaffAccessManager } from "./staff-access-manager";
+import { PwaInstallCard } from "./pwa-install";
 import {
   STAFF_ROLE_META as ACCESS_ROLE_META,
   clearStaffSession,
@@ -704,6 +705,9 @@ function ProfilPropertiTab({
             />
           </div>
         </SectionCard>
+
+        {/* PWA — tombol manual "Pasang Aplikasi" sebagai alternatif banner bawah */}
+        <PwaInstallCard />
 
         <SaveRow
           onClick={save}

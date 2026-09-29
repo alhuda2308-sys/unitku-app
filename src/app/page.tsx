@@ -37,6 +37,7 @@ import {
 import { Sidebar } from "@/components/kost/sidebar";
 import { TopBar } from "@/components/kost/topbar";
 import { MobileBottomBar } from "@/components/kost/mobile-bottombar";
+import { PwaInstallBanner } from "@/components/kost/pwa-install";
 import { MetricStrip } from "@/components/kost/metric-strip";
 import { RoomMatrix, type TabValue } from "@/components/kost/room-matrix";
 import { RoomDrawer } from "@/components/kost/room-drawer";
@@ -1329,6 +1330,9 @@ export default function IndoKostPage() {
           theme={settings.theme}
           onThemeChange={(t) => updateSettings({ theme: t })}
         />
+
+        {/* Banner PWA "Pasang Aplikasi" — bottom sheet ramah jempol, bisa ditutup */}
+        <PwaInstallBanner />
       </div>
 
       <RoomDrawer
