@@ -129,6 +129,7 @@ async function runSeed(): Promise<void> {
       category: e.category,
       description: e.description,
       amount: e.amount,
+      source: e.source ?? "Kas Tunai",
       entryDate: parseDateLabel(e.dateLabel),
       dateLabel: e.dateLabel,
       dateSort: e.dateSort ?? dateSortFromLabel(e.dateLabel),

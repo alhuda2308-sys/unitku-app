@@ -634,6 +634,7 @@ export default function IndoKostPage() {
         description: draft.description,
         amount: draft.amount,
         dateLabel,
+        source: draft.source,
         attachment: draft.attachment,
       })
       .then(({ entry }) => {
@@ -644,6 +645,29 @@ export default function IndoKostPage() {
       })
       .catch((err: unknown) =>
         toast.error("Gagal mencatat pengeluaran", { description: errMsg(err) }),
+      );
+  };
+
+  /** Edit pengeluaran manual — perubahan langsung tersinkron ke database */
+  const handleUpdateExpense = (entry: CashEntry, draft: ExpenseDraft) => {
+    const dateLabel = formatDateLabel(draft.tanggal);
+    api
+      .updateCash(entry.id, {
+        category: draft.category,
+        description: draft.description,
+        amount: draft.amount,
+        dateLabel,
+        source: draft.source,
+        attachment: draft.attachment ?? null,
+      })
+      .then(({ entry: updated }) => {
+        updateCashEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+        toast.success(`Pengeluaran ${updated.id} diperbarui`, {
+          description: `${draft.category} · ${formatIDR(draft.amount)} · ${dateLabel}.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal memperbarui pengeluaran", { description: errMsg(err) }),
       );
   };
 
@@ -1166,8 +1190,9 @@ export default function IndoKostPage() {
               <KasView
                 entries={cashEntries}
                 onAddExpense={handleAddExpense}
+                onUpdateExpense={handleUpdateExpense}
                 onDeleteEntry={handleDeleteEntry}
-                isStaffView={!!staffSession}
+                staffRole={staffSession?.role ?? null}
               />
             ) : view === "pengaturan" ? (
               <SettingsView

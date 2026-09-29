@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 interface MetricCardProps {
@@ -7,7 +8,8 @@ interface MetricCardProps {
   mobileLabel?: string;
   value: string;
   unit?: string;
-  sub: string;
+  /** Teks atau elemen kecil (ikon indikator) di bawah nominal */
+  sub: ReactNode;
   badge?: string;
   badgeClass?: string;
   valueClass?: string;

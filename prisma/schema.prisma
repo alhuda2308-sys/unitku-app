@@ -203,13 +203,14 @@ model Ticket {
 model CashEntry {
   id          String    @id // "KS-101"
   type        String    @default("masuk") // masuk | keluar
-  category    String // Sewa Kamar | Listrik/Token PLN | dst.
+  category    String // Sewa Kamar | Listrik & Air (Fasilitas Umum / Pompa) | dst.
   description String    @default("")
   amount      Int       @default(0) // selalu positif; tanda berasal dari `type`
+  source      String    @default("Kas Tunai") // sumber dana — "Kas Tunai" | "Transfer Rekening Bank"
   entryDate   DateTime?
   dateLabel   String // "01 Sep 2025"
   dateSort    Int       @default(0) // 20250901 — urutan terbaru dulu
-  attachment  String? // bukti nota / bukti transfer
+  attachment  String? // bukti nota / bukti transfer (dataURL gambar atau referensi file)
   createdAt   DateTime  @default(now())
 
   @@index([type])

@@ -119,6 +119,7 @@ export function toClientCashEntry(entry: CashEntry): ClientCashEntry {
     category: entry.category,
     description: entry.description,
     amount: entry.amount,
+    source: entry.source || undefined,
     attachment: entry.attachment ?? undefined,
   };
 }

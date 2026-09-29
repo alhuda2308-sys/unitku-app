@@ -148,11 +148,28 @@ export const api = {
     description: string;
     amount: number;
     dateLabel: string;
+    source?: string;
     attachment?: string;
   }) =>
     request<{ entry: ClientCashEntry }>("/api/cash", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+  /** Edit transaksi (pengeluaran manual) — patch parsial */
+  updateCash: (
+    id: string,
+    patch: {
+      category?: string;
+      description?: string;
+      amount?: number;
+      dateLabel?: string;
+      source?: string;
+      attachment?: string | null;
+    },
+  ) =>
+    request<{ entry: ClientCashEntry }>("/api/cash", {
+      method: "PATCH",
+      body: JSON.stringify({ id, ...patch }),
     }),
   deleteCash: (id: string) =>
     request<{ ok: true }>(`/api/cash?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
