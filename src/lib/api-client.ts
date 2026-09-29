@@ -10,6 +10,7 @@ import type { Room as ClientRoom, RoomStatus } from "@/lib/kost-data";
 import type { Invoice as ClientInvoice } from "@/lib/kost-invoices";
 import type { CashEntry as ClientCashEntry, CashType } from "@/lib/kost-cashflow";
 import type { Ticket as ClientTicket } from "@/lib/ticket-data";
+import type { TechnicianContact as ClientTechnician } from "@/lib/technician-data";
 import type { StaffAccessMember } from "@/lib/staff-access";
 import type { ClientProperty } from "@/lib/server/mappers";
 import type { PortalRekening } from "./tenant-portal";
@@ -224,6 +225,39 @@ export const api = {
     request<{ ticket: ClientTicket }>("/api/tickets", {
       method: "PATCH",
       body: JSON.stringify({ id, ...patch }),
+    }),
+
+  // /api/technicians — Kontak Teknisi (Komplain & Pemeliharaan)
+  getTechnicians: () =>
+    request<{ technicians: ClientTechnician[] }>("/api/technicians"),
+  /** Tambah kontak teknisi — isPrimary mencabut status utama kontak lain */
+  createTechnician: (payload: {
+    name: string;
+    phone: string;
+    specialization: string;
+    isPrimary?: boolean;
+  }) =>
+    request<{ technician: ClientTechnician }>("/api/technicians", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  /** Edit kontak teknisi — patch parsial */
+  updateTechnician: (
+    id: string,
+    patch: {
+      name?: string;
+      phone?: string;
+      specialization?: string;
+      isPrimary?: boolean;
+    },
+  ) =>
+    request<{ technician: ClientTechnician }>("/api/technicians", {
+      method: "PATCH",
+      body: JSON.stringify({ id, ...patch }),
+    }),
+  deleteTechnician: (id: string) =>
+    request<{ ok: true }>(`/api/technicians?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
     }),
 
   // /api/reset — Zona Berbahaya

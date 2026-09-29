@@ -1239,6 +1239,7 @@ export default function IndoKostPage() {
               <MaintenancePanel
                 tickets={tickets}
                 rooms={rooms}
+                propertyName={property}
                 query={query}
                 onQueryChange={setQuery}
                 onStatusChange={handleTicketStatus}

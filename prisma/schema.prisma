@@ -201,6 +201,20 @@ model Ticket {
   @@map("tickets")
 }
 
+// ── Kontak Teknisi (Komplain & Pemeliharaan) ─────────────────────────────────
+
+model TechnicianContact {
+  id            String   @id @default(cuid())
+  name          String // "Pak Yanto"
+  phone         String // "081322001177" / "+62 813-2200-1177" — wa.me dinormalisasi klien
+  specialization String  @default("Tukang Bangunan/Umum") // "AC & Pendingin" | "Pipa & Sanitasi" | …
+  isPrimary     Boolean  @default(false) // teknisi on-call utama — tampil di pill header
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("technician_contacts")
+}
+
 // ── Buku Kas (pemasukan & pengeluaran) ───────────────────────────────────────
 
 model CashEntry {

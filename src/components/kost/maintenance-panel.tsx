@@ -1,15 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AirVent,
   Building2,
   Check,
+  ChevronDown,
   Droplets,
   Hammer,
   ImageOff,
   Info,
   KeyRound,
+  Pencil,
   Phone,
   PlayCircle,
   Plus,
@@ -39,6 +41,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { initialsOf, waLink, type Room } from "@/lib/kost-data";
 import { BRAND_WA_LINE } from "@/lib/brand";
+import { api } from "@/lib/api-client";
+import {
+  formatWaPhone,
+  shortSpecialization,
+  type TechnicianContact,
+} from "@/lib/technician-data";
 import {
   ONCALL_TEKNISI,
   sortTicketsNewestFirst,
@@ -58,6 +66,7 @@ import { SegmentedTabs } from "./segmented-tabs";
 import { MobileFilterSelect } from "./mobile-filter-select";
 import { WaIcon } from "./wa-icon";
 import { CreateTicketModal } from "./create-ticket-modal";
+import { TechnicianContactsModal } from "./technician-contacts-modal";
 
 type StatusTab = TicketStatus | "all";
 
@@ -65,6 +74,8 @@ interface MaintenancePanelProps {
   tickets: Ticket[];
   /** Rooms provide the "Pilih Kamar & Penyewa" dropdown in the create modal */
   rooms: Room[];
+  /** Nama properti aktif — baris pertama template pesan WA dispatch teknisi */
+  propertyName: string;
   query: string;
   onQueryChange: (q: string) => void;
   onStatusChange: (ticket: Ticket, status: TicketStatus) => void;
@@ -93,35 +104,216 @@ function CategoryIcon({ kategori }: { kategori: TicketCategory }) {
   );
 }
 
-/** Build the prefilled WhatsApp text for penyewa / teknisi contact */
-function buildWaText(ticket: Ticket, role: "penyewa" | "teknisi"): string {
-  if (role === "penyewa") {
-    // Pesan konfirmasi perbaikan — menyesuaikan status tiket terkini
-    const statusLine =
-      ticket.status === "selesai"
-        ? "Perbaikan sudah SELESAI dikerjakan. Mohon konfirmasi kondisi fasilitasnya sudah baik kembali."
-        : ticket.status === "dikerjakan"
-          ? "Perbaikan SEDANG dikerjakan oleh teknisi kami. Mohon kesediaannya menunggu jadwal penyelesaian."
-          : "Laporan sudah kami terima dan akan segera dijadwalkan ke teknisi. Terima kasih atas laporannya.";
-    return [
-      `Halo ${ticket.reporterName},`,
-      `menindaklanjuti laporan ${ticket.kategori} pada ${ticket.id} (${ticketSubject(ticket)}).`,
-      statusLine,
-      `${BRAND_WA_LINE}.`,
-    ].join(" ");
-  }
-  const teknisi = ticket.teknisi ?? ONCALL_TEKNISI;
+/** Pesan WA konfirmasi ke penyewa pelapor — menyesuaikan status tiket terkini */
+function buildPenyewaWaText(ticket: Ticket): string {
+  const statusLine =
+    ticket.status === "selesai"
+      ? "Perbaikan sudah SELESAI dikerjakan. Mohon konfirmasi kondisi fasilitasnya sudah baik kembali."
+      : ticket.status === "dikerjakan"
+        ? "Perbaikan SEDANG dikerjakan oleh teknisi kami. Mohon kesediaannya menunggu jadwal penyelesaian."
+        : "Laporan sudah kami terima dan akan segera dijadwalkan ke teknisi. Terima kasih atas laporannya.";
   return [
-    `Halo ${teknisi.name}, saya Hendra (Owner Kost Griya Pratama).`,
-    `Mohon bantuan penanganan ${ticket.id} — ${ticket.kategori} di ${ticketSubject(ticket)}:`,
-    `"${ticket.deskripsi}"`,
-    `Mohon konfirmasi jadwalnya. Terima kasih.`,
+    `Halo ${ticket.reporterName},`,
+    `menindaklanjuti laporan ${ticket.kategori} pada ${ticket.id} (${ticketSubject(ticket)}).`,
+    statusLine,
     `${BRAND_WA_LINE}.`,
   ].join(" ");
 }
 
+/** Template WA dispatch ke teknisi — terisi otomatis dari detail tiket:
+ *  "Halo {teknisi}, butuh bantuan perbaikan di {properti}: / - Lokasi: … / - Keluhan: …
+ *  / - Waktu lapor: …  Mohon konfirmasi ketersediaan untuk pengecekan. Terima kasih!" */
+function buildTeknisiWaText(
+  ticket: Ticket,
+  tech: TicketContact,
+  propertyName: string,
+): string {
+  const lokasi =
+    ticket.sumber === "fasilitas"
+      ? `${ticket.lokasi ?? "Fasilitas Umum"} (${ticket.reporterName})`
+      : `Kamar ${ticket.roomId ?? "—"} (${ticket.reporterName})`;
+  return [
+    `Halo ${tech.name}, butuh bantuan perbaikan di ${propertyName}:`,
+    `- Lokasi: ${lokasi}`,
+    `- Keluhan: ${ticket.kategori} — ${ticket.deskripsi}`,
+    `- Waktu lapor: ${ticket.reportedLabel}`,
+    ``,
+    `Mohon konfirmasi ketersediaan untuk pengecekan. Terima kasih!`,
+  ].join("\n");
+}
+
 const HEAD_CELL =
   "h-9 bg-white px-3 text-xs font-semibold uppercase tracking-wide text-zinc-700 shadow-[inset_0_-1px_0_var(--border)]";
+
+/** Tombol dispatch WhatsApp ke teknisi.
+ *  - ≤ 1 kontak teknisi → klik langsung membuka WA (fallback: teknisi tiket /
+ *    kontak on-call legacy saat daftar masih kosong)
+ *  - > 1 kontak → klik memunculkan dropdown "Kirim ke {nama} ({spesialisasi})"
+ *    dengan pesan WA yang terisi otomatis dari detail tiket. */
+function TechnicianDispatchButton({
+  ticket,
+  technicians,
+  onDispatch,
+  variant,
+}: {
+  ticket: Ticket;
+  technicians: TechnicianContact[];
+  onDispatch: (ticket: Ticket, tech: TicketContact) => void;
+  /** icon = tombol ikon alat di baris tabel; green-outline = baris tabel tiket
+   *  fasilitas; green-full = tombol lebar kartu mobile */
+  variant: "icon" | "green-outline" | "green-full";
+}) {
+  const assigned = ticket.teknisi;
+  const single: TicketContact | null =
+    technicians.length === 1
+      ? { name: technicians[0].name, phone: technicians[0].phone }
+      : technicians.length === 0
+        ? (assigned ?? ONCALL_TEKNISI)
+        : null;
+
+  const label =
+    variant === "green-full"
+      ? "Hubungi Teknisi via WhatsApp"
+      : variant === "green-outline"
+        ? "Hubungi Teknisi"
+        : "Chat Teknisi";
+  const ariaLabel = `Chat Teknisi via WhatsApp — tiket ${ticket.id}`;
+
+  /** Trigger khusus mode dropdown (>1 teknisi) */
+  const triggerButton =
+    variant === "icon" ? (
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 w-7 border-zinc-200 bg-white px-0 text-zinc-700 shadow-none hover:bg-zinc-50"
+        aria-label={ariaLabel}
+      >
+        <Wrench className="size-3.5" strokeWidth={1.75} />
+      </Button>
+    ) : variant === "green-outline" ? (
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1 border-green-200 bg-green-50 px-2 text-xs font-medium text-green-700 shadow-none hover:bg-green-100 hover:text-green-800"
+        aria-label={ariaLabel}
+      >
+        <WaIcon className="size-3.5" />
+        <span className="hidden lg:inline">{label}</span>
+        <ChevronDown className="size-3 opacity-70" aria-hidden="true" />
+      </Button>
+    ) : (
+      <Button
+        className="h-9 min-w-0 flex-1 gap-1.5 bg-green-600 text-[12.5px] font-semibold text-white shadow-none hover:bg-green-700"
+        aria-label={ariaLabel}
+      >
+        <WaIcon className="size-4 shrink-0" />
+        <span className="truncate">{label}</span>
+        <ChevronDown className="size-3.5 shrink-0 opacity-80" aria-hidden="true" />
+      </Button>
+    );
+
+  // ≤ 1 teknisi → langsung buka WA tanpa dropdown
+  if (single) {
+    const directLabel = `Chat Teknisi ${single.name} via WhatsApp — tiket ${ticket.id}`;
+    if (variant === "icon") {
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onDispatch(ticket, single)}
+              className="h-7 w-7 border-zinc-200 bg-white px-0 text-zinc-700 shadow-none hover:bg-zinc-50"
+              aria-label={directLabel}
+            >
+              <Wrench className="size-3.5" strokeWidth={1.75} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent
+            side="top"
+            className="border border-zinc-200 bg-white text-zinc-700 shadow-md"
+          >
+            Chat Teknisi — {single.name}
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+    if (variant === "green-outline") {
+      return (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onDispatch(ticket, single)}
+          className="h-7 gap-1 border-green-200 bg-green-50 px-2 text-xs font-medium text-green-700 shadow-none hover:bg-green-100 hover:text-green-800"
+          aria-label={directLabel}
+        >
+          <WaIcon className="size-3.5" />
+          <span className="hidden lg:inline">{label}</span>
+        </Button>
+      );
+    }
+    return (
+      <Button
+        onClick={() => onDispatch(ticket, single)}
+        className="h-9 min-w-0 flex-1 gap-1.5 bg-green-600 text-[12.5px] font-semibold text-white shadow-none hover:bg-green-700"
+        aria-label={directLabel}
+      >
+        <WaIcon className="size-4 shrink-0" />
+        <span className="truncate">{label}</span>
+      </Button>
+    );
+  }
+
+  // >1 teknisi → dropdown pilihan penerima ("Kirim ke Pak Yanto (AC)")
+  const choices = [...technicians].sort((a, b) => {
+    const aAssigned = !!assigned && a.name === assigned.name && a.phone === assigned.phone;
+    const bAssigned = !!assigned && b.name === assigned.name && b.phone === assigned.phone;
+    return aAssigned === bAssigned ? 0 : aAssigned ? -1 : 1;
+  });
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{triggerButton}</DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel className="text-xs text-zinc-700">
+          Pilih Teknisi Penerima
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {choices.map((t) => {
+          const isAssigned =
+            !!assigned && assigned.name === t.name && assigned.phone === t.phone;
+          return (
+            <DropdownMenuItem
+              key={t.id}
+              onClick={() => onDispatch(ticket, { name: t.name, phone: t.phone })}
+              className="gap-2.5 py-2"
+            >
+              <Wrench className="size-3.5 shrink-0 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate text-[13px] font-medium text-zinc-900">
+                  Kirim ke {t.name} ({shortSpecialization(t.specialization)})
+                </span>
+                <span className="block truncate text-xs text-zinc-700">
+                  {t.specialization} · {formatWaPhone(t.phone)}
+                </span>
+              </span>
+              {isAssigned && (
+                <Check
+                  className="ml-auto size-3.5 shrink-0 text-emerald-600"
+                  aria-label="Teknisi yang ditugaskan pada tiket ini"
+                />
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+        <DropdownMenuSeparator />
+        <p className="px-2 py-1.5 text-xs leading-4 text-zinc-700">
+          Pesan WhatsApp terisi otomatis: lokasi kamar, keluhan &amp; waktu lapor.
+        </p>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 /** Tombol aksi cepat status — "Tandai Sedang Dikerjakan" / "Selesai Diperbaiki */
 function QuickStatusButton({
@@ -180,13 +372,17 @@ function QuickStatusButton({
  *  keluhan (judul, urgensi, deskripsi, foto) — aksi Ubah Status & Chat WA. */
 function MobileTicketCard({
   ticket,
+  technicians,
   onStatusChange,
-  onOpenWa,
+  onOpenPenyewa,
+  onDispatchTeknisi,
   onZoom,
 }: {
   ticket: Ticket;
+  technicians: TechnicianContact[];
   onStatusChange: (ticket: Ticket, status: TicketStatus) => void;
-  onOpenWa: (ticket: Ticket, role: "penyewa" | "teknisi") => void;
+  onOpenPenyewa: (ticket: Ticket) => void;
+  onDispatchTeknisi: (ticket: Ticket, tech: TicketContact) => void;
   onZoom: (src: string, ticket: Ticket) => void;
 }) {
   const meta = TICKET_STATUS_META[ticket.status];
@@ -283,17 +479,33 @@ function MobileTicketCard({
         {/* Aksi cepat status — kontekstual (Tandai Sedang Dikerjakan / Selesai Diperbaiki) */}
         <QuickStatusButton ticket={ticket} onStatusChange={onStatusChange} size="full" />
         <div className="flex items-center gap-2">
-          {/* Hubungi via WhatsApp — aksi langsung sesuai peran required */}
-          <Button
-            onClick={() => onOpenWa(ticket, isFasilitas ? "teknisi" : "penyewa")}
-            className="h-9 min-w-0 flex-1 gap-1.5 bg-green-600 text-[12.5px] font-semibold text-white shadow-none hover:bg-green-700"
-            aria-label={`Hubungi ${isFasilitas ? "Teknisi" : "Penyewa"} via WhatsApp — tiket ${ticket.id}`}
-          >
-            <WaIcon className="size-4 shrink-0" />
-            <span className="truncate">
-              {isFasilitas ? "Hubungi Teknisi via WhatsApp" : "Hubungi Penyewa via WhatsApp"}
-            </span>
-          </Button>
+          {/* WhatsApp — dispatch teknisi (fasilitas) atau kontak penyewa */}
+          {isFasilitas ? (
+            <TechnicianDispatchButton
+              ticket={ticket}
+              technicians={technicians}
+              onDispatch={onDispatchTeknisi}
+              variant="green-full"
+            />
+          ) : (
+            <Button
+              onClick={() => onOpenPenyewa(ticket)}
+              className="h-9 min-w-0 flex-1 gap-1.5 bg-green-600 text-[12.5px] font-semibold text-white shadow-none hover:bg-green-700"
+              aria-label={`Hubungi Penyewa ${ticket.reporterName} via WhatsApp — tiket ${ticket.id}`}
+            >
+              <WaIcon className="size-4 shrink-0" />
+              <span className="truncate">Hubungi Penyewa via WhatsApp</span>
+            </Button>
+          )}
+          {/* Chat Teknisi — tiket penyewa (dispatch dinamis) */}
+          {!isFasilitas && (
+            <TechnicianDispatchButton
+              ticket={ticket}
+              technicians={technicians}
+              onDispatch={onDispatchTeknisi}
+              variant="icon"
+            />
+          )}
           {/* Ubah Status — kontrol penuh (semua status) */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -333,6 +545,7 @@ function MobileTicketCard({
 export function MaintenancePanel({
   tickets,
   rooms,
+  propertyName,
   query,
   onQueryChange,
   onStatusChange,
@@ -341,6 +554,29 @@ export function MaintenancePanel({
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [zoom, setZoom] = useState<{ src: string; ticket: Ticket } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+
+  // ── Kontak teknisi (cloud) — pill On-call & tombol Chat Teknisi ──────────
+  const [technicians, setTechnicians] = useState<TechnicianContact[]>([]);
+  const [manageOpen, setManageOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api
+      .getTechnicians()
+      .then((res) => {
+        if (alive) setTechnicians(res.technicians);
+      })
+      .catch(() => {
+        /* offline — fallback kontak on-call legacy di tombol dispatch */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  /** On-call utama — auto-mengikuti kontak isPrimary tersimpan */
+  const primaryTech = useMemo(
+    () => technicians.find((t) => t.isPrimary) ?? technicians[0] ?? null,
+    [technicians]
+  );
 
   const stats = useMemo(() => computeTicketStats(tickets), [tickets]);
 
@@ -371,12 +607,17 @@ export function MaintenancePanel({
       );
   }, [tickets, statusTab, query]);
 
-  const openWa = (ticket: Ticket, role: "penyewa" | "teknisi") => {
-    const contact: TicketContact =
-      role === "penyewa"
-        ? { name: ticket.reporterName, phone: ticket.reporterPhone }
-        : (ticket.teknisi ?? ONCALL_TEKNISI);
-    const url = `${waLink(contact.phone)}?text=${encodeURIComponent(buildWaText(ticket, role))}`;
+  const openPenyewaWa = (ticket: Ticket) => {
+    const contact: TicketContact = { name: ticket.reporterName, phone: ticket.reporterPhone };
+    const url = `${waLink(contact.phone)}?text=${encodeURIComponent(buildPenyewaWaText(ticket))}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  /** Dispatch WA ke teknisi terpilih — pesan terisi otomatis dari detail tiket */
+  const dispatchTeknisiWa = (ticket: Ticket, tech: TicketContact) => {
+    const url = `${waLink(tech.phone)}?text=${encodeURIComponent(
+      buildTeknisiWaText(ticket, tech, propertyName)
+    )}`;
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
@@ -391,12 +632,33 @@ export function MaintenancePanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-md border border-border bg-white px-2.5 py-1.5 text-[12.5px] text-zinc-600">
+          {/* Pill On-call — klik untuk Kelola Kontak Teknisi (auto-update dari cloud) */}
+          <button
+            type="button"
+            onClick={() => setManageOpen(true)}
+            className="group inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-2.5 py-1.5 text-[12.5px] shadow-none transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/30"
+            aria-label="Kelola kontak teknisi on-call"
+          >
             <Phone className="size-3.5 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
             <span className="text-zinc-700">On-call:</span>
-            <span className="font-medium text-zinc-800">{ONCALL_TEKNISI.name}</span>
-            <span className="tabular-nums text-zinc-700">{ONCALL_TEKNISI.phone}</span>
-          </div>
+            {primaryTech ? (
+              <>
+                <span className="max-w-[140px] truncate font-medium text-zinc-800">
+                  {primaryTech.name}
+                </span>
+                <span className="hidden tabular-nums text-zinc-700 sm:inline">
+                  {formatWaPhone(primaryTech.phone)}
+                </span>
+              </>
+            ) : (
+              <span className="font-medium text-zinc-800">Belum ada teknisi</span>
+            )}
+            <Pencil
+              className="size-3 shrink-0 text-zinc-500 transition-colors group-hover:text-zinc-800"
+              strokeWidth={2}
+              aria-hidden="true"
+            />
+          </button>
           <Button
             onClick={() => setCreateOpen(true)}
             className="h-9 bg-zinc-900 px-3 text-[13px] font-semibold text-white shadow-none hover:bg-zinc-800"
@@ -659,41 +921,35 @@ export function MaintenancePanel({
                           size="compact"
                         />
 
-                        {/* Hubungi via WhatsApp — aksi langsung (penyewa / teknisi fasilitas) */}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openWa(ticket, isFasilitas ? "teknisi" : "penyewa")}
-                          className="h-7 gap-1 border-green-200 bg-green-50 px-2 text-xs font-medium text-green-700 shadow-none hover:bg-green-100 hover:text-green-800"
-                          aria-label={`Hubungi ${isFasilitas ? "Teknisi" : `Penyewa ${ticket.reporterName}`} via WhatsApp — tiket ${ticket.id}`}
-                        >
-                          <WaIcon className="size-3.5" />
-                          <span className="hidden lg:inline">
-                            {isFasilitas ? "Hubungi Teknisi" : "Hubungi Penyewa"}
-                          </span>
-                        </Button>
+                        {/* Hubungi via WhatsApp — dispatch teknisi utk tiket fasilitas */}
+                        {isFasilitas ? (
+                          <TechnicianDispatchButton
+                            ticket={ticket}
+                            technicians={technicians}
+                            onDispatch={dispatchTeknisiWa}
+                            variant="green-outline"
+                          />
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openPenyewaWa(ticket)}
+                            className="h-7 gap-1 border-green-200 bg-green-50 px-2 text-xs font-medium text-green-700 shadow-none hover:bg-green-100 hover:text-green-800"
+                            aria-label={`Hubungi Penyewa ${ticket.reporterName} via WhatsApp — tiket ${ticket.id}`}
+                          >
+                            <WaIcon className="size-3.5" />
+                            <span className="hidden lg:inline">Hubungi Penyewa</span>
+                          </Button>
+                        )}
 
-                        {/* Chat teknisi — tiket penyewa (ikon ringkas) */}
+                        {/* Chat teknisi — tiket penyewa (dispatch dinamis) */}
                         {!isFasilitas && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openWa(ticket, "teknisi")}
-                                className="h-7 w-7 border-zinc-200 bg-white px-0 text-zinc-700 shadow-none hover:bg-zinc-50"
-                                aria-label={`Chat Teknisi ${(ticket.teknisi ?? ONCALL_TEKNISI).name} — tiket ${ticket.id}`}
-                              >
-                                <Wrench className="size-3.5" strokeWidth={1.75} />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent
-                              side="top"
-                              className="border border-zinc-200 bg-white text-zinc-700 shadow-md"
-                            >
-                              Chat Teknisi — {(ticket.teknisi ?? ONCALL_TEKNISI).name}
-                            </TooltipContent>
-                          </Tooltip>
+                          <TechnicianDispatchButton
+                            ticket={ticket}
+                            technicians={technicians}
+                            onDispatch={dispatchTeknisiWa}
+                            variant="icon"
+                          />
                         )}
 
                         {/* Ubah Status — kontrol penuh */}
@@ -754,8 +1010,10 @@ export function MaintenancePanel({
               <MobileTicketCard
                 key={ticket.id}
                 ticket={ticket}
+                technicians={technicians}
                 onStatusChange={onStatusChange}
-                onOpenWa={openWa}
+                onOpenPenyewa={openPenyewaWa}
+                onDispatchTeknisi={dispatchTeknisiWa}
                 onZoom={(src, t) => setZoom({ src, ticket: t })}
               />
             ))}
@@ -774,6 +1032,14 @@ export function MaintenancePanel({
         onOpenChange={setCreateOpen}
         rooms={rooms}
         onCreateTicket={onCreateTicket}
+      />
+
+      {/* Kelola Kontak Teknisi — CRUD kontak on-call (dibuka dari pill header) */}
+      <TechnicianContactsModal
+        open={manageOpen}
+        onOpenChange={setManageOpen}
+        technicians={technicians}
+        onTechniciansChange={setTechnicians}
       />
 
       {/* Photo zoom dialog */}

@@ -33,9 +33,11 @@ export function ensureSeed(): Promise<void> {
 async function runSeed(): Promise<void> {
   const existing = await db.property.findUnique({ where: { id: SEED_PROPERTY_ID } });
   if (existing) {
-    // Database sudah ter-seed dari proses/sesi sebelumnya — tiket adalah tabel
-    // yang lebih baru: pastikan terisi (idempoten) agar modul Komplain hidup.
+    // Database sudah ter-seed dari proses/sesi sebelumnya — tiket & kontak
+    // teknisi adalah tabel yang lebih baru: pastikan terisi (idempoten) agar
+    // modul Komplain hidup di database lama.
     await seedTicketsIfEmpty();
+    await seedTechniciansIfEmpty();
     return;
   }
 
@@ -53,6 +55,7 @@ async function runSeed(): Promise<void> {
       },
     });
     await seedTicketsIfEmpty();
+    await seedTechniciansIfEmpty();
     return;
   }
 
@@ -169,6 +172,37 @@ async function runSeed(): Promise<void> {
 
   // ── Tiket komplain & pemeliharaan (Sep 2026) ───────────────────────────────
   await seedTicketsIfEmpty();
+
+  // ── Kontak teknisi on-call ─────────────────────────────────────────────────
+  await seedTechniciansIfEmpty();
+}
+
+/** Seed kontak teknisi demo — idempoten: hanya bila tabel masih kosong */
+async function seedTechniciansIfEmpty(): Promise<void> {
+  const count = await db.technicianContact.count();
+  if (count > 0) return;
+  await db.technicianContact.createMany({
+    data: [
+      {
+        name: "Pak Yanto",
+        phone: "081322001177",
+        specialization: "AC & Pendingin",
+        isPrimary: true,
+      },
+      {
+        name: "Pak Joko",
+        phone: "081322002288",
+        specialization: "Pipa & Sanitasi",
+        isPrimary: false,
+      },
+      {
+        name: "Servicing Jaya",
+        phone: "081288994410",
+        specialization: "Listrik",
+        isPrimary: false,
+      },
+    ],
+  });
 }
 
 /** Seed tiket demo — idempoten: hanya bila tabel masih kosong */
