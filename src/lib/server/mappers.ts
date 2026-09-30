@@ -13,7 +13,6 @@ import type { CashEntry as ClientCashEntry } from "@/lib/kost-cashflow";
 import type { Ticket as ClientTicket, TicketContact } from "@/lib/ticket-data";
 import type { StaffAccessMember, StaffAccessRole } from "@/lib/staff-access";
 import type { CashEntry, Invoice, InvoiceLine, Property, Room, StaffMember, Tenant, Ticket } from "@prisma/client";
-import { db } from "@/lib/prisma";
 
 // ── Invoice ──────────────────────────────────────────────────────────────────
 
@@ -207,9 +206,7 @@ export function toClientProperty(property: Property): ClientProperty {
   };
 }
 
-/** Ambil properti aktif (seed utama) — seluruh endpoint bekerja pada properti ini */
-export async function getActiveProperty() {
-  const property = await db.property.findFirst({ orderBy: { createdAt: "asc" } });
-  if (!property) throw new Error("Properti belum ter-seed di database");
-  return property;
-}
+/**
+ * Properti aktif kini di-resolve per-owner (isolasi multi-tenant):
+ * lihat getActiveOwnedProperty / requireActiveProperty di src/lib/auth/ownership.ts
+ */

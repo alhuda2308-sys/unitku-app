@@ -12,8 +12,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
-import { ensureSeed } from "@/lib/server/seed";
-import { getActiveProperty, toClientRoom } from "@/lib/server/mappers";
+import { ensureSeedForUser } from "@/lib/server/seed";
+import { toClientRoom } from "@/lib/server/mappers";
+import { getAuthUser } from "@/lib/auth/server";
+import {
+  getActiveOwnedProperty,
+  getOwnedPropertyIds,
+  notOwned,
+  unauthorized,
+} from "@/lib/auth/ownership";
 import type { OperationalStatus } from "@/lib/kost-data";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +34,12 @@ const ROOM_INCLUDE = {
 
 export async function GET() {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
     const rooms = await db.room.findMany({
+      where: { propertyId: { in: propertyIds } },
       include: ROOM_INCLUDE,
       orderBy: [{ floor: "asc" }, { id: "asc" }],
     });
@@ -75,8 +86,16 @@ function normalizeRoomInput(raw: IncomingRoom) {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureSeed();
-    const property = await getActiveProperty();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const property = await getActiveOwnedProperty(user);
+    if (!property) {
+      return NextResponse.json(
+        { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
+        { status: 400 },
+      );
+    }
     const body = (await request.json().catch(() => ({}))) as { rooms?: IncomingRoom[] };
     const inputs = Array.isArray(body.rooms) ? body.rooms : [];
     if (inputs.length === 0) {
@@ -148,7 +167,16 @@ function normalizePatch(raw: RoomPatchBody): Prisma.RoomUpdateInput {
 
 export async function PATCH(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
+    if (propertyIds.length === 0) {
+      return NextResponse.json(
+        { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
+        { status: 400 },
+      );
+    }
     const body = (await request.json().catch(() => ({}))) as
       | { id?: unknown; patch?: RoomPatchBody }
       | { bulk?: { id: unknown; patch: RoomPatchBody }[] };
@@ -169,6 +197,12 @@ export async function PATCH(request: NextRequest) {
     const updated: Prisma.RoomGetPayload<{ include: typeof ROOM_INCLUDE }>[] = [];
     for (const { id, patch } of updates) {
       try {
+        // Isolasi: hanya kamar milik properti owner yang boleh diubah
+        const target = await db.room.findFirst({
+          where: { id, propertyId: { in: propertyIds } },
+          select: { id: true },
+        });
+        if (!target) return notOwned(`Kamar "${id}" tidak ditemukan.`);
         const room = await db.room.update({
           where: { id },
           data: normalizePatch(patch),
@@ -206,12 +240,19 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
     const id = request.nextUrl.searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Parameter ?id= kamar wajib diisi." }, { status: 400 });
     }
-    const room = await db.room.findUnique({ where: { id }, include: { tenant: true } });
+    // Isolasi: kamar milik owner lain terlihat sebagai 404
+    const room = await db.room.findFirst({
+      where: { id, propertyId: { in: propertyIds } },
+      include: { tenant: true },
+    });
     if (!room) {
       return NextResponse.json({ error: `Kamar "${id}" tidak ditemukan.` }, { status: 404 });
     }

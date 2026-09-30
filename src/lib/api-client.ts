@@ -37,6 +37,13 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   }
   const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
   if (!res.ok) {
+    // 401 = sesi berakhir — arahkan ke /login (kecuali endpoint auth itu sendiri)
+    if (res.status === 401 && typeof window !== "undefined" && !url.startsWith("/api/auth/")) {
+      console.warn(`[UnitKu API] ${method} ${url} → 401 sesi berakhir — redirect /login`);
+      window.location.href = `/login?next=${encodeURIComponent(
+        window.location.pathname + window.location.search,
+      )}`;
+    }
     // HTTP error (404 endpoint salah, 500 Prisma/DB, dsb.) — log status + pesan
     // server supaya akar masalahnya langsung terbaca di console.
     const message = body?.error ?? `Permintaan gagal (${res.status}).`;
@@ -63,8 +70,8 @@ export interface PropertyPatchInput {
 }
 
 export const api = {
-  // /api/properties
-  getProperty: () => request<{ property: ClientProperty }>("/api/properties"),
+  // /api/properties — property null bila owner belum onboarding
+  getProperty: () => request<{ property: ClientProperty | null }>("/api/properties"),
   updateProperty: (patch: PropertyPatchInput) =>
     request<{ property: ClientProperty }>("/api/properties", {
       method: "PUT",

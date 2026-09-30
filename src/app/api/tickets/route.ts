@@ -13,8 +13,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
-import { ensureSeed, nextTicketId } from "@/lib/server/seed";
+import { ensureSeedForUser, nextTicketId } from "@/lib/server/seed";
 import { toClientTicket } from "@/lib/server/mappers";
+import { getAuthUser } from "@/lib/auth/server";
+import {
+  getActiveOwnedProperty,
+  getOwnedPropertyIds,
+  notOwned,
+  unauthorized,
+} from "@/lib/auth/ownership";
 import {
   TICKET_CATEGORIES,
   TICKET_STATUSES,
@@ -84,8 +91,19 @@ function normalizePhotos(input: unknown): string[] | string {
 
 export async function GET() {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
     const tickets = await db.ticket.findMany({
+      // Isolasi: tiket terikat properti (kolom propertyId) ATAU via kamar
+      // (tiket lama pra-migrasi yang belum di-backfill)
+      where: {
+        OR: [
+          { propertyId: { in: propertyIds } },
+          { room: { propertyId: { in: propertyIds } } },
+        ],
+      },
       orderBy: [{ reportedSort: "desc" }, { id: "desc" }],
     });
     return NextResponse.json({ tickets: tickets.map(toClientTicket) });
@@ -97,7 +115,6 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureSeed();
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
     const kategori = typeof body.kategori === "string" ? body.kategori.trim() : "";
@@ -134,10 +151,12 @@ export async function POST(request: NextRequest) {
     const sumber = body.sumber === "fasilitas" ? "fasilitas" : "penyewa";
 
     const portalToken = typeof body.portalToken === "string" ? body.portalToken.trim() : "";
+    let propertyId: string | null = null;
     if (portalToken) {
+      // Cabang PUBLIK (Portal Penyewa — magic token, tanpa sesi owner)
       const tenant = await db.tenant.findFirst({
         where: { portalToken },
-        include: { room: true },
+        include: { room: { include: { property: true } } },
       });
       if (!tenant) {
         return NextResponse.json(
@@ -146,12 +165,27 @@ export async function POST(request: NextRequest) {
         );
       }
       roomId = tenant.roomId;
+      propertyId = tenant.room.propertyId;
       reporterName = tenant.name;
       reporterPhone = tenant.phone;
       judul = judul || "Laporan via Portal Penyewa";
+    } else {
+      // Cabang OWNER — wajib sesi + terikat properti miliknya
+      const user = await getAuthUser();
+      if (!user) return unauthorized();
+      await ensureSeedForUser(user);
+      const ownedProperty = await getActiveOwnedProperty(user);
+      if (!ownedProperty) {
+        return NextResponse.json(
+          { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
+          { status: 400 },
+        );
+      }
+      propertyId = ownedProperty.id;
     }
 
     if (!roomId && typeof body.roomId === "string" && body.roomId.trim()) {
+      // Owner dapat memakai label kamar custom — tetap tercatat di propertinya
       const room = await db.room.findUnique({
         where: { id: body.roomId.trim() },
         include: { tenant: true },
@@ -187,6 +221,9 @@ export async function POST(request: NextRequest) {
       data: {
         id: await nextTicketId(),
         roomId,
+        // Isolasi multi-tenant: tiket fasilitas (roomId null) tetap terikat
+        // properti owner; tiket portal terikat properti kamar penyewa
+        propertyId,
         lokasi,
         sumber,
         judul,
@@ -210,7 +247,9 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) {
@@ -255,6 +294,19 @@ export async function PATCH(request: NextRequest) {
     }
 
     try {
+      // Isolasi: tiket milik owner lain → 404
+      const propertyIds = await getOwnedPropertyIds(user);
+      const owned = await db.ticket.findFirst({
+        where: {
+          id,
+          OR: [
+            { propertyId: { in: propertyIds } },
+            { room: { propertyId: { in: propertyIds } } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!owned) return notOwned("Tiket tidak ditemukan.");
       const ticket = await db.ticket.update({ where: { id }, data });
       return NextResponse.json({ ticket: toClientTicket(ticket) });
     } catch (err) {
@@ -272,20 +324,28 @@ export async function PATCH(request: NextRequest) {
 /** Hapus permanen tiket komplain — ?id=TKT-xxx (dari dialog konfirmasi owner) */
 export async function DELETE(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
     const id = new URL(request.url).searchParams.get("id")?.trim() ?? "";
     if (!id) {
       return NextResponse.json({ error: "Parameter id tiket wajib diisi." }, { status: 400 });
     }
-    try {
-      await db.ticket.delete({ where: { id } });
-      return NextResponse.json({ ok: true, id });
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
-        return NextResponse.json({ error: "Tiket tidak ditemukan." }, { status: 404 });
-      }
-      throw err;
-    }
+    // Isolasi: tiket milik owner lain → 404
+    const propertyIds = await getOwnedPropertyIds(user);
+    const owned = await db.ticket.findFirst({
+      where: {
+        id,
+        OR: [
+          { propertyId: { in: propertyIds } },
+          { room: { propertyId: { in: propertyIds } } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!owned) return notOwned("Tiket tidak ditemukan.");
+    await db.ticket.delete({ where: { id } });
+    return NextResponse.json({ ok: true, id });
   } catch (err) {
     console.error("[api/tickets DELETE]", err);
     return NextResponse.json({ error: "Gagal menghapus tiket." }, { status: 500 });

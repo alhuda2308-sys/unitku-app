@@ -22,6 +22,11 @@ datasource db {
 
 model Property {
   id        String   @id // "kgp" untuk properti seed utama — cuid utk properti baru
+  // Pemilik (SaaS multi-tenant) — user id dari Supabase Auth (auth.users.id)
+  // pada mode Supabase, atau id OwnerAccount pada mode lokal/demo.
+  // Null = data lama pra-multi-tenant (tidak terlihat oleh owner mana pun
+  // sampai di-backfill — lihat panduan SQL di worklog/report).
+  ownerId   String?
   name      String // "Kost Griya Pratama"
   tipe      String   @default("kost") // kost | kontrakan | unit-sewa
   alamat    String?
@@ -40,8 +45,23 @@ model Property {
   rooms      Room[]
   facilities Facility[]
   staffMembers StaffMember[]
+  tickets      Ticket[]
+  cashEntries  CashEntry[]
+  technicianContacts TechnicianContact[]
 
+  @@index([ownerId])
   @@map("properties")
+}
+
+// ── Akun Owner (HANYA mode auth lokal/demo — mode Supabase memakai auth.users)
+
+model OwnerAccount {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String // scrypt "s1:salt:hash" (node:crypto)
+  createdAt    DateTime @default(now())
+
+  @@map("owner_accounts")
 }
 
 // ── Staf & Akses Mandiri (link undangan) ─────────────────────────────────────
@@ -195,9 +215,13 @@ model Ticket {
   updatedAt     DateTime @updatedAt
 
   room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  // Isolasi multi-tenant — tiket fasilitas (roomId null) terikat properti via kolom ini
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([roomId])
+  @@index([propertyId])
   @@map("tickets")
 }
 
@@ -209,9 +233,13 @@ model TechnicianContact {
   phone         String // "081322001177" / "+62 813-2200-1177" — wa.me dinormalisasi klien
   specialization String  @default("Tukang Bangunan/Umum") // "AC & Pendingin" | "Pipa & Sanitasi" | …
   isPrimary     Boolean  @default(false) // teknisi on-call utama — tampil di pill header
+  // Isolasi multi-tenant — kontak teknisi milik satu properti
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([propertyId])
   @@map("technician_contacts")
 }
 
@@ -228,9 +256,13 @@ model CashEntry {
   dateLabel   String // "01 Sep 2025"
   dateSort    Int       @default(0) // 20250901 — urutan terbaru dulu
   attachment  String? // bukti nota / bukti transfer (dataURL gambar atau referensi file)
+  // Isolasi multi-tenant — transaksi kas milik satu properti
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   createdAt   DateTime  @default(now())
 
   @@index([type])
   @@index([dateSort])
+  @@index([propertyId])
   @@map("cash_entries")
 }

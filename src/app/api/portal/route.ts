@@ -8,14 +8,13 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/prisma";
-import { ensureSeed } from "@/lib/server/seed";
-import { getActiveProperty, toClientInvoice, toClientRoom } from "@/lib/server/mappers";
+import { toClientInvoice, toClientRoom } from "@/lib/server/mappers";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    await ensureSeed();
+    // Publik (magic token) — TANPA ensureSeed: data harus sudah ada milik owner
     const token = request.nextUrl.searchParams.get("token")?.trim();
     if (!token) {
       return NextResponse.json({ error: "Parameter ?token= wajib diisi." }, { status: 400 });
@@ -23,20 +22,28 @@ export async function GET(request: NextRequest) {
 
     const tenant = await db.tenant.findUnique({
       where: { portalToken: token },
-      include: { room: true },
+      include: { room: { include: { property: true } } },
     });
     if (!tenant) {
       return NextResponse.json({ error: "Token portal tidak dikenali." }, { status: 404 });
     }
 
+    // Isolasi: properti diambil dari properti kamar penyewa (bukan properti
+    // global pertama) agar rekening/QRIS yang tampil selalu milik owner kamar tsb.
     const [invoices, property] = await Promise.all([
       db.invoice.findMany({
         where: { roomId: tenant.roomId },
         include: { lines: { orderBy: { id: "asc" } } },
         orderBy: [{ periodKey: "desc" }, { id: "asc" }],
       }),
-      getActiveProperty(),
+      Promise.resolve(tenant.room.property),
     ]);
+    if (!property) {
+      return NextResponse.json(
+        { error: "Properti untuk token portal ini tidak ditemukan." },
+        { status: 404 },
+      );
+    }
 
     const roomWithTenant = { ...tenant.room, tenant, invoices };
     return NextResponse.json({

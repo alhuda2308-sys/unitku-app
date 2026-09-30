@@ -12,8 +12,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
-import { ensureSeed } from "@/lib/server/seed";
+import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientInvoice, toClientRoom } from "@/lib/server/mappers";
+import { getAuthUser } from "@/lib/auth/server";
+import { getOwnedPropertyIds, unauthorized } from "@/lib/auth/ownership";
 import { MONTH_NAMES, newPortalToken, parseDateLabel, addMonths } from "@/lib/kost-data";
 
 export const dynamic = "force-dynamic";
@@ -58,7 +60,10 @@ const ADDON_PRICE: Record<string, number> = {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
     const body = (await request.json().catch(() => ({}))) as CheckinBody;
 
     const roomId = typeof body.roomId === "string" ? body.roomId.trim() : "";
@@ -80,7 +85,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Nominal sewa tidak valid." }, { status: 400 });
     }
 
-    const room = await db.room.findUnique({ where: { id: roomId }, include: { tenant: true } });
+    // Isolasi: hanya kamar milik properti owner yang bisa dihuni
+    const room = await db.room.findFirst({
+      where: { id: roomId, propertyId: { in: propertyIds } },
+      include: { tenant: true },
+    });
     if (!room) {
       return NextResponse.json({ error: `Kamar "${roomId}" tidak ditemukan.` }, { status: 404 });
     }
@@ -199,14 +208,20 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
     const body = (await request.json().catch(() => ({}))) as {
       roomId?: unknown;
       contractEnd?: unknown; // label "30 Mar 2026"
       deposit?: unknown;
     };
     const roomId = typeof body.roomId === "string" ? body.roomId : "";
-    const room = await db.room.findUnique({ where: { id: roomId }, include: { tenant: true } });
+    const room = await db.room.findFirst({
+      where: { id: roomId, propertyId: { in: propertyIds } },
+      include: { tenant: true },
+    });
     if (!room) {
       return NextResponse.json({ error: `Kamar "${roomId}" tidak ditemukan.` }, { status: 404 });
     }
@@ -243,12 +258,18 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
     const roomId = request.nextUrl.searchParams.get("roomId");
     if (!roomId) {
       return NextResponse.json({ error: "Parameter ?roomId= wajib diisi." }, { status: 400 });
     }
-    const room = await db.room.findUnique({ where: { id: roomId }, include: { tenant: true } });
+    const room = await db.room.findFirst({
+      where: { id: roomId, propertyId: { in: propertyIds } },
+      include: { tenant: true },
+    });
     if (!room) {
       return NextResponse.json({ error: `Kamar "${roomId}" tidak ditemukan.` }, { status: 404 });
     }

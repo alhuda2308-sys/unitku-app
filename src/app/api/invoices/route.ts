@@ -17,8 +17,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
-import { ensureSeed, nextCashId, SEED_PROPERTY_ID } from "@/lib/server/seed";
+import { ensureSeedForUser, nextCashId } from "@/lib/server/seed";
 import { toClientCashEntry, toClientInvoice, toClientRoom } from "@/lib/server/mappers";
+import { getAuthUser } from "@/lib/auth/server";
+import { getOwnedPropertyIds, notOwned, unauthorized } from "@/lib/auth/ownership";
 import { MONTH_NAMES, dateToLabel } from "@/lib/kost-data";
 import { dateSortFromLabel } from "@/lib/kost-cashflow";
 import { periodLabelFromKey, periodShortLabel } from "@/lib/kost-invoices";
@@ -29,8 +31,12 @@ const INVOICE_INCLUDE = { lines: { orderBy: { id: "asc" as const } } } satisfies
 
 export async function GET() {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
     const invoices = await db.invoice.findMany({
+      where: { room: { propertyId: { in: propertyIds } } },
       include: INVOICE_INCLUDE,
       orderBy: [{ periodKey: "desc" }, { roomId: "asc" }],
     });
@@ -53,7 +59,16 @@ function isRecurringAddon(label: string): boolean {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
+    if (propertyIds.length === 0) {
+      return NextResponse.json(
+        { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
+        { status: 400 },
+      );
+    }
     const body = (await request.json().catch(() => ({}))) as { periodKey?: unknown };
     const periodKey = typeof body.periodKey === "string" ? body.periodKey.trim() : "";
     if (!PERIOD_KEY_RE.test(periodKey)) {
@@ -68,24 +83,25 @@ export async function POST(request: NextRequest) {
     const lastDay = new Date(year, month, 0).getDate();
     const periodLabel = periodLabelFromKey(periodKey);
 
-    // 1) Semua kamar TERISI (ada penyewa aktif) — kamar kosong/renovasi dilewati
+    // 1) Semua kamar TERISI milik owner (ada penyewa aktif) — kosong/renovasi dilewati
     const occupiedRooms = await db.room.findMany({
-      where: { propertyId: SEED_PROPERTY_ID, tenant: { isNot: null } },
+      where: { propertyId: { in: propertyIds }, tenant: { isNot: null } },
       include: { tenant: true },
       orderBy: { id: "asc" },
     });
 
     // 2) Kamar yang sudah ditagih pada periode ini — anti duplikasi
     const existing = await db.invoice.findMany({
-      where: { periodKey },
+      where: { room: { propertyId: { in: propertyIds } }, periodKey },
       select: { roomId: true, id: true },
     });
     const billedRooms = new Set(existing.map((i) => i.roomId));
     const existingIds = new Set(existing.map((i) => i.id));
     const pendingRooms = occupiedRooms.filter((r) => !billedRooms.has(r.id));
 
-    // 3) Riwayat invoice terakhir per kamar — sumber Sewa Pokok & add-on berulang
+    // 3) Riwayat invoice terakhir per kamar milik owner — sumber Sewa Pokok & add-on
     const history = await db.invoice.findMany({
+      where: { room: { propertyId: { in: propertyIds } } },
       include: { lines: true },
       orderBy: [{ roomId: "asc" }, { periodKey: "desc" }],
     });
@@ -185,7 +201,9 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
     const body = (await request.json().catch(() => ({}))) as {
       id?: unknown;
       status?: unknown;
@@ -195,9 +213,12 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Parameter id tagihan wajib diisi." }, { status: 400 });
     }
 
-    const before = await db.invoice.findUnique({
-      where: { id: body.id },
-      include: INVOICE_INCLUDE,
+    const before = await db.invoice.findFirst({
+      where: {
+        id: body.id,
+        room: { propertyId: { in: await getOwnedPropertyIds(user) } },
+      },
+      include: { ...INVOICE_INCLUDE, room: { select: { propertyId: true } } },
     });
     if (!before) {
       return NextResponse.json({ error: "Tagihan tidak ditemukan." }, { status: 404 });
@@ -280,6 +301,8 @@ export async function PATCH(request: NextRequest) {
           entryDate: new Date(),
           dateLabel,
           dateSort: dateSortFromLabel(dateLabel),
+          // Isolasi multi-tenant — pemasukan tercatat di properti kamar tagihan
+          propertyId: before.room.propertyId,
         },
       });
       cashEntryJson = toClientCashEntry(entry);
@@ -301,19 +324,20 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
     const id = request.nextUrl.searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Parameter ?id= tagihan wajib diisi." }, { status: 400 });
     }
-    try {
-      await db.invoice.delete({ where: { id } });
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
-        return NextResponse.json({ error: "Tagihan tidak ditemukan." }, { status: 404 });
-      }
-      throw err;
-    }
+    // Isolasi: tagihan milik owner lain → 404
+    const owned = await db.invoice.findFirst({
+      where: { id, room: { propertyId: { in: await getOwnedPropertyIds(user) } } },
+      select: { id: true },
+    });
+    if (!owned) return notOwned("Tagihan tidak ditemukan.");
+    await db.invoice.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[api/invoices DELETE]", err);

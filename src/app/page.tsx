@@ -244,6 +244,31 @@ export default function IndoKostPage() {
     });
   };
 
+  // ── Guard onboarding: akun baru (belum punya properti) → layar onboarding ──
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((info: { user?: { id: string } | null; demo?: boolean } | null) => {
+        // Demo / belum masuk (middleware sudah menangani) → jangan ganggu
+        if (!alive || !info?.user || info.demo) return;
+        return api
+          .getProperty()
+          .then((res) => {
+            if (alive && res.property === null) {
+              window.location.replace("/onboarding");
+            }
+          })
+          .catch(() => {
+            /* offline — biarkan mode demo/offline berjalan */
+          });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // ── Sinkron profil properti & rekening dari database (cloud = sumber kebenaran)
   useEffect(() => {
     let alive = true;
@@ -252,6 +277,8 @@ export default function IndoKostPage() {
       .then((res) => {
         if (!alive) return;
         const p = res.property;
+        // Belum onboarding (properti null) → guard onboarding yang menangani
+        if (!p) return;
         updateStoredSettings((s) => ({
           propertyProfile: {
             ...s.propertyProfile,

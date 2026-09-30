@@ -12,6 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { db } from "@/lib/prisma";
+import { DEMO_OWNER_ID } from "@/lib/auth/config";
 import { ROOMS, parseDateLabel, seededPortalToken } from "@/lib/kost-data";
 import { INVOICES } from "@/lib/kost-invoices";
 import { CASH_ENTRIES, dateSortFromLabel, type CashType } from "@/lib/kost-cashflow";
@@ -30,39 +31,36 @@ export function ensureSeed(): Promise<void> {
   return seedPromise;
 }
 
+/**
+ * Seed dataset demo HANYA untuk sesi demo (mode lokal). Owner Supabase
+ * tidak pernah memicu seed — data contoh tidak boleh memenuhi database
+ * produksi SaaS. Owner baru mendapat properti kosong via /api/onboarding.
+ */
+export async function ensureSeedForUser(user: { demo: boolean } | null): Promise<void> {
+  if (user?.demo) await ensureSeed();
+}
+
 async function runSeed(): Promise<void> {
   const existing = await db.property.findUnique({ where: { id: SEED_PROPERTY_ID } });
   if (existing) {
-    // Database sudah ter-seed dari proses/sesi sebelumnya — tiket & kontak
-    // teknisi adalah tabel yang lebih baru: pastikan terisi (idempoten) agar
-    // modul Komplain hidup di database lama.
+    // Properti demo sudah ada — tiket & kontak teknisi adalah tabel yang lebih
+    // baru: pastikan terisi (idempoten) agar modul Komplain hidup.
     await seedTicketsIfEmpty();
     await seedTechniciansIfEmpty();
     return;
   }
 
-  const roomCount = await db.room.count();
-  if (roomCount > 0) {
-    // Database sudah berisi kamar (seed dari proses lain) — pastikan properti ada
-    await db.property.upsert({
-      where: { id: SEED_PROPERTY_ID },
-      update: {},
-      create: {
-        id: SEED_PROPERTY_ID,
-        name: "Kost Griya Pratama",
-        tipe: "kost",
-        alamat: "Jl. Cendana Raya No. 45, Cibinong, Bogor",
-      },
-    });
-    await seedTicketsIfEmpty();
-    await seedTechniciansIfEmpty();
-    return;
-  }
+  // Era multi-tenant: seed demo penuh bila properti demo belum ada. Kamar demo
+  // berlabel "101"+ (scoped kgp) sehingga aman berdampingan dengan properti
+  // owner lain (label "01", "02", …); dataset demo hanya terlihat oleh sesi
+  // demo (ownerId = DEMO_OWNER_ID) dan tidak pernah muncul di dashboard owner.
+  // Owner nyata mendapat properti kosong via /api/onboarding.
 
   // ── Properti utama ────────────────────────────────────────────────────────
   await db.property.create({
     data: {
       id: SEED_PROPERTY_ID,
+      ownerId: DEMO_OWNER_ID,
       name: "Kost Griya Pratama",
       tipe: "kost",
       alamat: "Jl. Cendana Raya No. 45, Kel. Sukamaju, Kec. Cibinong, Kab. Bogor, Jawa Barat 16913",
@@ -134,6 +132,8 @@ async function runSeed(): Promise<void> {
   await db.cashEntry.createMany({
     data: CASH_ENTRIES.map((e) => ({
       id: e.id,
+      // Isolasi multi-tenant — kas demo milik properti seed
+      propertyId: SEED_PROPERTY_ID,
       type: e.type,
       category: e.category,
       description: e.description,
@@ -184,18 +184,21 @@ async function seedTechniciansIfEmpty(): Promise<void> {
   await db.technicianContact.createMany({
     data: [
       {
+        propertyId: SEED_PROPERTY_ID,
         name: "Pak Yanto",
         phone: "081322001177",
         specialization: "AC & Pendingin",
         isPrimary: true,
       },
       {
+        propertyId: SEED_PROPERTY_ID,
         name: "Pak Joko",
         phone: "081322002288",
         specialization: "Pipa & Sanitasi",
         isPrimary: false,
       },
       {
+        propertyId: SEED_PROPERTY_ID,
         name: "Servicing Jaya",
         phone: "081288994410",
         specialization: "Listrik",
@@ -212,6 +215,8 @@ async function seedTicketsIfEmpty(): Promise<void> {
   await db.ticket.createMany({
     data: TICKETS.map((t) => ({
       id: t.id,
+      // Properti seed — tiket fasilitas (roomId null) tetap terikat kgp
+      propertyId: SEED_PROPERTY_ID,
       roomId: t.sumber === "penyewa" ? (t.roomId ?? null) : null,
       lokasi: t.lokasi ?? null,
       sumber: t.sumber,
@@ -235,7 +240,7 @@ async function seedTicketsIfEmpty(): Promise<void> {
 /** ID transaksi kas berikutnya — keluar "KX-012", masuk "KM-001", … (lanjutan seed) */
 export async function nextCashId(type: CashType = "keluar"): Promise<string> {
   const prefix = type === "masuk" ? "KM" : "KX";
-  const ids = await db.cashEntry.findMany({ select: { id: true } });
+  const ids = await db.cashEntry.findMany({ select: { id: true, propertyId: true } });
   const max = ids.reduce((m, row) => {
     const match = new RegExp(`^${prefix}-(\\d+)$`).exec(row.id);
     return match ? Math.max(m, Number(match[1])) : m;

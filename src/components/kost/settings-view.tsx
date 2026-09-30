@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import { BRAND_WA_LINE } from "@/lib/brand";
 import {
@@ -18,6 +18,7 @@ import {
   Plus,
   QrCode,
   Save,
+  ShieldCheck,
   Sofa,
   Trash2,
   TriangleAlert,
@@ -85,6 +86,7 @@ import {
   type StaffAccessRole,
 } from "@/lib/staff-access";
 import { LogOut } from "lucide-react";
+import { getAuthInfo, signOut } from "@/lib/auth/client";
 
 const inputCls =
   "h-9 border-zinc-200 bg-white text-[13px] text-zinc-900 placeholder:text-zinc-600 focus-visible:ring-zinc-900/5";
@@ -423,6 +425,76 @@ function SectionCard({
 
 /* ── Tab 1: Profil Saya ────────────────────────────────────────────────────── */
 
+/** Kartu "Akun & Sesi" — email sesi auth aktif + tombol keluar. */
+function AccountCard() {
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof getAuthInfo>> | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    getAuthInfo().then((data) => {
+      if (alive) setInfo(data);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    if (busy) return;
+    setBusy(true);
+    await signOut();
+    window.location.href = "/login";
+  };
+
+  const emailText = info
+    ? info.demo
+      ? "demo@unitku.id"
+      : (info.user?.email ?? "Tidak diketahui")
+    : "Memuat…";
+
+  const modeText = info
+    ? info.mode === "supabase"
+      ? "Terhubung ke Supabase Auth"
+      : "Mode lokal (tanpa Supabase Auth)"
+    : "Memeriksa sesi…";
+
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-white p-4">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
+          <ShieldCheck className="size-4.5 text-zinc-600" strokeWidth={1.75} aria-hidden="true" />
+        </span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-[13px] font-medium text-zinc-900">{emailText}</p>
+            {info?.demo && (
+              <Badge className="border-transparent bg-amber-100 text-[12.5px] font-medium text-amber-800">
+                Mode Demo
+              </Badge>
+            )}
+          </div>
+          <p className="mt-0.5 text-[12.5px] text-zinc-500">{modeText}</p>
+        </div>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleLogout}
+        disabled={busy}
+        className="h-8 shrink-0 gap-1.5 border-red-200 px-3 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700"
+      >
+        {busy ? (
+          <Loader2 className="size-3.5 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+        ) : (
+          <LogOut className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+        )}
+        Keluar
+      </Button>
+    </div>
+  );
+}
+
 function ProfilSayaTab({
   owner,
   onSave,
@@ -451,6 +523,7 @@ function ProfilSayaTab({
   return (
     <Pane value="profil-saya">
       <div className="max-w-[640px] space-y-4">
+        <AccountCard />
         <SectionCard title="Akun Pengelola">
           <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2">

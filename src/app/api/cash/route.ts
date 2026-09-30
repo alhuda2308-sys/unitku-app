@@ -10,8 +10,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
-import { ensureSeed, nextCashId } from "@/lib/server/seed";
+import { ensureSeedForUser, nextCashId } from "@/lib/server/seed";
 import { toClientCashEntry } from "@/lib/server/mappers";
+import { getAuthUser } from "@/lib/auth/server";
+import {
+  getActiveOwnedProperty,
+  getOwnedPropertyIds,
+  notOwned,
+  unauthorized,
+} from "@/lib/auth/ownership";
 import { dateSortFromLabel, CASH_SOURCES, type CashType } from "@/lib/kost-cashflow";
 import { parseDateLabel } from "@/lib/kost-data";
 
@@ -64,8 +71,14 @@ function parseCashBody(
 
 export async function GET() {
   try {
-    await ensureSeed();
-    const entries = await db.cashEntry.findMany({ orderBy: [{ dateSort: "desc" }, { id: "asc" }] });
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
+    const entries = await db.cashEntry.findMany({
+      where: { propertyId: { in: propertyIds } },
+      orderBy: [{ dateSort: "desc" }, { id: "asc" }],
+    });
     return NextResponse.json({ entries: entries.map(toClientCashEntry) });
   } catch (err) {
     console.error("[api/cash GET]", err);
@@ -75,7 +88,16 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const property = await getActiveOwnedProperty(user);
+    if (!property) {
+      return NextResponse.json(
+        { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
+        { status: 400 },
+      );
+    }
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const parsed = parseCashBody(body);
     if ("error" in parsed) {
@@ -95,6 +117,8 @@ export async function POST(request: NextRequest) {
         dateLabel: d.dateLabel,
         dateSort: dateSortFromLabel(d.dateLabel),
         attachment: d.attachment,
+        // Isolasi multi-tenant — kas tercatat milik properti owner
+        propertyId: property.id,
       },
     });
     return NextResponse.json({ entry: toClientCashEntry(entry) }, { status: 201 });
@@ -106,12 +130,21 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) {
       return NextResponse.json({ error: "Parameter id transaksi wajib diisi." }, { status: 400 });
     }
+    // Isolasi: transaksi milik owner lain → 404
+    const owned = await db.cashEntry.findFirst({
+      where: { id, propertyId: { in: propertyIds } },
+      select: { id: true },
+    });
+    if (!owned) return notOwned("Transaksi tidak ditemukan.");
 
     // PATCH parsial — hanya field yang dikirim yang diubah (mode edit pengeluaran manual)
     const patch: Partial<CashInput> = {};
@@ -177,19 +210,21 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
     const id = request.nextUrl.searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Parameter ?id= transaksi wajib diisi." }, { status: 400 });
     }
-    try {
-      await db.cashEntry.delete({ where: { id } });
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
-        return NextResponse.json({ error: "Transaksi tidak ditemukan." }, { status: 404 });
-      }
-      throw err;
-    }
+    // Isolasi: transaksi milik owner lain → 404
+    const owned = await db.cashEntry.findFirst({
+      where: { id, propertyId: { in: propertyIds } },
+      select: { id: true },
+    });
+    if (!owned) return notOwned("Transaksi tidak ditemukan.");
+    await db.cashEntry.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[api/cash DELETE]", err);

@@ -11,8 +11,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
-import { ensureSeed } from "@/lib/server/seed";
+import { ensureSeedForUser } from "@/lib/server/seed";
 import { validateWaPhone } from "@/lib/technician-data";
+import { getAuthUser } from "@/lib/auth/server";
+import {
+  getActiveOwnedProperty,
+  getOwnedPropertyIds,
+  notOwned,
+  unauthorized,
+} from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -64,8 +71,14 @@ function normalizeContact(
 
 export async function GET() {
   try {
-    await ensureSeed();
-    const technicians = await db.technicianContact.findMany({ orderBy: [...ORDER] });
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const propertyIds = await getOwnedPropertyIds(user);
+    const technicians = await db.technicianContact.findMany({
+      where: { propertyId: { in: propertyIds } },
+      orderBy: [...ORDER],
+    });
     return NextResponse.json({ technicians });
   } catch (err) {
     console.error("[api/technicians GET]", err);
@@ -75,19 +88,34 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const normalized = normalizeContact(body, false);
     if ("error" in normalized) {
       return NextResponse.json({ error: normalized.error }, { status: 400 });
     }
+    // Isolasi: kontak teknisi selalu milik properti owner
+    const property = await getActiveOwnedProperty(user);
+    if (!property) {
+      return NextResponse.json(
+        { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
+        { status: 400 },
+      );
+    }
 
     const technician = await db.$transaction(async (tx) => {
-      // On-call utama baru → status utama kontak lain dicabut
+      // On-call utama baru → status utama kontak lain (dalam properti yg sama) dicabut
       if (normalized.data.isPrimary === true) {
-        await tx.technicianContact.updateMany({ data: { isPrimary: false } });
+        await tx.technicianContact.updateMany({
+          where: { propertyId: property.id },
+          data: { isPrimary: false },
+        });
       }
-      return tx.technicianContact.create({ data: normalized.data });
+      return tx.technicianContact.create({
+        data: { ...normalized.data, propertyId: property.id },
+      });
     });
 
     return NextResponse.json({ technician }, { status: 201 });
@@ -99,6 +127,8 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) {
@@ -114,30 +144,33 @@ export async function PATCH(request: NextRequest) {
         { status: 400 },
       );
     }
+    // Isolasi: hanya kontak milik properti owner yang boleh diubah
+    const propertyIds = await getOwnedPropertyIds(user);
+    const owned = await db.technicianContact.findFirst({
+      where: { id, propertyId: { in: propertyIds } },
+      select: { id: true, propertyId: true },
+    });
+    if (!owned) return notOwned("Kontak teknisi tidak ditemukan.");
+    const scopePropertyId = owned.propertyId;
 
     const technician = await db.$transaction(async (tx) => {
       if (normalized.data.isPrimary === true) {
-        // Pastikan kontak ada sebelum memindahkan status on-call utama
-        const current = await tx.technicianContact.findUnique({ where: { id } });
-        if (!current) {
-          throw new Prisma.PrismaClientKnownRequestError("Kontak tidak ditemukan", {
-            code: "P2025",
-            clientVersion: Prisma.prismaVersion.client,
-          });
-        }
         await tx.technicianContact.updateMany({
-          where: { id: { not: id } },
+          where: { propertyId: scopePropertyId, id: { not: id } },
           data: { isPrimary: false },
         });
       }
       const updated = await tx.technicianContact.update({ where: { id }, data: normalized.data });
 
-      // Invarian: selalu ada tepat satu on-call utama bila daftar tak kosong —
-      // bila kontak terakhir yang utama dilepas, kontak terlama lain otomatis naik
-      const primaryCount = await tx.technicianContact.count({ where: { isPrimary: true } });
+      // Invarian (per properti): selalu ada tepat satu on-call utama bila
+      // daftar tak kosong — bila kontak terakhir yang utama dilepas,
+      // kontak terlama lain otomatis naik
+      const primaryCount = await tx.technicianContact.count({
+        where: { propertyId: scopePropertyId, isPrimary: true },
+      });
       if (primaryCount === 0) {
         const candidate = await tx.technicianContact.findFirst({
-          where: { id: { not: id } },
+          where: { propertyId: scopePropertyId, id: { not: id } },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         });
         if (candidate) {
@@ -162,16 +195,29 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
     const id = new URL(request.url).searchParams.get("id")?.trim() ?? "";
     if (!id) {
       return NextResponse.json({ error: "Parameter id kontak wajib diisi." }, { status: 400 });
     }
 
+    // Isolasi: hanya kontak milik properti owner yang boleh dihapus
+    const propertyIds = await getOwnedPropertyIds(user);
+    const owned = await db.technicianContact.findFirst({
+      where: { id, propertyId: { in: propertyIds } },
+      select: { id: true, propertyId: true, isPrimary: true },
+    });
+    if (!owned) return notOwned("Kontak teknisi tidak ditemukan.");
+    const scopePropertyId = owned.propertyId;
+
     const technician = await db.$transaction(async (tx) => {
       const deleted = await tx.technicianContact.delete({ where: { id } });
       // On-call utama terhapus → promosikan kontak terlama yang tersisa
+      // (dalam properti yang sama)
       if (deleted.isPrimary) {
         const next = await tx.technicianContact.findFirst({
+          where: { propertyId: scopePropertyId },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         });
         if (next) {

@@ -9,16 +9,27 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/prisma";
-import { ensureSeed } from "@/lib/server/seed";
-import { getActiveProperty, toClientProperty } from "@/lib/server/mappers";
+import { ensureSeedForUser } from "@/lib/server/seed";
+import { toClientProperty } from "@/lib/server/mappers";
+import { getAuthUser } from "@/lib/auth/server";
+import { getActiveOwnedProperty, unauthorized } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * GET — properti aktif milik owner sesi.
+ * `{ property: null }` bila belum onboarding (akun baru) — dipakai guard
+ * onboarding di klien; TIDAK lagi melempar 500 saat database kosong.
+ */
 export async function GET() {
   try {
-    await ensureSeed();
-    const property = await getActiveProperty();
-    return NextResponse.json({ property: toClientProperty(property) });
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const property = await getActiveOwnedProperty(user);
+    return NextResponse.json({
+      property: property ? toClientProperty(property) : null,
+    });
   } catch (err) {
     console.error("[api/properties GET]", err);
     return NextResponse.json(
@@ -73,13 +84,21 @@ function pickPatch(body: Record<string, unknown>): PropertyPatch {
 
 async function handleUpdate(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const patch = pickPatch(body);
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "Tidak ada perubahan yang dikirim." }, { status: 400 });
     }
-    const property = await getActiveProperty();
+    const property = await getActiveOwnedProperty(user);
+    if (!property) {
+      return NextResponse.json(
+        { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
+        { status: 400 },
+      );
+    }
     const updated = await db.property.update({
       where: { id: property.id },
       data: patch,

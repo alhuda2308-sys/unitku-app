@@ -16,8 +16,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
-import { ensureSeed } from "@/lib/server/seed";
+import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientStaff, toClientStaffSafe } from "@/lib/server/mappers";
+import { getAuthUser } from "@/lib/auth/server";
+import {
+  getActiveOwnedProperty,
+  getOwnedPropertyIds,
+  notOwned,
+  unauthorized,
+} from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -33,12 +40,11 @@ function isValidPin(pin: unknown): pin is string {
 
 export async function GET(request: NextRequest) {
   try {
-    await ensureSeed();
     const params = request.nextUrl.searchParams;
     const token = params.get("token")?.trim();
     const pin = params.get("pin")?.trim();
 
-    // Verifikasi token (+PIN bila disertakan) — dipakai portal /staff
+    // Verifikasi token (+PIN bila disertakan) — PUBLIK, dipakai portal /staff
     if (token) {
       const member = await db.staffMember.findUnique({ where: { accessToken: token } });
       if (!member) {
@@ -61,8 +67,14 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Daftar staf untuk owner
-    const staff = await db.staffMember.findMany({ orderBy: { createdAt: "desc" } });
+    // Daftar staf untuk owner — isolasi multi-tenant (milik properti owner)
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const staff = await db.staffMember.findMany({
+      where: { property: { ownerId: user.id } },
+      orderBy: { createdAt: "desc" },
+    });
     return NextResponse.json({ staff: staff.map(toClientStaff) });
   } catch (err) {
     console.error("[api/staff GET]", err);
@@ -74,7 +86,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
     const body = (await request.json().catch(() => ({}))) as {
       name?: unknown;
       phone?: unknown;
@@ -89,7 +103,21 @@ export async function POST(request: NextRequest) {
       body.role === "ADMIN_OPERASIONAL" || body.role === "PENJAGA_TEKNISI"
         ? body.role
         : "PENJAGA_TEKNISI";
-    const propertyId = typeof body.propertyId === "string" && body.propertyId ? body.propertyId : null;
+
+    // Isolasi: staf WAJIB terikat properti milik owner (bukan "semua cabang"
+    // lintas owner) — default ke properti aktif bila tidak dikirim/dikenal
+    const ownedIds = await getOwnedPropertyIds(user);
+    const requested =
+      typeof body.propertyId === "string" && ownedIds.includes(body.propertyId)
+        ? body.propertyId
+        : null;
+    const propertyId = requested ?? (await getActiveOwnedProperty(user))?.id ?? null;
+    if (!propertyId) {
+      return NextResponse.json(
+        { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
+        { status: 400 },
+      );
+    }
 
     if (name.length < 3) {
       return NextResponse.json({ error: "Nama staf minimal 3 karakter." }, { status: 400 });
@@ -120,7 +148,9 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
     const body = (await request.json().catch(() => ({}))) as {
       id?: unknown;
       isActive?: unknown;
@@ -135,6 +165,12 @@ export async function PATCH(request: NextRequest) {
     if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: "Tidak ada perubahan yang dikirim." }, { status: 400 });
     }
+    // Isolasi: staf milik owner lain → 404
+    const owned = await db.staffMember.findFirst({
+      where: { id: body.id, property: { ownerId: user.id } },
+      select: { id: true },
+    });
+    if (!owned) return notOwned("Staf tidak ditemukan.");
     const member = await db.staffMember.update({ where: { id: body.id }, data });
     return NextResponse.json({ member: toClientStaff(member) });
   } catch (err) {
@@ -150,11 +186,19 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    await ensureSeed();
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
     const id = request.nextUrl.searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Parameter ?id= staf wajib diisi." }, { status: 400 });
     }
+    // Isolasi: staf milik owner lain → 404
+    const owned = await db.staffMember.findFirst({
+      where: { id, property: { ownerId: user.id } },
+      select: { id: true },
+    });
+    if (!owned) return notOwned("Staf tidak ditemukan.");
     await db.staffMember.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   } catch (err) {
