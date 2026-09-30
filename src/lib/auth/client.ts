@@ -121,11 +121,11 @@ export async function getAuthInfo(): Promise<AuthInfo> {
  * Tujuan redirect setelah masuk/daftar:
  *  - "/onboarding" bila owner belum punya properti (akun baru)
  *  - `next` bila ada (rute yang dituju sebelum diarahkan ke /login)
- *  - "/" default
+ *  - "/dashboard" default (landing "/" publik untuk pengunjung umum)
  */
 export async function afterAuthRedirect(next?: string | null): Promise<string> {
   const info = await getAuthInfo();
-  if (info.demo) return next && next.startsWith("/") ? next : "/";
+  if (info.demo) return next && next.startsWith("/") ? next : "/dashboard";
   try {
     const res = await fetch("/api/properties", { cache: "no-store" });
     if (res.ok) {
@@ -137,5 +137,5 @@ export async function afterAuthRedirect(next?: string | null): Promise<string> {
   }
   return next && next.startsWith("/") && !next.startsWith("/login") && !next.startsWith("/register")
     ? next
-    : "/";
+    : "/dashboard";
 }

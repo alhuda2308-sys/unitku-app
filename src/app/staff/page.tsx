@@ -104,7 +104,7 @@ export default function StaffPortalPage() {
             member={member}
             onVerified={(m) => {
               saveStaffSession(m);
-              router.push("/");
+              router.push("/dashboard");
             }}
           />
         ) : (

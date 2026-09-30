@@ -41,7 +41,7 @@ export function OnboardingForm() {
         return;
       }
       if (info.demo) {
-        router.replace("/");
+        router.replace("/dashboard");
         return;
       }
       // Gerbang lisensi: akun belum lunas → layar gembok, bukan form onboarding
@@ -112,7 +112,7 @@ export function OnboardingForm() {
         toast.success("Properti berhasil dibuat", {
           description: `${data.roomsCreated ?? rooms} kamar siap dikelola.`,
         });
-        router.replace("/");
+        router.replace("/dashboard");
         router.refresh();
         return;
       }

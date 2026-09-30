@@ -37,10 +37,12 @@ export function getAuthMode(): AuthMode {
 /** User id sesi demo (mode lokal) — juga ownerId properti seed "kgp" */
 export const DEMO_OWNER_ID = "demo-owner";
 
-/** Halaman publik (tidak perlu sesi owner) — dipakai middleware */
+/** Halaman publik (tidak perlu sesi owner) — dipakai middleware.
+ *  Catatan: landing komersial "/" juga publik (hard-coded di middleware). */
 export const PUBLIC_PAGE_PREFIXES = [
   "/login",
   "/register",
+  "/legal", // halaman legalitas (S&K, privasi, refund) — KYC Mayar
   "/portal", // portal penyewa (magic token)
   "/staff", // portal staf (token + PIN)
   "/auth/callback", // exchange kode OAuth Google (Supabase)

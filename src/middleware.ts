@@ -1,11 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Middleware proteksi rute (SaaS multi-tenant)
 //
-// - Halaman dashboard ("/", /rooms, /cash, /invoices, /maintenance, /settings,
-//   /onboarding, dst.) wajib sesi owner → belum masuk diarahkan ke
-//   /login?next=… ; yang sudah masuk tidak melihat /login|/register lagi.
-// - Halaman publik: /login, /register, /portal (penyewa), /staff (staf),
-//   /auth/callback (OAuth), aset statis & PWA.
+// - Landing komersial "/" PUBLIK (KYC Mayar: fitur, harga, legalitas).
+// - Halaman owner ("/dashboard", /onboarding, dst.) wajib sesi → belum masuk
+//   diarahkan ke /login?next=… ; yang sudah masuk tidak melihat /login|/register.
+// - Halaman publik: "/", /login, /register, /legal/*, /portal (penyewa),
+//   /staff (staf), /payment (sukses bayar), /auth/callback (OAuth), aset & PWA.
 // - /api/* DILEWATKAN middleware — isolasi data ditegakkan di level route
 //   handler (401 JSON) karena beberapa endpoint publik bercabang token
 //   (portal penyewa / verifikasi staf) yang tidak boleh terblokir di sini.
@@ -26,6 +26,7 @@ import {
 } from "@/lib/auth/config";
 
 function isPublicPage(pathname: string): boolean {
+  if (pathname === "/") return true; // landing komersial publik (Mayar KYC)
   return PUBLIC_PAGE_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
@@ -39,6 +40,9 @@ function redirectToLogin(request: NextRequest): NextResponse {
   if (next && next !== "/") url.searchParams.set("next", next);
   return NextResponse.redirect(url);
 }
+
+/** Tujuan bila yang sudah masuk membuka /login|/register — dashboard owner */
+const AUTHED_HOME = "/dashboard";
 
 /** Klien Supabase + response terbaru (cookie refresh mungkin mengganti response) */
 function createSupabaseMiddlewareClient(request: NextRequest) {
@@ -76,7 +80,7 @@ export async function middleware(request: NextRequest) {
     if (isPublicPage(pathname)) {
       if (hasSession && isAuthPage) {
         const url = request.nextUrl.clone();
-        url.pathname = "/";
+        url.pathname = AUTHED_HOME;
         url.search = "";
         return NextResponse.redirect(url);
       }
@@ -92,7 +96,7 @@ export async function middleware(request: NextRequest) {
   if (isPublicPage(pathname)) {
     if (hasSession && isAuthPage) {
       const url = request.nextUrl.clone();
-      url.pathname = "/";
+      url.pathname = AUTHED_HOME;
       url.search = "";
       return NextResponse.redirect(url);
     }

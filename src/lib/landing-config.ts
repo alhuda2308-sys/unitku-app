@@ -1,0 +1,44 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// UnitKu — Konfigurasi landing komersial (aman server & client)
+//
+// Nilai dapat dioverride via environment (lihat .env.example):
+//   NEXT_PUBLIC_SUPPORT_WHATSAPP   nomor CS format internasional, mis. 62812xxxx
+//   NEXT_PUBLIC_SUPPORT_EMAIL      email customer care
+//   NEXT_PUBLIC_LICENSE_PRICE_LABEL label harga di landing, mis. "Rp399.000"
+//   NEXT_PUBLIC_MAYAR_CHECKOUT_URL tautan checkout Mayar lisensi seumur hidup
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const BRAND = {
+  product: "UnitKu",
+  vendor: "Elvindigital",
+  tagline: "Kelola Kost, Kontrakan & Unit Sewa",
+};
+
+/** Nomor CS — GANTI via env sebelum produksi (default placeholder) */
+export const SUPPORT_WA_NUMBER = (
+  process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP ?? "6281000000000"
+).replace(/[^\d]/g, "");
+
+export const SUPPORT_WA_LINK = `https://wa.me/${SUPPORT_WA_NUMBER}`;
+
+export const SUPPORT_WA_PURCHASE_LINK = `${SUPPORT_WA_LINK}?text=${encodeURIComponent(
+  "Halo Elvindigital, saya ingin membeli Lisensi Seumur Hidup UnitKu.",
+)}`;
+
+export const SUPPORT_EMAIL =
+  process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@elvindigital.com";
+
+export const SUPPORT_MAILTO = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
+  "Pembelian Lisensi Seumur Hidup UnitKu",
+)}`;
+
+/** Label harga tampil di landing — sinkronkan dengan produk Mayar Anda */
+export const LICENSE_PRICE_LABEL =
+  process.env.NEXT_PUBLIC_LICENSE_PRICE_LABEL ?? "Rp399.000";
+
+/** Tautan checkout Mayar — kosong = tombol beli membuka modal bantuan CS */
+export const MAYAR_CHECKOUT_URL =
+  process.env.NEXT_PUBLIC_MAYAR_CHECKOUT_URL ?? "";
+
+export const COPYRIGHT_LINE =
+  "© 2026 UnitKu by Elvindigital. All rights reserved.";

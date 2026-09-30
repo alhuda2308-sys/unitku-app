@@ -10,7 +10,8 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "UnitKu - Manajemen Properti & Kost",
     short_name: "UnitKu",
     description: "Kelola Kost, Kontrakan & Unit Sewa Tanpa Ribet",
-    start_url: "/",
+    // PWA dipasang oleh owner — buka langsung ke dashboard (bukan landing publik)
+    start_url: "/dashboard",
     display: "standalone",
     orientation: "portrait",
     background_color: "#ffffff",
