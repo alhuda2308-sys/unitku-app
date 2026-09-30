@@ -18,21 +18,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getAuthInfo } from "@/lib/auth/client";
 import { toast } from "@/lib/toast";
+import { LicenseGate } from "@/components/billing/license-gate";
 
 export function OnboardingForm() {
   const router = useRouter();
 
   const [ready, setReady] = useState(false);
+  const [gate, setGate] = useState<{ email: string; checkoutUrl: string } | null>(null);
   const [name, setName] = useState("");
   const [roomCount, setRoomCount] = useState("5");
   const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Guard sesi — sekali saat mount
+  // Guard sesi + gerbang lisensi — sekali saat mount
   useEffect(() => {
     let alive = true;
-    getAuthInfo().then((info) => {
+    getAuthInfo().then(async (info) => {
       if (!alive) return;
       if (!info.user) {
         router.replace("/login");
@@ -41,6 +43,26 @@ export function OnboardingForm() {
       if (info.demo) {
         router.replace("/");
         return;
+      }
+      // Gerbang lisensi: akun belum lunas → layar gembok, bukan form onboarding
+      try {
+        const res = await fetch("/api/billing/license", { cache: "no-store" });
+        const lic = (await res.json().catch(() => null)) as {
+          licensed?: boolean;
+          checkoutUrl?: string;
+        } | null;
+        if (!alive) return;
+        if (lic && lic.licensed === false) {
+          setGate({
+            email: info.user.email ?? "",
+            checkoutUrl:
+              typeof lic.checkoutUrl === "string" ? lic.checkoutUrl : "",
+          });
+          return;
+        }
+        // API gagal (offline) → fail-open, lanjut onboarding
+      } catch {
+        /* offline — lanjut */
       }
       setReady(true);
     });
@@ -107,6 +129,10 @@ export function OnboardingForm() {
   };
 
   // Spinner pusat sebelum guard selesai
+  if (gate) {
+    return <LicenseGate email={gate.email} checkoutUrl={gate.checkoutUrl} />;
+  }
+
   if (!ready) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-[#f8fafc] px-4 py-8">

@@ -64,6 +64,54 @@ model OwnerAccount {
   @@map("owner_accounts")
 }
 
+// ── Lisensi SaaS (jual putus — provisioning otomatis via webhook Mayar) ──────
+// Status lisensi dipasang pada level AKUN (email), bukan properti — satu owner
+// bisa punya beberapa properti, lisensi seumur hidup mengikuti akunnya.
+
+model LicenseAccount {
+  id                 String    @id @default(cuid())
+  email              String    @unique // email owner — dinormalisasi lowercase
+  // Id user di penyedia auth (Supabase auth.users.id / OwnerAccount.id lokal) —
+  // terisi bila diketahui saat webhook memproses pembelian.
+  userId             String?
+  name               String?
+  phone              String?
+  isLifetimeLicensed Boolean   @default(false)
+  paymentRef         String? // transaction id Mayar terakhir
+  licensedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  purchases LicensePurchase[]
+
+  @@map("license_accounts")
+}
+
+// Histori pembelian lisensi — transactionId unik menjadi kunci idempotensi
+// webhook (event yang dikirim ulang Mayar tidak membuat baris/provisi ganda).
+
+model LicensePurchase {
+  id              String   @id @default(cuid())
+  transactionId   String   @unique // id pembayaran Mayar
+  email           String
+  name            String?
+  phone           String?
+  amount          Int      @default(0) // nominal IDR
+  status          String   @default("paid") // paid
+  eventType       String? // event Mayar asli, mis. "payment.received"
+  autoProvisioned Boolean  @default(false) // true = akun owner baru dibuat otomatis
+  // Kredensial awal akun baru (plaintext sementara) — diserahkan manual ke
+  // pembeli bila pengiriman email otomatis belum tersedia. Kosong utk akun lama.
+  generatedPassword String?
+  rawPayload      Json? // payload webhook asli (audit)
+  licenseAccountId String?
+  licenseAccount  LicenseAccount? @relation(fields: [licenseAccountId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+
+  @@index([email])
+  @@map("license_purchases")
+}
+
 // ── Staf & Akses Mandiri (link undangan) ─────────────────────────────────────
 
 model StaffMember {

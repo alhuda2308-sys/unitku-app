@@ -44,4 +44,5 @@ export const PUBLIC_PAGE_PREFIXES = [
   "/portal", // portal penyewa (magic token)
   "/staff", // portal staf (token + PIN)
   "/auth/callback", // exchange kode OAuth Google (Supabase)
+  "/payment", // halaman sukses setelah bayar lisensi (Mayar redirect)
 ];

@@ -45,6 +45,7 @@ import { TagihanView } from "@/components/kost/tagihan-view";
 import { MaintenancePanel } from "@/components/kost/maintenance-panel";
 import { AnnouncementPanel } from "@/components/kost/announcement-panel";
 import { TenantPortal } from "@/components/kost/tenant-portal";
+import { LicenseGate } from "@/components/billing/license-gate";
 import { PenghuniView } from "@/components/kost/penghuni-view";
 import { KasView } from "@/components/kost/kas-view";
 import { SettingsView } from "@/components/kost/settings-view";
@@ -166,6 +167,12 @@ export default function IndoKostPage() {
   const [settingsTab, setSettingsTab] = useState("profil-saya");
   const property = settings.propertyProfile.nama;
 
+  // ── Gerbang lisensi (jual putus Mayar) — non-null = tampilkan layar gembok ─
+  const [licenseGate, setLicenseGate] = useState<{
+    email: string;
+    checkoutUrl: string;
+  } | null>(null);
+
   // ── Sesi staf mandiri (/staff?token=…) — null = akses owner penuh ──
   const staffSession = useSyncExternalStore(
     subscribeStaffSession,
@@ -244,25 +251,46 @@ export default function IndoKostPage() {
     });
   };
 
-  // ── Guard onboarding: akun baru (belum punya properti) → layar onboarding ──
+  // ── Guard onboarding + gerbang lisensi (jual putus Mayar) ───────────────────
   useEffect(() => {
     let alive = true;
     fetch("/api/auth/me", { cache: "no-store" })
       .then((r) => r.json())
-      .then((info: { user?: { id: string } | null; demo?: boolean } | null) => {
-        // Demo / belum masuk (middleware sudah menangani) → jangan ganggu
-        if (!alive || !info?.user || info.demo) return;
-        return api
-          .getProperty()
-          .then((res) => {
-            if (alive && res.property === null) {
-              window.location.replace("/onboarding");
-            }
-          })
-          .catch(() => {
-            /* offline — biarkan mode demo/offline berjalan */
-          });
-      })
+      .then(
+        (info:
+          | { user?: { id: string; email?: string } | null; demo?: boolean }
+          | null) => {
+          // Demo / belum masuk (middleware sudah menangani) → jangan ganggu
+          if (!alive || !info?.user || info.demo) return;
+          // Gerbang lisensi dulu: belum lunas → layar gembok (sebelum onboarding)
+          return fetch("/api/billing/license", { cache: "no-store" })
+            .then((r) => r.json())
+            .then(
+              (lic: { licensed?: boolean; checkoutUrl?: string } | null) => {
+                if (!alive) return;
+                if (lic && lic.licensed === false) {
+                  setLicenseGate({
+                    email: info.user?.email ?? "",
+                    checkoutUrl:
+                      typeof lic.checkoutUrl === "string" ? lic.checkoutUrl : "",
+                  });
+                  return;
+                }
+                // API lisensi gagal (offline) → fail-open; lanjut cek properti
+                return api
+                  .getProperty()
+                  .then((res) => {
+                    if (alive && res.property === null) {
+                      window.location.replace("/onboarding");
+                    }
+                  })
+                  .catch(() => {
+                    /* offline — biarkan mode demo/offline berjalan */
+                  });
+              },
+            );
+        },
+      )
       .catch(() => {});
     return () => {
       alive = false;
@@ -1185,6 +1213,16 @@ export default function IndoKostPage() {
       description: `"${a.judul}" dikeluarkan dari riwayat & Portal Penyewa.`,
     });
   };
+
+  // ── Gerbang lisensi: akun belum lunas → layar gembok (akses ditahan) ──
+  if (licenseGate) {
+    return (
+      <LicenseGate
+        email={licenseGate.email}
+        checkoutUrl={licenseGate.checkoutUrl}
+      />
+    );
+  }
 
   // ── Loading gate: data belum tiba dari database → skeleton layar penuh ──
   if (dbState === "loading") {
