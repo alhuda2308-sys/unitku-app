@@ -65,4 +65,5 @@ export const PUBLIC_PAGE_PREFIXES = [
   "/staff", // portal staf (token + PIN)
   "/auth/callback", // exchange kode OAuth Google (Supabase)
   "/payment", // halaman sukses setelah bayar lisensi (Mayar redirect)
+  "/checkout", // halaman checkout khusus iklan Facebook Ads (publik, tanpa sesi)
 ];
