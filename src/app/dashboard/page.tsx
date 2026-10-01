@@ -1261,6 +1261,7 @@ export default function IndoKostPage() {
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
         property={property}
+        ownerName={settings.owner.nama}
         properties={settings.properties}
         onPropertyChange={(name) => {
           handleSwitchProperty(name);

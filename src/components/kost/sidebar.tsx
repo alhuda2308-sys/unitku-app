@@ -21,6 +21,9 @@ interface SidebarProps {
   mobileOpen: boolean;
   onMobileClose: () => void;
   property: string;
+  /** Nama profil owner dari Pengaturan → Profil Saya (settings.owner.nama) —
+   *  reaktif: ikut terupdate saat "Simpan Perubahan" diklik */
+  ownerName: string;
   /** Daftar properti dari Pengaturan (multi-cabang) */
   properties: PropertyEntry[];
   onPropertyChange: (name: string) => void;
@@ -52,6 +55,7 @@ export function Sidebar({
   mobileOpen,
   onMobileClose,
   property,
+  ownerName,
   properties = [],
   onPropertyChange,
   invoiceAlerts,
@@ -69,7 +73,9 @@ export function Sidebar({
     ? ["denah", "komplain", "pengaturan"]
     : NAV_ITEMS.map((n) => n.key);
   const visibleNav = NAV_ITEMS.filter((n) => allowedKeys.includes(n.key));
-  const userInitial = (isStaff ? staffSession.name : "Hendra Wijaya")
+  /** Nama tampilan sesi aktif — staf dari sesi, owner dari profil Pengaturan */
+  const displayName = isStaff ? staffSession.name : ownerName.trim() || "Owner";
+  const userInitial = displayName
     .trim()
     .split(" ")
     .filter(Boolean)
@@ -272,7 +278,7 @@ export function Sidebar({
             {!collapsed && (
               <span className="min-w-0 flex-1 leading-tight">
                 <span className="block truncate text-[12.5px] font-semibold text-zinc-800">
-                  {isStaff ? staffSession.name : "Hendra Wijaya"}
+                  {displayName}
                 </span>
                 <span className="block text-xs text-zinc-700">{isStaff ? staffMeta!.label : "Owner · Admin"}</span>
               </span>
