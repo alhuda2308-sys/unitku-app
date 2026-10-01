@@ -1304,6 +1304,7 @@ export default function IndoKostPage() {
                 query={query}
                 onQueryChange={setQuery}
                 propertyName={property}
+                ownerName={settings.owner.nama}
                 bank={{
                   bank: settings.rekening.bank,
                   number: settings.rekening.noRek,

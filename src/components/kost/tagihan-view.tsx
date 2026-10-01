@@ -39,6 +39,7 @@ import {
 import { SegmentedTabs, type SegmentedTabItem } from "./segmented-tabs";
 import { InvoiceTable } from "./invoice-table";
 import { InvoiceEditModal } from "./invoice-edit-modal";
+import { ReceiptPreviewModal } from "./receipt-preview-modal";
 import { WaReminderModal } from "./wa-reminder-modal";
 import { MetricCard } from "./metric-card";
 
@@ -52,6 +53,8 @@ interface TagihanViewProps {
   query: string;
   onQueryChange: (q: string) => void;
   propertyName: string;
+  /** Nama pengelola (dari profil) — tercantum di kwitansi digital */
+  ownerName: string;
   /** Rekening pembayaran aktif (cloud) — dicantumkan di pesan tagihan WA */
   bank: { bank: string; number: string; holder: string };
   /** QRIS statis terunggah → pratinjau pesan WA menyebut opsi QRIS */
@@ -74,6 +77,7 @@ export function TagihanView({
   query,
   onQueryChange,
   propertyName,
+  ownerName,
   bank,
   qrisAvailable,
   onGenerate,
@@ -92,6 +96,7 @@ export function TagihanView({
   // Modal states
   const [waInvoice, setWaInvoice] = useState<Invoice | null>(null);
   const [editInvoice, setEditInvoice] = useState<Invoice | null>(null);
+  const [receiptInvoice, setReceiptInvoice] = useState<Invoice | null>(null);
   const [savingLines, setSavingLines] = useState(false);
   const [waExtra, setWaExtra] = useState(0);
   const waCount = (invoices.length > 0 ? 18 : 0) + waExtra;
@@ -469,11 +474,7 @@ export function TagihanView({
         onVerify={handleVerify}
         onEdit={(inv) => setEditInvoice(inv)}
         onCancel={handleCancel}
-        onReceipt={(inv) =>
-          toast.info("Kwitansi", {
-            description: `${inv.id} · ${formatIDR(inv.total)} — pratinjau kwitansi menyusul di Phase 3.`,
-          })
-        }
+        onReceipt={(inv) => setReceiptInvoice(inv)}
         emptyTitle={isCurrentMonth ? "Tidak ada invoice yang cocok" : `Tidak ada tagihan untuk ${monthLabel}`}
         emptyDescription={
           isCurrentMonth
@@ -495,6 +496,18 @@ export function TagihanView({
         }}
         onSave={handleSaveLines}
         saving={savingLines}
+      />
+
+      {/* Modal pratinjau kwitansi digital (menu titik tiga "Lihat Kwitansi") */}
+      <ReceiptPreviewModal
+        invoice={receiptInvoice}
+        open={receiptInvoice !== null}
+        onOpenChange={(o) => {
+          if (!o) setReceiptInvoice(null);
+        }}
+        propertyName={propertyName}
+        ownerName={ownerName}
+        context={receiptInvoice ? waContextFor(receiptInvoice) : null}
       />
 
       {/* WA preview modal (pratinjau & salin pesan) */}
