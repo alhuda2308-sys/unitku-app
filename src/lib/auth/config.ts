@@ -24,6 +24,24 @@ export const AUTH_SECRET =
 export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
+/**
+ * Flag cookie sesi Supabase — dipakai SEMUA factory @supabase/ssr
+ * (middleware, route handler, resolver sesi server).
+ *
+ * - Tanpa atribut `domain` (host-only): cookie mengikuti domain aktif apa pun
+ *   (unitku.my.id, *.vercel.app, localhost) — cookie TIDAK putus saat domain
+ *   berubah; menyetel `domain` yang salah justru penyebab umum sesi hilang.
+ * - `sameSite: "lax"` — standar Supabase; cookie dikirim pada navigasi top-level
+ *   (redirect OAuth/callback tetap terbaca).
+ * - `secure: true` di produksi (HTTPS unitku.my.id); di dev (http://localhost)
+ *   dinonaktifkan agar cookie tetap bisa disimpan browser.
+ */
+export const SUPABASE_COOKIE_OPTIONS = {
+  path: "/",
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+};
+
 export type AuthMode = "supabase" | "local";
 
 export function isSupabaseConfigured(): boolean {

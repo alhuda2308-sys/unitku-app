@@ -22,6 +22,7 @@ import {
   PUBLIC_PAGE_PREFIXES,
   SESSION_COOKIE,
   SUPABASE_ANON_KEY,
+  SUPABASE_COOKIE_OPTIONS,
   SUPABASE_URL,
 } from "@/lib/auth/config";
 
@@ -44,10 +45,15 @@ function redirectToLogin(request: NextRequest): NextResponse {
 /** Tujuan bila yang sudah masuk membuka /login|/register — dashboard owner */
 const AUTHED_HOME = "/dashboard";
 
-/** Klien Supabase + response terbaru (cookie refresh mungkin mengganti response) */
+/** Klien Supabase + response terbaru (cookie refresh mungkin mengganti response)
+ *  Pola resmi @supabase/ssr: setAll menulis token hasil refresh KE request
+ *  (agar server component membaca token baru) DAN ke response yang DIKEMBALIKAN
+ *  middleware (agar browser menyimpannya) — respons dari getResponse() HARUS
+ *  objek terakhir yang dimutasi. */
 function createSupabaseMiddlewareClient(request: NextRequest) {
   let response = NextResponse.next({ request });
   const client = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookieOptions: SUPABASE_COOKIE_OPTIONS, // host-only + lax + secure (prod)
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (list) => {

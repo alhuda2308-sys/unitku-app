@@ -17,7 +17,7 @@ import {
   verifyPassword,
 } from "@/lib/auth/local";
 import { SESSION_COOKIE } from "@/lib/auth/config";
-import { createSupabaseRouteClient } from "@/lib/auth/supabase-route";
+import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
 
 export const dynamic = "force-dynamic";
 
@@ -39,12 +39,20 @@ export async function POST(request: NextRequest) {
   let needsOnboarding = false;
 
   if (getAuthMode() === "supabase") {
-    const response = NextResponse.json({ ok: true });
-    const supabase = createSupabaseRouteClient(request, response);
+    // Kolektor cookie: response final baru bisa dibangun setelah signIn (butuh
+    // user.id untuk cek onboarding) — cookie sesi ditampung lalu ditempel ke
+    // response final. Tanpa ini Set-Cookie sb-…-auth-token terbuang (login 200
+    // tetapi sesi tak tersimpan → /api/* 401 + middleware redirect loop).
+    const { client: supabase, applyCookies } = createSupabaseAuthCollector(request);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error || !data.user) {
       console.error("[api/auth/login] Supabase signInWithPassword gagal:", error?.message);
-      return NextResponse.json({ error: "Email atau password salah." }, { status: 401 });
+      const failed = NextResponse.json(
+        { error: "Email atau password salah." },
+        { status: 401 },
+      );
+      applyCookies(failed); // cookie pembersihan/refresh parsial tetap diteruskan
+      return failed;
     }
     userId = data.user.id;
     try {
@@ -53,11 +61,13 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       console.error("[api/auth/login] DB check properti gagal:", err);
     }
-    return NextResponse.json({
+    const response = NextResponse.json({
       ok: true,
       user: { id: userId, email: data.user.email ?? email },
       needsOnboarding,
     });
+    applyCookies(response); // ← kunci: Set-Cookie sesi ikut ke browser
+    return response;
   }
 
   // ── Mode lokal (sandbox/dev tanpa kredensial Supabase) ────────────────────

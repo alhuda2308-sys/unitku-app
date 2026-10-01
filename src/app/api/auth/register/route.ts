@@ -11,7 +11,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/prisma";
 import { getAuthMode, SESSION_COOKIE } from "@/lib/auth/config";
 import { createSessionToken, hashPassword, sessionCookieOptions } from "@/lib/auth/local";
-import { createSupabaseRouteClient } from "@/lib/auth/supabase-route";
+import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
 
 export const dynamic = "force-dynamic";
 
@@ -30,13 +30,14 @@ export async function POST(request: NextRequest) {
   }
 
   if (getAuthMode() === "supabase") {
-    const response = NextResponse.json({ ok: true });
-    const supabase = createSupabaseRouteClient(request, response);
+    // Pola kolektor (lihat /api/auth/login) — sesi dari signUp (bila verifikasi
+    // email nonaktif) tidak boleh terbuang saat response final dibangun.
+    const { client: supabase, applyCookies } = createSupabaseAuthCollector(request);
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) {
       console.error("[api/auth/register] Supabase signUp gagal:", error.message);
       const duplicate = /already|terdaftar|exists/i.test(error.message);
-      return NextResponse.json(
+      const failed = NextResponse.json(
         {
           error: duplicate
             ? "Email sudah terdaftar. Silakan masuk."
@@ -44,12 +45,16 @@ export async function POST(request: NextRequest) {
         },
         { status: duplicate ? 409 : 400 },
       );
+      applyCookies(failed); // cookie pembersihan/refresh parsial tetap diteruskan
+      return failed;
     }
-    return NextResponse.json({
+    const response = NextResponse.json({
       ok: true,
       needsEmailConfirmation: !data.session,
       user: data.user ? { id: data.user.id, email: data.user.email ?? email } : null,
     });
+    applyCookies(response); // ← Set-Cookie sesi ikut ke browser (bila sesi langsung)
+    return response;
   }
 
   // ── Mode lokal ─────────────────────────────────────────────────────────────

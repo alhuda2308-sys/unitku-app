@@ -13,6 +13,7 @@ import {
   isSupabaseConfigured,
   SESSION_COOKIE,
   SUPABASE_ANON_KEY,
+  SUPABASE_COOKIE_OPTIONS,
   SUPABASE_URL,
 } from "./config";
 import { verifySessionToken } from "./local";
@@ -29,10 +30,22 @@ export async function getAuthUser(): Promise<AuthUser | null> {
 
   if (isSupabaseConfigured()) {
     const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      cookieOptions: SUPABASE_COOKIE_OPTIONS,
       cookies: {
         getAll: () => cookieStore.getAll(),
-        // Refresh token ditangani middleware — route handler cukup membaca
-        setAll: () => {},
+        // Persist token hasil refresh SAAT dipanggil dari route handler
+        // (cookies() boleh menulis di sana — middleware melompati /api/*).
+        // Dari Server Component penulisan cookie dilempar Next → ditangkap;
+        // penyegaran sesi untuk halaman ditangani middleware.
+        setAll: (cookiesToSet) => {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options),
+            );
+          } catch {
+            /* dipanggil dari Server Component — abaikan */
+          }
+        },
       },
     });
     const { data } = await supabase.auth.getUser();
