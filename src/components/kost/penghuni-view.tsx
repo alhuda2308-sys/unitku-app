@@ -144,15 +144,19 @@ function MobileTenantCard({
       {/* Footer: aksi cepat */}
       <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2.5">
         <Button
+          asChild
           variant="outline"
-          onClick={() => {
-            window.open(waLink(t.phone), "_blank", "noopener,noreferrer");
-          }}
           className="h-8 flex-1 border-green-200 bg-green-50 px-2 text-[12.5px] font-medium text-green-700 shadow-none hover:bg-green-100 hover:text-green-800"
-          aria-label={`Chat WhatsApp ${t.name}`}
         >
-          <MessageCircle className="size-3.5" strokeWidth={1.75} />
-          Chat WA
+          <a
+            href={waLink(t.phone)}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Chat WhatsApp ${t.name}`}
+          >
+            <MessageCircle className="size-3.5" strokeWidth={1.75} />
+            Chat WA
+          </a>
         </Button>
         <Button
           variant="outline"

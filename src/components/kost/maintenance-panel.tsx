@@ -51,6 +51,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { initialsOf, waLink, type Room } from "@/lib/kost-data";
+import { openExternal } from "@/lib/open-external";
 import { BRAND_WA_LINE } from "@/lib/brand";
 import { api } from "@/lib/api-client";
 import {
@@ -671,7 +672,7 @@ export function MaintenancePanel({
   const openPenyewaWa = (ticket: Ticket) => {
     const contact: TicketContact = { name: ticket.reporterName, phone: ticket.reporterPhone };
     const url = `${waLink(contact.phone)}?text=${encodeURIComponent(buildPenyewaWaText(ticket))}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    openExternal(url);
   };
 
   /** Dispatch WA ke teknisi terpilih — pesan terisi otomatis dari detail tiket */
@@ -679,7 +680,7 @@ export function MaintenancePanel({
     const url = `${waLink(tech.phone)}?text=${encodeURIComponent(
       buildTeknisiWaText(ticket, tech, propertyName)
     )}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    openExternal(url);
   };
 
   return (

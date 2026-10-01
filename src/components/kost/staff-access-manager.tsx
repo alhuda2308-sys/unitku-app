@@ -56,6 +56,7 @@ import {
   type StaffAccessRole,
 } from "@/lib/staff-access";
 import { cn } from "@/lib/utils";
+import { openExternal } from "@/lib/open-external";
 
 interface StaffAccessManagerProps {
   properties: PropertyEntry[];
@@ -151,7 +152,7 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
 
   const sendWa = (m: StaffAccessMember) => {
     const url = waInviteLink(m.phone, m.name, linkOf(m), m.accessPin);
-    window.open(url, "_blank", "noopener,noreferrer");
+    openExternal(url);
   };
 
   const toggleActive = (m: StaffAccessMember) => {

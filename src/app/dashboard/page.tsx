@@ -72,6 +72,7 @@ import {
   type WaBillingContext,
 } from "@/lib/kost-invoices";
 import { portalLink } from "@/lib/tenant-portal";
+import { openExternal } from "@/lib/open-external";
 import {
   CASH_ENTRIES,
   type CashEntry,
@@ -507,7 +508,9 @@ export default function IndoKostPage() {
     };
   };
 
-  /** Buka WhatsApp dgn pesan terkode — shared utk tagihan & kwitansi lunas */
+  /** Buka WhatsApp dgn pesan terkode — shared utk tagihan & kwitansi lunas.
+   *  Navigasi via anchor sinkron (lihat open-external.ts) — tidak kena
+   *  pop-up blocker Chrome/Edge, jadi toast sukses langsung dipicu. */
   const openWaFor = (inv: Invoice, message: string, label: string) => {
     const digits = (inv.tenantPhone ?? "").replace(/[^0-9]/g, "");
     if (!digits) {
@@ -517,16 +520,10 @@ export default function IndoKostPage() {
       return;
     }
     const waUrl = `${waLink(digits)}?text=${encodeURIComponent(message)}`;
-    const opened = window.open(waUrl, "_blank", "noopener,noreferrer");
-    if (opened) {
-      toast.success(`${label} — Kamar ${inv.roomId}`, {
-        description: `${inv.tenantName ?? "Penyewa"} · ${formatIDR(inv.total)} → draf WhatsApp terbuka.`,
-      });
-    } else {
-      toast.warning("Browser memblokir pop-up WhatsApp", {
-        description: "Izinkan pop-up untuk situs ini, lalu tekan tombol sekali lagi.",
-      });
-    }
+    openExternal(waUrl);
+    toast.success(`${label} — Kamar ${inv.roomId}`, {
+      description: `${inv.tenantName ?? "Penyewa"} · ${formatIDR(inv.total)} → draf WhatsApp terbuka.`,
+    });
   };
 
   /** Tombol hijau "Tagih via WhatsApp" — wa.me dgn template tagihan rapi */
@@ -561,8 +558,8 @@ export default function IndoKostPage() {
 
   /** "Kirim Tagihan WA" (panel tagihan RoomDrawer) — BUKA WhatsApp asli:
    *  nomor dibersihkan → wa.me/<digits>?text=<encodeURIComponent(pesan)>;
-   *  pesan dari Template WhatsApp (Pengaturan) sesuai status tagihan; toast
-   *  sukses HANYA setelah jendela WhatsApp berhasil dibuka/ditrigger. */
+   *  pesan dari Template WhatsApp (Pengaturan) sesuai status tagihan.
+   *  Dibuka via anchor sinkron (open-external.ts) — imun pop-up blocker. */
   const handleSendInvoice = (room: Room) => {
     const phone = room.tenant?.phone ?? "";
     const digits = phone.replace(/[^0-9]/g, "");
@@ -586,16 +583,10 @@ export default function IndoKostPage() {
       BRAND_WA_FOOTER,
     ].join("\n\n");
     const waUrl = `${waLink(digits)}?text=${encodeURIComponent(message)}`;
-    const opened = window.open(waUrl, "_blank", "noopener,noreferrer");
-    if (opened) {
-      toast.success(`Draf WhatsApp dibuka — Kamar ${room.id}`, {
-        description: `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(amount)} → ${phone}`,
-      });
-    } else {
-      toast.warning("Browser memblokir pop-up WhatsApp", {
-        description: "Izinkan pop-up untuk situs ini, lalu tekan tombol sekali lagi.",
-      });
-    }
+    openExternal(waUrl);
+    toast.success(`Draf WhatsApp dibuka — Kamar ${room.id}`, {
+      description: `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(amount)} → ${phone}`,
+    });
   };
 
   // ── Check-in Penghuni Baru ─────────────────────────────────────────────────
