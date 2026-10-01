@@ -161,6 +161,7 @@ export async function applyPaidLicense(
         amount: payment.amount,
         status: "paid",
         eventType: payment.eventType ?? null,
+        provider: "MAYAR_WEBHOOK",
         autoProvisioned: created,
         generatedPassword,
         rawPayload:

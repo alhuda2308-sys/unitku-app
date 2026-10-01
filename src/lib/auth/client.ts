@@ -15,6 +15,8 @@ export interface AuthInfo {
   user: { id: string; email: string } | null;
   mode: "supabase" | "local";
   demo: boolean;
+  /** true = email sesi terdaftar di SUPER_ADMIN_EMAILS (server yang memutuskan) */
+  isSuperAdmin: boolean;
 }
 
 export type AuthResult = { ok: true } | { ok: false; error: string };
@@ -111,9 +113,10 @@ export async function getAuthInfo(): Promise<AuthInfo> {
       user: data.user ?? null,
       mode: data.mode === "supabase" ? "supabase" : "local",
       demo: data.demo === true,
+      isSuperAdmin: data.isSuperAdmin === true,
     };
   } catch {
-    return { user: null, mode: isSupabaseConfigured() ? "supabase" : "local", demo: false };
+    return { user: null, mode: isSupabaseConfigured() ? "supabase" : "local", demo: false, isSuperAdmin: false };
   }
 }
 

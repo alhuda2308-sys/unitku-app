@@ -99,6 +99,9 @@ model LicensePurchase {
   amount          Int      @default(0) // nominal IDR
   status          String   @default("paid") // paid
   eventType       String? // event Mayar asli, mis. "payment.received"
+  // Kanal asal lisensi — "MAYAR_WEBHOOK" (otomatis) | "MANUAL_SUPER_ADMIN"
+  // (dibuat manual via panel /admin). Null = baris legacy sebelum kolom ada.
+  provider        String?
   autoProvisioned Boolean  @default(false) // true = akun owner baru dibuat otomatis
   // Kredensial awal akun baru (plaintext sementara) — diserahkan manual ke
   // pembeli bila pengiriman email otomatis belum tersedia. Kosong utk akun lama.

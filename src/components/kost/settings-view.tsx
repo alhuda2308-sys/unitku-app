@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -477,20 +478,35 @@ function AccountCard() {
           <p className="mt-0.5 text-[12.5px] text-zinc-500">{modeText}</p>
         </div>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleLogout}
-        disabled={busy}
-        className="h-8 shrink-0 gap-1.5 border-red-200 px-3 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700"
-      >
-        {busy ? (
-          <Loader2 className="size-3.5 animate-spin" strokeWidth={1.75} aria-hidden="true" />
-        ) : (
-          <LogOut className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+      <div className="flex shrink-0 items-center gap-2">
+        {info?.isSuperAdmin && (
+          <Button
+            variant="outline"
+            size="sm"
+            asChild
+            className="h-8 gap-1.5 border-zinc-300 px-3 text-[12.5px] text-zinc-800 hover:bg-zinc-50"
+          >
+            <Link href="/admin">
+              <ShieldCheck className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+              🛡️ Panel Super Admin
+            </Link>
+          </Button>
         )}
-        Keluar
-      </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleLogout}
+          disabled={busy}
+          className="h-8 gap-1.5 border-red-200 px-3 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700"
+        >
+          {busy ? (
+            <Loader2 className="size-3.5 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+          ) : (
+            <LogOut className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+          )}
+          Keluar
+        </Button>
+      </div>
     </div>
   );
 }
