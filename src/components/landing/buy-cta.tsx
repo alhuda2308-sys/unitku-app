@@ -5,7 +5,8 @@
 //
 // Modal checkout lisensi seumur hidup:
 //   1. Form data pembeli (nama, email, No. WhatsApp) — divalidasi di client
-//      & server, lalu POST /api/checkout membuat invoice Mayar per-pembeli.
+//      & server (validasi shared di src/lib/checkout-validation.ts), lalu
+//      POST /api/checkout membuat invoice Mayar per-pembeli.
 //   2. Tombol utama "Bayar Otomatis (QRIS / VA / E-Wallet)" → redirect ke
 //      paymentUrl Mayar; webhook /api/webhooks/mayar mengaktifkan lisensi.
 //   3. Tombol kedua "Pesan Manual via WhatsApp Admin" → wa.me Admin dengan
@@ -25,39 +26,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { toast } from "@/lib/toast";
+import {
+  EMPTY_CHECKOUT_FORM,
+  validateCheckoutBuyer,
+  type CheckoutFieldErrors,
+  type CheckoutFormState,
+} from "@/lib/checkout-validation";
 import {
   LICENSE_PRICE_LABEL,
   SUPPORT_WA_PURCHASE_LINK,
 } from "@/lib/landing-config";
-
-interface FormState {
-  name: string;
-  email: string;
-  phone: string;
-}
-
-type FieldErrors = Partial<Record<keyof FormState, string>>;
-
-const EMPTY_FORM: FormState = { name: "", email: "", phone: "" };
-
-/** Cermin validasi server /api/checkout — inline error per field */
-function validateBuyer(values: FormState): FieldErrors {
-  const errors: FieldErrors = {};
-  if (values.name.trim().length < 2) {
-    errors.name = "Nama lengkap wajib diisi (minimal 2 karakter).";
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(values.email.trim())) {
-    errors.email = "Alamat email tidak valid — periksa kembali penulisannya.";
-  }
-  let digits = values.phone.replace(/[^0-9]/g, "");
-  if (digits.startsWith("0")) digits = `62${digits.slice(1)}`;
-  else if (digits.startsWith("8")) digits = `62${digits}`;
-  if (!/^62[0-9]{8,13}$/.test(digits)) {
-    errors.phone = "Gunakan format 08… atau 62… (9–15 digit).";
-  }
-  return errors;
-}
+import { toast } from "@/lib/toast";
 
 interface BuyCtaProps {
   className?: string;
@@ -71,11 +50,11 @@ export function BuyCta({
   inverted = false,
 }: BuyCtaProps) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [form, setForm] = useState<CheckoutFormState>(EMPTY_CHECKOUT_FORM);
+  const [fieldErrors, setFieldErrors] = useState<CheckoutFieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
 
-  const setField = (key: keyof FormState) => (value: string) => {
+  const setField = (key: keyof CheckoutFormState) => (value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     // Hapus error field terkait saat pengguna mulai mengetik ulang
     setFieldErrors((prev) => {
@@ -90,7 +69,7 @@ export function BuyCta({
     event.preventDefault();
     if (submitting) return;
 
-    const errors = validateBuyer(form);
+    const errors = validateCheckoutBuyer(form);
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -119,7 +98,7 @@ export function BuyCta({
         data.error ?? "Gagal memproses checkout — silakan coba lagi.";
       toast.error(message);
       if (typeof data.field === "string" && data.field) {
-        setFieldErrors({ [data.field]: message } as FieldErrors);
+        setFieldErrors({ [data.field]: message } as CheckoutFieldErrors);
       }
     } catch {
       toast.error(
