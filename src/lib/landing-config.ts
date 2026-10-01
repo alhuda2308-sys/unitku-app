@@ -36,6 +36,10 @@ export const SUPPORT_MAILTO = `mailto:${SUPPORT_EMAIL}?subject=${encodeURICompon
 export const LICENSE_PRICE_LABEL =
   process.env.NEXT_PUBLIC_LICENSE_PRICE_LABEL ?? "Rp399.000";
 
+/** Nominal lisensi (IDR) yang dikirim ke API Mayar saat membuat invoice */
+export const LICENSE_AMOUNT_IDR =
+  Number(process.env.NEXT_PUBLIC_LICENSE_PRICE_IDR ?? "399000") || 399000;
+
 /** Tautan checkout Mayar — kosong = tombol beli membuka modal bantuan CS */
 export const MAYAR_CHECKOUT_URL =
   process.env.NEXT_PUBLIC_MAYAR_CHECKOUT_URL ?? "";

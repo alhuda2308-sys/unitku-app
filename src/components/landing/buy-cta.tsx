@@ -3,28 +3,61 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Tombol "Beli Akses Seumur Hidup" (landing)
 //
-// • NEXT_PUBLIC_MAYAR_CHECKOUT_URL terisi → tautan langsung ke checkout Mayar.
-// • Belum terisi → fallback modal pembelian satu pintu via WhatsApp Admin:
-//   konfirmasi pemesanan → admin kirim rekening/QRIS → aktivasi manual.
+// Modal checkout lisensi seumur hidup:
+//   1. Form data pembeli (nama, email, No. WhatsApp) — divalidasi di client
+//      & server, lalu POST /api/checkout membuat invoice Mayar per-pembeli.
+//   2. Tombol utama "Bayar Otomatis (QRIS / VA / E-Wallet)" → redirect ke
+//      paymentUrl Mayar; webhook /api/webhooks/mayar mengaktifkan lisensi.
+//   3. Tombol kedua "Pesan Manual via WhatsApp Admin" → wa.me Admin dengan
+//      pesan pemesanan terisi otomatis (fallback satu pintu).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
-import { ExternalLink, MessageCircle } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { Loader2, MessageCircle, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "@/lib/toast";
 import {
   LICENSE_PRICE_LABEL,
-  MAYAR_CHECKOUT_URL,
   SUPPORT_WA_PURCHASE_LINK,
 } from "@/lib/landing-config";
+
+interface FormState {
+  name: string;
+  email: string;
+  phone: string;
+}
+
+type FieldErrors = Partial<Record<keyof FormState, string>>;
+
+const EMPTY_FORM: FormState = { name: "", email: "", phone: "" };
+
+/** Cermin validasi server /api/checkout — inline error per field */
+function validateBuyer(values: FormState): FieldErrors {
+  const errors: FieldErrors = {};
+  if (values.name.trim().length < 2) {
+    errors.name = "Nama lengkap wajib diisi (minimal 2 karakter).";
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(values.email.trim())) {
+    errors.email = "Alamat email tidak valid — periksa kembali penulisannya.";
+  }
+  let digits = values.phone.replace(/[^0-9]/g, "");
+  if (digits.startsWith("0")) digits = `62${digits.slice(1)}`;
+  else if (digits.startsWith("8")) digits = `62${digits}`;
+  if (!/^62[0-9]{8,13}$/.test(digits)) {
+    errors.phone = "Gunakan format 08… atau 62… (9–15 digit).";
+  }
+  return errors;
+}
 
 interface BuyCtaProps {
   className?: string;
@@ -38,23 +71,63 @@ export function BuyCta({
   inverted = false,
 }: BuyCtaProps) {
   const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [submitting, setSubmitting] = useState(false);
 
-  // Checkout Mayar aktif → langsung arahkan ke halaman pembayaran
-  if (MAYAR_CHECKOUT_URL) {
-    return (
-      <Button
-        asChild
-        size="lg"
-        className={`h-auto min-h-14 whitespace-normal px-5 py-3 text-base font-bold leading-snug sm:px-8 sm:py-4 sm:text-lg ${
-          inverted ? "bg-white text-zinc-900 hover:bg-zinc-100" : ""
-        } ${className}`}
-      >
-        <a href={MAYAR_CHECKOUT_URL} target="_blank" rel="noreferrer">
-          <ExternalLink strokeWidth={1.75} aria-hidden="true" />
-          {label}
-        </a>
-      </Button>
-    );
+  const setField = (key: keyof FormState) => (value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    // Hapus error field terkait saat pengguna mulai mengetik ulang
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitting) return;
+
+    const errors = validateBuyer(form);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setSubmitting(true);
+    try {
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone,
+        }),
+      });
+      const data: { paymentUrl?: string; error?: string; field?: string } =
+        await response.json().catch(() => ({}));
+
+      if (response.ok && typeof data.paymentUrl === "string") {
+        toast.success("Invoice dibuat — membuka halaman pembayaran…");
+        // Redirect tab yang sama: pembayaran Mayar → kembali ke /payment/success
+        window.location.assign(data.paymentUrl);
+        return;
+      }
+
+      const message =
+        data.error ?? "Gagal memproses checkout — silakan coba lagi.";
+      toast.error(message);
+      if (typeof data.field === "string" && data.field) {
+        setFieldErrors({ [data.field]: message } as FieldErrors);
+      }
+    } catch {
+      toast.error(
+        "Tidak dapat menghubungi server. Periksa koneksi lalu coba lagi.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -73,7 +146,7 @@ export function BuyCta({
         <DialogContent className="max-w-md rounded-xl p-6">
           <DialogHeader>
             <DialogTitle className="text-left text-lg font-bold text-zinc-900">
-              Beli Lisensi Seumur Hidup
+              Beli Lisensi Seumur Hidup UnitKu
             </DialogTitle>
             <DialogDescription className="text-left text-sm leading-relaxed text-zinc-500">
               Satu kali bayar {LICENSE_PRICE_LABEL} — aktif selamanya tanpa
@@ -81,41 +154,148 @@ export function BuyCta({
             </DialogDescription>
           </DialogHeader>
 
-          <ol className="space-y-2.5 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-left">
-            <li className="flex gap-2.5 text-sm leading-relaxed text-zinc-600">
-              <span className="font-semibold tabular-nums text-zinc-900">1.</span>
-              <span>
-                Klik tombol <span className="font-medium text-zinc-900">WhatsApp</span> di
-                bawah untuk konfirmasi pemesanan.
-              </span>
-            </li>
-            <li className="flex gap-2.5 text-sm leading-relaxed text-zinc-600">
-              <span className="font-semibold tabular-nums text-zinc-900">2.</span>
-              <span>
-                Admin akan mengirimkan{" "}
-                <span className="font-medium text-zinc-900">
-                  nomor rekening / QRIS resmi
-                </span>{" "}
-                serta nominal transfer Rp 399.000.
-              </span>
-            </li>
-            <li className="flex gap-2.5 text-sm leading-relaxed text-zinc-600">
-              <span className="font-semibold tabular-nums text-zinc-900">3.</span>
-              <span>
-                Kirim <span className="font-medium text-zinc-900">bukti transfer</span>, dan
-                akun lisensi UnitKu Anda akan langsung diaktifkan oleh admin.
-              </span>
-            </li>
-          </ol>
+          <form onSubmit={handleSubmit} noValidate className="space-y-3.5">
+            {/* Nama Lengkap */}
+            <div className="space-y-1.5 text-left">
+              <Label
+                htmlFor="buy-name"
+                className="text-[12.5px] font-semibold text-zinc-700"
+              >
+                Nama Lengkap <span aria-hidden="true" className="text-red-600">*</span>
+                <span className="sr-only">(wajib)</span>
+              </Label>
+              <Input
+                id="buy-name"
+                name="name"
+                autoComplete="name"
+                placeholder="cth. Budi Santoso"
+                value={form.name}
+                onChange={(e) => setField("name")(e.target.value)}
+                disabled={submitting}
+                aria-invalid={Boolean(fieldErrors.name)}
+                aria-describedby={fieldErrors.name ? "buy-name-error" : undefined}
+                className="h-10 text-[13.5px]"
+              />
+              {fieldErrors.name && (
+                <p id="buy-name-error" role="alert" className="text-[12px] font-medium text-red-600">
+                  {fieldErrors.name}
+                </p>
+              )}
+            </div>
 
-          <DialogFooter>
-            <Button asChild className="h-12 w-full text-sm font-semibold">
-              <a href={SUPPORT_WA_PURCHASE_LINK} target="_blank" rel="noreferrer">
-                <MessageCircle strokeWidth={1.75} aria-hidden="true" />
-                Chat WhatsApp — Beli Sekarang
-              </a>
-            </Button>
-          </DialogFooter>
+            {/* Alamat Email */}
+            <div className="space-y-1.5 text-left">
+              <Label
+                htmlFor="buy-email"
+                className="text-[12.5px] font-semibold text-zinc-700"
+              >
+                Alamat Email <span aria-hidden="true" className="text-red-600">*</span>
+                <span className="sr-only">(wajib)</span>
+              </Label>
+              <Input
+                id="buy-email"
+                name="email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="nama@email.com"
+                value={form.email}
+                onChange={(e) => setField("email")(e.target.value)}
+                disabled={submitting}
+                aria-invalid={Boolean(fieldErrors.email)}
+                aria-describedby={
+                  fieldErrors.email ? "buy-email-error" : "buy-email-hint"
+                }
+                className="h-10 text-[13.5px]"
+              />
+              {fieldErrors.email ? (
+                <p id="buy-email-error" role="alert" className="text-[12px] font-medium text-red-600">
+                  {fieldErrors.email}
+                </p>
+              ) : (
+                <p id="buy-email-hint" className="text-[12px] leading-snug text-zinc-500">
+                  Untuk akses login akun &amp; pengiriman lisensi.
+                </p>
+              )}
+            </div>
+
+            {/* Nomor WhatsApp */}
+            <div className="space-y-1.5 text-left">
+              <Label
+                htmlFor="buy-phone"
+                className="text-[12.5px] font-semibold text-zinc-700"
+              >
+                Nomor WhatsApp <span aria-hidden="true" className="text-red-600">*</span>
+                <span className="sr-only">(wajib)</span>
+              </Label>
+              <Input
+                id="buy-phone"
+                name="phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="08xxxxxxxxxx / 62xxxxxxxxxx"
+                value={form.phone}
+                onChange={(e) => setField("phone")(e.target.value)}
+                disabled={submitting}
+                aria-invalid={Boolean(fieldErrors.phone)}
+                aria-describedby={fieldErrors.phone ? "buy-phone-error" : undefined}
+                className="h-10 text-[13.5px]"
+              />
+              {fieldErrors.phone && (
+                <p id="buy-phone-error" role="alert" className="text-[12px] font-medium text-red-600">
+                  {fieldErrors.phone}
+                </p>
+              )}
+            </div>
+
+            {/* Dua aksi seimbang: checkout otomatis & manual via WA */}
+            <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
+              <Button
+                type="submit"
+                disabled={submitting}
+                className="h-auto min-h-11 whitespace-normal px-3 py-2.5 text-[13px] font-bold leading-snug"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2
+                      className="size-4 shrink-0 animate-spin"
+                      strokeWidth={1.75}
+                      aria-hidden="true"
+                    />
+                    Memproses…
+                  </>
+                ) : (
+                  <>
+                    <Wallet
+                      className="size-4 shrink-0"
+                      strokeWidth={1.75}
+                      aria-hidden="true"
+                    />
+                    Bayar Otomatis (QRIS / VA / E-Wallet)
+                  </>
+                )}
+              </Button>
+              <Button
+                asChild
+                variant="outline"
+                className="h-auto min-h-11 whitespace-normal border-green-600 px-3 py-2.5 text-[13px] font-bold leading-snug text-green-700 hover:bg-green-50 hover:text-green-800"
+              >
+                <a
+                  href={SUPPORT_WA_PURCHASE_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <MessageCircle
+                    className="size-4 shrink-0"
+                    strokeWidth={1.75}
+                    aria-hidden="true"
+                  />
+                  Pesan Manual via WhatsApp Admin
+                </a>
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </>
