@@ -46,7 +46,7 @@ export function BuyCta({
       <Button
         asChild
         size="lg"
-        className={`h-11 text-[13px] font-semibold ${
+        className={`h-auto min-h-14 whitespace-normal px-5 py-3 text-base font-bold leading-snug sm:px-8 sm:py-4 sm:text-lg ${
           inverted ? "bg-white text-zinc-900 hover:bg-zinc-100" : ""
         } ${className}`}
       >
@@ -63,7 +63,7 @@ export function BuyCta({
       <Button
         size="lg"
         onClick={() => setOpen(true)}
-        className={`h-11 text-[13px] font-semibold ${
+        className={`h-auto min-h-14 whitespace-normal px-5 py-3 text-base font-bold leading-snug sm:px-8 sm:py-4 sm:text-lg ${
           inverted ? "bg-white text-zinc-900 hover:bg-zinc-100" : ""
         } ${className}`}
       >
@@ -76,28 +76,28 @@ export function BuyCta({
             <DialogTitle className="text-left text-lg font-bold text-zinc-900">
               Beli Lisensi Seumur Hidup
             </DialogTitle>
-            <DialogDescription className="text-left text-[12.5px] leading-snug text-zinc-500">
+            <DialogDescription className="text-left text-sm leading-relaxed text-zinc-500">
               Satu kali bayar {LICENSE_PRICE_LABEL} — aktif selamanya tanpa
               biaya bulanan.
             </DialogDescription>
           </DialogHeader>
 
           <ol className="space-y-2.5 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-left">
-            <li className="flex gap-2.5 text-[12.5px] leading-snug text-zinc-600">
+            <li className="flex gap-2.5 text-sm leading-relaxed text-zinc-600">
               <span className="font-semibold tabular-nums text-zinc-900">1.</span>
               <span>
                 Klik tombol <span className="font-medium text-zinc-900">Chat WhatsApp</span> di
                 bawah — kirim nama &amp; email yang ingin didaftarkan.
               </span>
             </li>
-            <li className="flex gap-2.5 text-[12.5px] leading-snug text-zinc-600">
+            <li className="flex gap-2.5 text-sm leading-relaxed text-zinc-600">
               <span className="font-semibold tabular-nums text-zinc-900">2.</span>
               <span>
                 Tim kami mengirim tautan checkout Mayar yang aman (QRIS / transfer /
                 e-wallet).
               </span>
             </li>
-            <li className="flex gap-2.5 text-[12.5px] leading-snug text-zinc-600">
+            <li className="flex gap-2.5 text-sm leading-relaxed text-zinc-600">
               <span className="font-semibold tabular-nums text-zinc-900">3.</span>
               <span>
                 Setelah pembayaran terverifikasi, akun &amp; lisensi Anda aktif
@@ -106,7 +106,7 @@ export function BuyCta({
             </li>
           </ol>
 
-          <p className="flex items-start gap-1.5 text-[12.5px] leading-snug text-zinc-500">
+          <p className="flex items-start gap-1.5 text-sm leading-relaxed text-zinc-500">
             <ShieldCheck
               className="mt-0.5 size-4 shrink-0 text-emerald-600"
               strokeWidth={1.75}
@@ -117,7 +117,7 @@ export function BuyCta({
           </p>
 
           <DialogFooter className="gap-2 sm:flex-col sm:gap-2">
-            <Button asChild className="h-10 w-full text-[13px] font-semibold">
+            <Button asChild className="h-11 w-full text-sm font-semibold">
               <a href={SUPPORT_WA_PURCHASE_LINK} target="_blank" rel="noreferrer">
                 <MessageCircle strokeWidth={1.75} aria-hidden="true" />
                 Chat WhatsApp — Beli Sekarang
@@ -126,7 +126,7 @@ export function BuyCta({
             <Button
               asChild
               variant="outline"
-              className="h-10 w-full text-[13px] font-medium"
+              className="h-11 w-full text-sm font-medium"
             >
               <a href={SUPPORT_MAILTO}>
                 <Mail strokeWidth={1.75} aria-hidden="true" />

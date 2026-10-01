@@ -214,13 +214,13 @@ export default async function LandingPage() {
           </Link>
 
           <nav aria-label="Navigasi utama" className="hidden items-center gap-6 md:flex">
-            <a href="#fitur" className="text-[12.5px] font-medium text-zinc-600 hover:text-zinc-900">
+            <a href="#fitur" className="text-sm font-medium text-zinc-600 hover:text-zinc-900">
               Fitur Jagoan
             </a>
-            <a href="#penawaran" className="text-[12.5px] font-medium text-zinc-600 hover:text-zinc-900">
+            <a href="#penawaran" className="text-sm font-medium text-zinc-600 hover:text-zinc-900">
               Penawaran
             </a>
-            <a href="#faq" className="text-[12.5px] font-medium text-zinc-600 hover:text-zinc-900">
+            <a href="#faq" className="text-sm font-medium text-zinc-600 hover:text-zinc-900">
               Tanya Jawab
             </a>
           </nav>
@@ -235,17 +235,17 @@ export default async function LandingPage() {
         {/* ── 1. Hero ──────────────────────────────────────────────────────── */}
         <section className="border-b border-zinc-100 bg-[#f8fafc]">
           <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-14 text-center sm:px-6 sm:pb-20 sm:pt-20">
-            <p className="mx-auto inline-flex max-w-full items-center justify-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-[12.5px] font-semibold leading-snug text-zinc-700">
+            <p className="mx-auto inline-flex max-w-full items-center justify-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-sm font-semibold leading-snug text-zinc-700 sm:text-base">
               <span aria-hidden="true">⚡</span>
               Aplikasi Pengelola Kost, Kontrakan &amp; Unit Sewa Paling Praktis
             </p>
 
-            <h1 className="mx-auto mt-5 max-w-3xl text-balance text-3xl font-bold leading-tight tracking-tight sm:text-4xl lg:text-[42px]">
+            <h1 className="mx-auto mt-5 max-w-3xl text-balance text-3xl font-extrabold leading-[1.15] tracking-tight sm:text-5xl lg:text-6xl">
               Kelola Puluhan Pintu Sewa Tanpa Capek Nagih &amp; Pusing Catatan
               Berantakan
             </h1>
 
-            <p className="mx-auto mt-4 max-w-2xl text-pretty text-[13px] leading-relaxed text-zinc-600 sm:text-[14.5px]">
+            <p className="mx-auto mt-4 max-w-3xl text-pretty text-lg leading-relaxed text-slate-600 sm:text-xl lg:text-2xl">
               Tinggalkan buku tulis atau Excel yang bikin mumet. Pantau kamar
               kosong sekilas pandang, kirim tagihan WhatsApp otomatis tanpa rasa
               segan, dan rekap pemasukan bersih langsung dari HP.
@@ -258,7 +258,7 @@ export default async function LandingPage() {
               />
               <a
                 href="#fitur"
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-[13px] font-semibold text-zinc-900 transition-colors hover:bg-zinc-50 sm:w-auto"
+                className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-8 py-4 text-base font-bold text-zinc-900 transition-colors hover:bg-zinc-50 sm:w-auto sm:text-lg"
               >
                 Lihat Demo Aplikasi
                 <ArrowRight className="size-4" strokeWidth={1.75} aria-hidden="true" />
@@ -270,7 +270,7 @@ export default async function LandingPage() {
                 (item) => (
                   <li
                     key={item}
-                    className="flex items-center gap-1.5 text-[12.5px] font-medium text-zinc-600"
+                    className="flex items-center gap-2 text-sm font-medium text-zinc-700 sm:text-base"
                   >
                     <CheckCircle2 className="size-4 shrink-0 text-emerald-600" strokeWidth={1.75} aria-hidden="true" />
                     {item}
@@ -287,10 +287,10 @@ export default async function LandingPage() {
         <section id="masalah" className="scroll-mt-16">
           <div className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 sm:py-18">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-2xl font-bold tracking-tight sm:text-[28px]">
+              <h2 className="text-2xl font-bold tracking-tight sm:text-4xl">
                 Kalau Ibaratnya Begini…
               </h2>
-              <p className="mt-2 text-[13px] leading-relaxed text-zinc-600 sm:text-[14.5px]">
+              <p className="mt-3 text-base leading-relaxed text-slate-600 sm:text-lg">
                 Mana yang paling sering Anda alami? Kalau kolom kiri bikin
                 mengangguk, berarti UnitKu memang diciptakan untuk Anda.
               </p>
@@ -303,14 +303,14 @@ export default async function LandingPage() {
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
                     <XCircle className="size-5 text-zinc-500" strokeWidth={1.75} aria-hidden="true" />
                   </span>
-                  <h3 className="text-[15px] font-bold leading-snug">
+                  <h3 className="text-xl font-bold leading-snug sm:text-2xl">
                     Cara Lama <span className="font-medium text-zinc-500">(Bikin Puyeng)</span>
                   </h3>
                 </div>
                 <ul className="mt-4 space-y-3">
                   {PAIN_POINTS.map((point) => (
-                    <li key={point} className="flex items-start gap-2 text-[12.5px] leading-relaxed text-zinc-600">
-                      <XCircle className="mt-0.5 size-4 shrink-0 text-rose-500" strokeWidth={1.75} aria-hidden="true" />
+                    <li key={point} className="flex items-start gap-2.5 text-base leading-relaxed text-slate-600 sm:text-lg">
+                      <XCircle className="mt-1 size-5 shrink-0 text-rose-500" strokeWidth={1.75} aria-hidden="true" />
                       {point}
                     </li>
                   ))}
@@ -323,14 +323,14 @@ export default async function LandingPage() {
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600">
                     <CheckCircle2 className="size-5 text-white" strokeWidth={1.75} aria-hidden="true" />
                   </span>
-                  <h3 className="text-[15px] font-bold leading-snug">
+                  <h3 className="text-xl font-bold leading-snug sm:text-2xl">
                     Pakai UnitKu <span className="font-medium text-emerald-700">(Serba Rapi &amp; Santai)</span>
                   </h3>
                 </div>
                 <ul className="mt-4 space-y-3">
                   {SOLUTION_POINTS.map((point) => (
-                    <li key={point} className="flex items-start gap-2 text-[12.5px] leading-relaxed text-zinc-700">
-                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" strokeWidth={1.75} aria-hidden="true" />
+                    <li key={point} className="flex items-start gap-2.5 text-base leading-relaxed text-slate-700 sm:text-lg">
+                      <CheckCircle2 className="mt-1 size-5 shrink-0 text-emerald-600" strokeWidth={1.75} aria-hidden="true" />
                       {point}
                     </li>
                   ))}
@@ -344,10 +344,10 @@ export default async function LandingPage() {
         <section id="fitur" className="scroll-mt-16 border-y border-zinc-100 bg-[#f8fafc]">
           <div className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 sm:py-18">
             <div className="max-w-2xl">
-              <h2 className="text-2xl font-bold tracking-tight sm:text-[28px]">
+              <h2 className="text-2xl font-bold tracking-tight sm:text-4xl">
                 Fitur Jagoan UnitKu
               </h2>
-              <p className="mt-2 text-[13px] leading-relaxed text-zinc-600 sm:text-[14.5px]">
+              <p className="mt-3 text-base leading-relaxed text-slate-600 sm:text-lg">
                 Bukan sekadar catatan digital — ini asisten ngurus properti yang
                 kerjaannya beresin urusan capek Anda.
               </p>
@@ -359,10 +359,10 @@ export default async function LandingPage() {
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
                   <LayoutGrid className="size-5 text-zinc-800" strokeWidth={1.75} aria-hidden="true" />
                 </span>
-                <h3 className="mt-3.5 text-base font-bold leading-snug sm:text-lg">
+                <h3 className="mt-3.5 text-xl font-bold leading-snug sm:text-2xl">
                   Denah Kamar Visual — Cek Kondisi Kost Sekali Lirik
                 </h3>
-                <p className="mt-1.5 max-w-md text-[12.5px] leading-relaxed text-zinc-600">
+                <p className="mt-2 max-w-md text-base leading-relaxed text-slate-600 sm:text-lg">
                   Indikator warna intuitif: tahu kapan kamar jatuh tempo tanpa
                   perlu buka-buka buku catatan.
                 </p>
@@ -418,7 +418,7 @@ export default async function LandingPage() {
                   </div>
                 </div>
 
-                <p className="mt-4 flex items-center gap-2 text-[12.5px] font-medium text-zinc-500">
+                <p className="mt-4 flex flex-wrap items-center gap-2 text-sm font-medium text-zinc-500 sm:text-base">
                   <span className="inline-flex items-center gap-1.5">
                     <span className="size-2.5 rounded-sm bg-emerald-500" aria-hidden="true" /> Terisi
                   </span>
@@ -436,10 +436,10 @@ export default async function LandingPage() {
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
                   <MessageCircle className="size-5 text-zinc-800" strokeWidth={1.75} aria-hidden="true" />
                 </span>
-                <h3 className="mt-3.5 text-[15px] font-bold leading-snug">
+                <h3 className="mt-3.5 text-xl font-bold leading-snug sm:text-2xl">
                   Tagihan WhatsApp Otomatis — Nagih Sopan Tanpa Bikin Canggung
                 </h3>
-                <p className="mt-1.5 text-[12.5px] leading-relaxed text-zinc-600">
+                <p className="mt-2 text-base leading-relaxed text-slate-600 sm:text-lg">
                   Template pesan tagihan rapi &amp; profesional langsung ke nomor
                   WhatsApp penyewa.
                 </p>
@@ -462,10 +462,10 @@ export default async function LandingPage() {
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
                   <Building2 className="size-5 text-zinc-800" strokeWidth={1.75} aria-hidden="true" />
                 </span>
-                <h3 className="mt-3.5 text-[15px] font-bold leading-snug">
+                <h3 className="mt-3.5 text-xl font-bold leading-snug sm:text-2xl">
                   Satu Akun untuk Semua Cabang Properti
                 </h3>
-                <p className="mt-1.5 text-[12.5px] leading-relaxed text-zinc-600">
+                <p className="mt-2 text-base leading-relaxed text-slate-600 sm:text-lg">
                   Punya kost di lokasi A dan kontrakan di lokasi B? Atur semuanya
                   dalam satu genggaman tanpa gonta-ganti akun.
                 </p>
@@ -501,10 +501,10 @@ export default async function LandingPage() {
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
                   <Wallet className="size-5 text-zinc-800" strokeWidth={1.75} aria-hidden="true" />
                 </span>
-                <h3 className="mt-3.5 text-[15px] font-bold leading-snug">
+                <h3 className="mt-3.5 text-xl font-bold leading-snug sm:text-2xl">
                   Buku Kas &amp; Catatan Pengeluaran
                 </h3>
-                <p className="mt-1.5 text-[12.5px] leading-relaxed text-zinc-600">
+                <p className="mt-2 text-base leading-relaxed text-slate-600 sm:text-lg">
                   Catat biaya tukang, token listrik, hingga sampah. Laba rugi
                   terhitung otomatis.
                 </p>
@@ -542,10 +542,10 @@ export default async function LandingPage() {
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
                   <Smartphone className="size-5 text-zinc-800" strokeWidth={1.75} aria-hidden="true" />
                 </span>
-                <h3 className="mt-3.5 text-[15px] font-bold leading-snug">
+                <h3 className="mt-3.5 text-xl font-bold leading-snug sm:text-2xl">
                   Portal Khusus Penghuni
                 </h3>
-                <p className="mt-1.5 text-[12.5px] leading-relaxed text-zinc-600">
+                <p className="mt-2 text-base leading-relaxed text-slate-600 sm:text-lg">
                   Penyewa bisa cek status tagihan dan simpan kuitansi sendiri,
                   juragan kost bebas repot.
                 </p>
@@ -570,10 +570,10 @@ export default async function LandingPage() {
               {/* Kartu CTA menutup grid — konversi tanpa jeda */}
               <article className="flex flex-col justify-between rounded-xl bg-zinc-900 p-5 text-white">
                 <div>
-                  <h3 className="text-[15px] font-bold leading-snug">
+                  <h3 className="text-xl font-bold leading-snug sm:text-2xl">
                     Siap jadi juragan yang tenang?
                   </h3>
-                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-zinc-300">
+                  <p className="mt-2 text-base leading-relaxed text-zinc-300 sm:text-lg">
                     Semua fitur di atas terbuka dengan satu lisensi — sekali
                     bayar{" "}
                     <span className="font-semibold tabular-nums text-white">
@@ -594,30 +594,30 @@ export default async function LandingPage() {
             <div className="mx-auto max-w-2xl">
               <div className="rounded-2xl border-2 border-zinc-900 bg-white p-6 shadow-[0_12px_32px_rgba(15,23,42,0.10)] sm:p-8">
                 <div className="text-center">
-                  <p className="mx-auto inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3.5 py-1.5 text-[12.5px] font-bold uppercase tracking-wide text-amber-900">
+                  <p className="mx-auto inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-amber-900">
                     Penawaran Terbatas — Juragan Early Adopter
                   </p>
 
                   <div className="mt-5 flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1">
-                    <span className="text-xl font-medium text-zinc-400 line-through tabular-nums">
+                    <span className="text-2xl font-medium text-zinc-400 line-through tabular-nums sm:text-3xl">
                       {OLD_PRICE_LABEL}
                     </span>
-                    <span className="text-4xl font-bold tracking-tight tabular-nums sm:text-5xl">
+                    <span className="text-4xl font-black tracking-tight tabular-nums sm:text-6xl">
                       {LICENSE_PRICE_LABEL}
                     </span>
-                    <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[12.5px] font-bold text-emerald-800 tabular-nums">
+                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-800 tabular-nums">
                       Hemat Rp500.000
                     </span>
                   </div>
 
-                  <p className="mt-3 text-[13px] font-semibold text-zinc-700 sm:text-[14.5px]">
+                  <p className="mt-3 text-base font-semibold text-zinc-700 sm:text-lg">
                     Sekali Bayar — Bebas Pakai Seumur Hidup
-                    <span className="block text-[12.5px] font-medium text-zinc-500">
+                    <span className="block text-sm font-medium text-zinc-500 sm:text-base">
                       (Tanpa Biaya Bulanan / Potongan Sewa)
                     </span>
                   </p>
 
-                  <p className="mx-auto mt-4 max-w-lg rounded-lg border border-amber-200 bg-amber-50 p-3 text-[12.5px] leading-relaxed text-amber-900 sm:text-[13px]">
+                  <p className="mx-auto mt-4 max-w-lg rounded-lg border border-amber-200 bg-amber-50 p-4 text-base leading-relaxed text-amber-900 sm:text-lg">
                     Cuma 399 ribu sekali bayar. Nilainya bahkan lebih murah dari
                     harga sewa 1 kamar sebulan, tapi bikin tenang ngurus properti
                     Anda bertahun-tahun.
@@ -626,8 +626,8 @@ export default async function LandingPage() {
 
                 <ul className="mt-6 space-y-2.5 border-t border-zinc-100 pt-6">
                   {OFFER_BENEFITS.map((benefit) => (
-                    <li key={benefit} className="flex items-start gap-2 text-[12.5px] leading-snug text-zinc-700 sm:text-[13px]">
-                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" strokeWidth={1.75} aria-hidden="true" />
+                    <li key={benefit} className="flex items-start gap-2.5 text-base leading-relaxed text-zinc-700 sm:text-lg">
+                      <CheckCircle2 className="mt-1 size-5 shrink-0 text-emerald-600" strokeWidth={1.75} aria-hidden="true" />
                       {benefit}
                     </li>
                   ))}
@@ -638,7 +638,7 @@ export default async function LandingPage() {
                     className="w-full"
                     label={`Amankan Lisensi UnitKu Sekarang — ${LICENSE_PRICE_LABEL}`}
                   />
-                  <p className="mt-3 text-center text-[12.5px] text-zinc-500">
+                  <p className="mt-3 text-center text-sm text-zinc-500">
                     Pembayaran aman via Mayar · Aktivasi otomatis setelah
                     pembayaran terverifikasi · Garansi uang kembali 7 hari
                   </p>
@@ -652,10 +652,10 @@ export default async function LandingPage() {
         <section id="faq" className="scroll-mt-16 border-t border-zinc-100 bg-[#f8fafc]">
           <div className="mx-auto w-full max-w-3xl px-4 py-14 sm:px-6 sm:py-18">
             <div className="text-center">
-              <h2 className="text-2xl font-bold tracking-tight sm:text-[28px]">
+              <h2 className="text-2xl font-bold tracking-tight sm:text-4xl">
                 Tanya Jawab yang Sering Ditanyakan Juragan
               </h2>
-              <p className="mt-2 text-[13px] leading-relaxed text-zinc-600 sm:text-[14.5px]">
+              <p className="mt-3 text-base leading-relaxed text-slate-600 sm:text-lg">
                 Masih ragu? Jawabannya mungkin ada di sini — atau langsung tanya
                 tim kami via WhatsApp.
               </p>
@@ -668,10 +668,10 @@ export default async function LandingPage() {
                   value={`faq-${index + 1}`}
                   className="rounded-xl border border-zinc-200 bg-white px-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] last:border-b"
                 >
-                  <AccordionTrigger className="py-4 text-left text-[13px] font-semibold hover:no-underline sm:text-[14.5px]">
+                  <AccordionTrigger className="py-5 text-left text-lg font-semibold hover:no-underline sm:text-xl">
                     {item.q}
                   </AccordionTrigger>
-                  <AccordionContent className="pb-4 text-[12.5px] leading-relaxed text-zinc-600 sm:text-[13px]">
+                  <AccordionContent className="pb-5 text-base leading-relaxed text-slate-600 sm:text-lg">
                     {item.a}
                   </AccordionContent>
                 </AccordionItem>
@@ -683,11 +683,11 @@ export default async function LandingPage() {
         {/* ── 6. Final CTA ─────────────────────────────────────────────────── */}
         <section className="bg-zinc-900 text-white">
           <div className="mx-auto w-full max-w-6xl px-4 py-14 text-center sm:px-6 sm:py-18">
-            <h2 className="mx-auto max-w-2xl text-balance text-2xl font-bold tracking-tight sm:text-3xl">
+            <h2 className="mx-auto max-w-2xl text-balance text-2xl font-bold tracking-tight sm:text-4xl">
               Waktunya Kelola Kost &amp; Kontrakan Lebih Tenang Tanpa Beban
               Pikiran.
             </h2>
-            <p className="mx-auto mt-3 max-w-xl text-[13px] leading-relaxed text-zinc-300 sm:text-[14.5px]">
+            <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-zinc-300 sm:text-lg">
               Sekali bayar {LICENSE_PRICE_LABEL}, langsung aktif otomatis. Besok
               pagi Anda sudah bisa nagih tagihan pakai WhatsApp — sopan, rapi,
               tanpa drama.
@@ -700,7 +700,7 @@ export default async function LandingPage() {
               />
               <a
                 href={authHref}
-                className="inline-flex h-11 w-full items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-zinc-800 sm:w-auto"
+                className="inline-flex h-14 w-full items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 px-8 py-4 text-base font-bold text-white transition-colors hover:bg-zinc-800 sm:w-auto sm:text-lg"
               >
                 {user ? "Buka Dashboard" : "Sudah Punya Akun? Masuk"}
               </a>
@@ -727,7 +727,7 @@ function ButtonLink({
   return (
     <Link
       href={href}
-      className="inline-flex h-9 items-center justify-center rounded-md bg-zinc-900 px-4 text-[12.5px] font-semibold text-white transition-colors hover:bg-zinc-800"
+      className="inline-flex h-10 items-center justify-center rounded-md bg-zinc-900 px-5 text-sm font-bold text-white transition-colors hover:bg-zinc-800"
     >
       {children}
     </Link>
