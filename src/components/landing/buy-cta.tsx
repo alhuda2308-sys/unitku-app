@@ -4,12 +4,12 @@
 // UnitKu — Tombol "Beli Akses Seumur Hidup" (landing)
 //
 // • NEXT_PUBLIC_MAYAR_CHECKOUT_URL terisi → tautan langsung ke checkout Mayar.
-// • Belum terisi → fallback modal pembelian: panduan singkat + kontak CS
-//   (WhatsApp & email) supaya calon pembeli tidak pernah menemui jalan buntu.
+// • Belum terisi → fallback modal pembelian satu pintu via WhatsApp Admin:
+//   konfirmasi pemesanan → admin kirim rekening/QRIS → aktivasi manual.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
-import { ExternalLink, MessageCircle, Mail, ShieldCheck } from "lucide-react";
+import { ExternalLink, MessageCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +23,6 @@ import {
 import {
   LICENSE_PRICE_LABEL,
   MAYAR_CHECKOUT_URL,
-  SUPPORT_MAILTO,
   SUPPORT_WA_PURCHASE_LINK,
 } from "@/lib/landing-config";
 
@@ -86,51 +85,34 @@ export function BuyCta({
             <li className="flex gap-2.5 text-sm leading-relaxed text-zinc-600">
               <span className="font-semibold tabular-nums text-zinc-900">1.</span>
               <span>
-                Klik tombol <span className="font-medium text-zinc-900">Chat WhatsApp</span> di
-                bawah — kirim nama &amp; email yang ingin didaftarkan.
+                Klik tombol <span className="font-medium text-zinc-900">WhatsApp</span> di
+                bawah untuk konfirmasi pemesanan.
               </span>
             </li>
             <li className="flex gap-2.5 text-sm leading-relaxed text-zinc-600">
               <span className="font-semibold tabular-nums text-zinc-900">2.</span>
               <span>
-                Tim kami mengirim tautan checkout Mayar yang aman (QRIS / transfer /
-                e-wallet).
+                Admin akan mengirimkan{" "}
+                <span className="font-medium text-zinc-900">
+                  nomor rekening / QRIS resmi
+                </span>{" "}
+                serta nominal transfer Rp 399.000.
               </span>
             </li>
             <li className="flex gap-2.5 text-sm leading-relaxed text-zinc-600">
               <span className="font-semibold tabular-nums text-zinc-900">3.</span>
               <span>
-                Setelah pembayaran terverifikasi, akun &amp; lisensi Anda aktif
-                otomatis — tanpa menunggu konfirmasi manual.
+                Kirim <span className="font-medium text-zinc-900">bukti transfer</span>, dan
+                akun lisensi UnitKu Anda akan langsung diaktifkan oleh admin.
               </span>
             </li>
           </ol>
 
-          <p className="flex items-start gap-1.5 text-sm leading-relaxed text-zinc-500">
-            <ShieldCheck
-              className="mt-0.5 size-4 shrink-0 text-emerald-600"
-              strokeWidth={1.75}
-              aria-hidden="true"
-            />
-            Pembayaran diproses oleh Mayar. Garansi pengembalian dana 7 hari —
-            lihat Kebijakan Pengembalian Dana.
-          </p>
-
-          <DialogFooter className="gap-2 sm:flex-col sm:gap-2">
-            <Button asChild className="h-11 w-full text-sm font-semibold">
+          <DialogFooter>
+            <Button asChild className="h-12 w-full text-sm font-semibold">
               <a href={SUPPORT_WA_PURCHASE_LINK} target="_blank" rel="noreferrer">
                 <MessageCircle strokeWidth={1.75} aria-hidden="true" />
                 Chat WhatsApp — Beli Sekarang
-              </a>
-            </Button>
-            <Button
-              asChild
-              variant="outline"
-              className="h-11 w-full text-sm font-medium"
-            >
-              <a href={SUPPORT_MAILTO}>
-                <Mail strokeWidth={1.75} aria-hidden="true" />
-                Email Customer Care
               </a>
             </Button>
           </DialogFooter>

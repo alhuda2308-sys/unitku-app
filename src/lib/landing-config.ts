@@ -2,7 +2,7 @@
 // UnitKu — Konfigurasi landing komersial (aman server & client)
 //
 // Nilai dapat dioverride via environment (lihat .env.example):
-//   NEXT_PUBLIC_SUPPORT_WHATSAPP   nomor CS format internasional, mis. 62812xxxx
+//   NEXT_PUBLIC_SUPPORT_WHATSAPP   nomor WhatsApp Admin, mis. 6282126946525
 //   NEXT_PUBLIC_SUPPORT_EMAIL      email customer care
 //   NEXT_PUBLIC_LICENSE_PRICE_LABEL label harga di landing, mis. "Rp399.000"
 //   NEXT_PUBLIC_MAYAR_CHECKOUT_URL tautan checkout Mayar lisensi seumur hidup
@@ -14,15 +14,15 @@ export const BRAND = {
   tagline: "Kelola Kost, Kontrakan & Unit Sewa",
 };
 
-/** Nomor CS — GANTI via env sebelum produksi (default placeholder) */
+/** Nomor WhatsApp Admin UnitKu — pintu tunggal pembelian & bantuan */
 export const SUPPORT_WA_NUMBER = (
-  process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP ?? "6281000000000"
+  process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP ?? "6282126946525"
 ).replace(/[^\d]/g, "");
 
 export const SUPPORT_WA_LINK = `https://wa.me/${SUPPORT_WA_NUMBER}`;
 
 export const SUPPORT_WA_PURCHASE_LINK = `${SUPPORT_WA_LINK}?text=${encodeURIComponent(
-  "Halo Elvindigital, saya ingin membeli Lisensi Seumur Hidup UnitKu.",
+  "Halo Admin UnitKu, saya ingin membeli Lisensi Seumur Hidup (Rp 399.000). Mohon info rekening / panduan pembayarannya. Terima kasih!",
 )}`;
 
 export const SUPPORT_EMAIL =
