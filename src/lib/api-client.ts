@@ -16,6 +16,58 @@ import type { StaffAccessMember } from "@/lib/staff-access";
 import type { ClientProperty } from "@/lib/server/mappers";
 import type { PortalRekening } from "./tenant-portal";
 
+// ── 401 anti ping-pong (infinite reload) ────────────────────────────────
+// 401 SEKENS bisa terjadi pada pemilik sesi sah: access token Supabase
+// kedaluwarsa dan beberapa request paralel berlomba me-refresh token (rotasi
+// refresh token), sehingga satu request gagal sementara yang lain berhasil.
+// Redirect membuta ke /login membuat middleware memantulkan balik pemilik
+// sesi sah ke /dashboard → 401 lagi → pantul lagi = RELOAD TANPA UJUNG.
+// Maka: konfirmasi dulu ke /api/auth/me (sumber kebenaran sesi), redirect
+// HANYA bila sesi benar-benar batal, dan bersihkan cookie basi sebelum
+// pergi agar middleware tidak memantul balik.
+
+/** Konfirmasi sesi ke /api/auth/me — true HANYA bila dipastikan tidak ada user */
+async function isReallyLoggedOut(): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout("/api/auth/me", {
+      cache: "no-store",
+      timeoutMs: 8_000,
+    });
+    const body = (await res.json().catch(() => null)) as { user?: unknown } | null;
+    return !body?.user; // user null → benar-benar belum masuk / sesi berakhir
+  } catch {
+    // /api/auth/me sendiri gagal/timeout → TIDAK BISA dipastikan → jangan usir
+    return false;
+  }
+}
+
+/** Guard agar 401 beruntun tidak memicu beberapa redirect sekaligus */
+let handling401 = false;
+
+async function handle401(): Promise<void> {
+  if (handling401) return; // satu upaya dalam satu waktu
+  const path = window.location.pathname;
+  // Sudah di halaman auth → tidak ada yang perlu diarahkan (putus rantai loop)
+  if (path === "/login" || path === "/register") return;
+  handling401 = true;
+  try {
+    if (!(await isReallyLoggedOut())) return; // sesi masih ada / tak terkonfirmasi → jangan redirect
+    // Bersihkan cookie basi (best-effort) — supaya middleware tidak memantulkan
+    // balik ke /dashboard dengan sesi yang sudah batal.
+    try {
+      await fetchWithTimeout("/api/auth/logout", { method: "POST", timeoutMs: 8_000 });
+    } catch {
+      /* logout gagal → tetap lanjut, cookie akan ditolak server juga */
+    }
+    console.warn("[UnitKu API] 401 terkonfirmasi sesi berakhir — arahkan ke /login");
+    window.location.href = `/login?next=${encodeURIComponent(
+      window.location.pathname + window.location.search,
+    )}`;
+  } finally {
+    handling401 = false;
+  }
+}
+
 /**
  * Semua permintaan API dijamin SELALU settle (sukses / HTTP error / timeout) —
  * koneksi database yang menggantung tidak boleh membuat UI loading abadi.
@@ -47,12 +99,11 @@ async function request<T>(url: string, init?: RequestInit, timeoutMs = 15_000): 
     });
   }
   if (!res.ok) {
-    // 401 = sesi berakhir — arahkan ke /login (kecuali endpoint auth itu sendiri)
+    // 401 = sesi berakhir — KONFIRMASI dulu via /api/auth/me (anti ping-pong,
+    // lihat catatan di atas), kecuali endpoint auth itu sendiri
     if (res.status === 401 && typeof window !== "undefined" && !url.startsWith("/api/auth/")) {
-      console.warn(`[UnitKu API] ${method} ${url} → 401 sesi berakhir — redirect /login`);
-      window.location.href = `/login?next=${encodeURIComponent(
-        window.location.pathname + window.location.search,
-      )}`;
+      console.warn(`[UnitKu API] ${method} ${url} → 401 — verifikasi sesi sebelum redirect`);
+      void handle401();
     }
     // HTTP error (404 endpoint salah, 500 Prisma/DB, dsb.) — log status + pesan
     // server supaya akar masalahnya langsung terbaca di console.

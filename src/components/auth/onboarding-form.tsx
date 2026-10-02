@@ -68,11 +68,23 @@ export function OnboardingForm() {
   // Guard sesi + gerbang lisensi — sekali saat mount
   useEffect(() => {
     let alive = true;
-    getAuthInfo().then(async (info) => {
+    (async () => {
+      let info = await getAuthInfo();
       if (!alive) return;
       if (!info.user) {
-        router.replace("/login");
-        return;
+        // ANTI PING-PONG: /api/auth/me bisa gagal sesaat (race refresh token
+        // Supabase / network auth). Melempar ke /login membuta membuat
+        // middleware memantulkan balik pemilik sesi sah → /dashboard →
+        // (properti belum ada) → /onboarding → loop reload tanpa ujung.
+        // Konfirmasi ulang SEKALI setelah jeda singkat sebelum menyerah.
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        if (!alive) return;
+        info = await getAuthInfo();
+        if (!alive) return;
+        if (!info.user) {
+          router.replace("/login");
+          return;
+        }
       }
       if (info.demo) {
         router.replace("/dashboard");
@@ -102,7 +114,7 @@ export function OnboardingForm() {
         /* offline — lanjut */
       }
       setReady(true);
-    });
+    })();
     return () => {
       alive = false;
     };
