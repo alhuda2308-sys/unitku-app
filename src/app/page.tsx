@@ -769,31 +769,23 @@ export default async function LandingPage() {
                   </h3>
                 </div>
 
-                {/* Mock buku catatan coret-coret */}
-                <div className="mt-4 -rotate-1 rounded-lg border border-amber-200 bg-amber-50/80 p-3.5">
-                  <div className="flex items-center justify-between gap-2 border-b border-dashed border-amber-300 pb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
-                      Buku Tagihan — Catatan 2026
-                    </span>
-                    <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[10.5px] font-bold text-amber-900">
-                      REKAP
-                    </span>
+                {/* Foto riil buku catatan manual */}
+                <figure className="mt-4">
+                  <div className="overflow-hidden rounded-xl border border-amber-200 bg-amber-50 shadow-[0_2px_10px_rgba(15,23,42,0.07)]">
+                    <Image
+                      src="/images/cara-lama.jpg"
+                      alt="Catatan sewa manual di buku tulis"
+                      width={932}
+                      height={1280}
+                      sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 576px"
+                      className="h-48 w-full object-cover object-top sm:h-56"
+                    />
                   </div>
-                  <ul className="mt-2 space-y-1.5 text-[12.5px] leading-snug text-zinc-600">
-                    <li className="line-through decoration-rose-500/70">
-                      Kmr 3 — udah bayar? (cek m-banking dulu)
-                    </li>
-                    <li>Kmr 5 — 400rb?? tanya lagi nanti</li>
-                    <li className="line-through decoration-zinc-400">
-                      SALAH — itu tagihan bulan lalu
-                    </li>
-                    <li>Kmr 8 — katanya udah transfer, struknya mana???</li>
-                  </ul>
-                  <p className="mt-2.5 flex items-center gap-2 text-[11px] italic text-zinc-400">
-                    <span className="size-4 shrink-0 rounded-full bg-amber-200/80" aria-hidden="true" />
-                    + noda kopi — catatan makin susah dibaca
-                  </p>
-                </div>
+                  <figcaption className="mt-2 text-[11.5px] italic leading-snug text-zinc-500">
+                    Catatan manual di buku tulis: mudah keselip, coret-coretan,
+                    dan rawan hilang.
+                  </figcaption>
+                </figure>
 
                 {/* Mock chat menagih canggung */}
                 <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
