@@ -8,6 +8,7 @@ import {
   Building2,
   Camera,
   Check,
+  DatabaseBackup,
   ImagePlus,
   Landmark,
   Layers3,
@@ -61,6 +62,9 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatIDR, waLink, type Room } from "@/lib/kost-data";
+import type { Invoice } from "@/lib/kost-invoices";
+import type { CashEntry } from "@/lib/kost-cashflow";
+import { BackupView } from "./backup-view";
 import {
   fileToPhotoDataUrl,
   nextSettingsId,
@@ -121,6 +125,7 @@ const NAV: {
   { key: "tarif", label: "Tarif & Tipe Kamar", desc: "Harga & fasilitas", icon: BedDouble },
   { key: "fasilitas", label: "Katalog Fasilitas", desc: "Unit & bersama", icon: Sofa },
   { key: "tema", label: "Tema & Tampilan", desc: "12 tema: solid & karakter", icon: Palette },
+  { key: "backup", label: "Cadangan & Keamanan Data", desc: "Export Excel & backup JSON", icon: DatabaseBackup },
   { key: "danger", label: "Zona Berbahaya", desc: "Reset data", icon: TriangleAlert, destructive: true },
 ];
 
@@ -150,6 +155,11 @@ interface SettingsViewProps {
     propertyProfile?: IndoKostSettings["propertyProfile"];
     rekening?: IndoKostSettings["rekening"];
   }) => void;
+  /** Data cadangan & rekap — kamar, tagihan, dan transaksi kas yang sedang hidup */
+  invoices: Invoice[];
+  cashEntries: CashEntry[];
+  /** Setelah restore sukses — muat ulang data dashboard dari database */
+  onRestoreComplete: () => void;
 }
 
 export function SettingsView({
@@ -166,6 +176,9 @@ export function SettingsView({
   onFactoryReset,
   onApplyTariff,
   onSyncProperty,
+  invoices,
+  cashEntries,
+  onRestoreComplete,
 }: SettingsViewProps) {
   // ── RBAC staf: tab tersembunyi + snap tab terlarang ke yang diizinkan ──
   const allowedKeys = useMemo(() => {
@@ -356,6 +369,15 @@ export function SettingsView({
           onChange={(facilities) => onUpdateSettings({ facilities })}
         />
         <TemaTab theme={settings.theme} onSelect={(theme) => onUpdateSettings({ theme })} />
+        <Pane value="backup">
+          <BackupView
+            propertyName={propertyName}
+            rooms={rooms}
+            invoices={invoices}
+            cashEntries={cashEntries}
+            onRestored={onRestoreComplete}
+          />
+        </Pane>
         <TabsContent value="danger" forceMount className="mt-0 data-[state=inactive]:hidden">
           <DangerZone counts={dangerCounts} onClearDemo={onClearDemo} onFactoryReset={onFactoryReset} />
         </TabsContent>

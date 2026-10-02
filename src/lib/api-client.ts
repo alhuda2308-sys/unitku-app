@@ -366,6 +366,30 @@ export const api = {
       body: JSON.stringify({ mode }),
     }),
 
+  // /api/backup/restore — pulihkan data dari berkas cadangan JSON (Pengaturan)
+  restoreBackup: (payload: unknown) =>
+    request<{
+      ok: true;
+      propertyId: string;
+      propertyName: string;
+      restored: {
+        roomsCreated: number;
+        roomsUpdated: number;
+        roomsSkipped: number;
+        tenantsAligned: number;
+        invoicesCreated: number;
+        invoicesUpdated: number;
+        invoicesSkipped: number;
+        cashCreated: number;
+        cashUpdated: number;
+        cashSkipped: number;
+      };
+    }>(
+      "/api/backup/restore",
+      { method: "POST", body: JSON.stringify({ payload }) },
+      45_000, // pemulihan menulis banyak baris — beri waktu longgar
+    ),
+
   // /api/demo/reset — khusus sesi demo: hapus & seed ulang data simulasi
   resetDemo: () =>
     request<{ ok: true }>("/api/demo/reset", { method: "POST" }),

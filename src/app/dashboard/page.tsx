@@ -1502,6 +1502,9 @@ export default function IndoKostPage() {
                 onFactoryReset={handleFactoryReset}
                 onApplyTariff={handleApplyTariff}
                 onSyncProperty={handleSyncPropertyToDb}
+                invoices={invoices}
+                cashEntries={cashEntries}
+                onRestoreComplete={() => void refreshDashboard()}
                 staffSession={
                   staffSession ? { name: staffSession.name, role: staffSession.role } : null
                 }

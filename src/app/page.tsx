@@ -15,13 +15,16 @@ import {
   Banknote,
   Building2,
   CheckCircle2,
+  DatabaseBackup,
   DoorOpen,
   FileDown,
+  FileSpreadsheet,
   LayoutGrid,
   Megaphone,
   MessageCircle,
   Notebook,
   Receipt,
+  ShieldCheck,
   Smartphone,
   Star,
   TrendingDown,
@@ -626,6 +629,30 @@ export default async function LandingPage() {
                       <Banknote className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
                       Cek Tagihan
                     </span>
+                  </div>
+                </div>
+              </article>
+
+              {/* Bento 5b — Cadangan & Keamanan Data (Data Milik Anda 100%) */}
+              <article className="flex flex-col rounded-xl border border-emerald-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50">
+                  <ShieldCheck className="size-5 text-emerald-600" strokeWidth={1.75} aria-hidden="true" />
+                </span>
+                <h3 className="mt-3.5 text-xl font-bold leading-snug sm:text-2xl">
+                  Data Milik Anda 100%
+                </h3>
+                <p className="mt-2 text-base leading-relaxed text-slate-600 sm:text-lg">
+                  🛡️ Ekspor rekap ke Excel kapan saja &amp; backup sistem anti-hilang dalam satu
+                  klik.
+                </p>
+                <div className="mt-4 space-y-1.5 rounded-lg border border-zinc-100 bg-[#f8fafc] p-3">
+                  <div className="flex items-center gap-2 text-[12.5px] font-medium text-zinc-700">
+                    <FileSpreadsheet className="size-3.5 shrink-0 text-emerald-600" strokeWidth={1.75} aria-hidden="true" />
+                    Rekap Kamar, Penyewa &amp; Kas → Excel / CSV
+                  </div>
+                  <div className="flex items-center gap-2 text-[12.5px] font-medium text-zinc-700">
+                    <DatabaseBackup className="size-3.5 shrink-0 text-emerald-600" strokeWidth={1.75} aria-hidden="true" />
+                    Backup JSON lengkap + pulihkan kapan pun
                   </div>
                 </div>
               </article>
