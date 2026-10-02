@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
+import Image from "next/image";
 import {
   BadgeCheck,
   ExternalLink,
@@ -45,9 +46,14 @@ export function LicenseGate({ email, checkoutUrl }: LicenseGateProps) {
       <div className="w-full max-w-md">
         {/* Branding */}
         <div className="mb-5 flex items-center justify-center gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-lg font-bold text-white select-none">
-            U
-          </span>
+          <Image
+            src="/brand/icon.png"
+            alt="Logo UnitKu"
+            width={40}
+            height={40}
+            priority
+            className="size-10 shrink-0 rounded-xl object-contain ring-1 ring-zinc-200"
+          />
           <div className="min-w-0">
             <p className="text-[17px] font-bold leading-tight text-zinc-900">UnitKu</p>
             <p className="text-[12.5px] leading-tight text-zinc-500">

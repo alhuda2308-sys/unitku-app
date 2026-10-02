@@ -3,6 +3,7 @@
 // Legalitas untuk KYC Mayar: copyright, tautan legal, dan kontak Customer Care.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import Image from "next/image";
 import Link from "next/link";
 import { Mail, MessageCircle } from "lucide-react";
 
@@ -43,9 +44,13 @@ export function SiteFooter({ variant = "full" }: { variant?: "full" | "slim" }) 
           {/* Brand */}
           <div>
             <div className="flex items-center gap-3">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-lg font-bold text-white select-none">
-                U
-              </span>
+              <Image
+                src="/brand/icon.png"
+                alt="Logo UnitKu"
+                width={40}
+                height={40}
+                className="size-10 shrink-0 rounded-xl object-contain ring-1 ring-zinc-200"
+              />
               <div className="min-w-0">
                 <p className="text-[15px] font-bold leading-tight text-zinc-900">
                   {BRAND.product}{" "}

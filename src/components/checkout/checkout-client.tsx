@@ -17,6 +17,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, type FormEvent } from "react";
+import Image from "next/image";
 import {
   BadgeCheck,
   CheckCircle2,
@@ -122,7 +123,19 @@ export function CheckoutClient() {
             aria-labelledby="checkout-offer-title"
             className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6"
           >
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-[12px] font-semibold text-green-700">
+            {/* Logo resmi UnitKu */}
+            <div className="flex justify-center">
+              <Image
+                src="/brand/logo.png"
+                alt="Logo UnitKu"
+                width={72}
+                height={72}
+                priority
+                className="size-[72px] shrink-0 object-contain"
+              />
+            </div>
+
+            <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-[12px] font-semibold text-green-700">
               <BadgeCheck
                 className="size-3.5 shrink-0"
                 strokeWidth={2}

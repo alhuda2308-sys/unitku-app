@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import {
@@ -254,9 +255,14 @@ export default async function LandingPage() {
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-3" aria-label="UnitKu — beranda">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-base font-bold text-white select-none">
-              U
-            </span>
+            <Image
+              src="/brand/icon.png"
+              alt="Logo UnitKu"
+              width={36}
+              height={36}
+              priority
+              className="size-9 shrink-0 rounded-xl object-contain ring-1 ring-zinc-200"
+            />
             <span className="min-w-0">
               <span className="block text-[15px] font-bold leading-tight">
                 {BRAND.product}
@@ -295,7 +301,15 @@ export default async function LandingPage() {
         {/* ── 1. Hero ──────────────────────────────────────────────────────── */}
         <section className="border-b border-zinc-100 bg-[#f8fafc]">
           <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-14 text-center sm:px-6 sm:pb-20 sm:pt-20">
-            <p className="mx-auto inline-flex max-w-full items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-sm font-semibold leading-snug text-zinc-700 sm:text-base">
+            <p className="mx-auto inline-flex max-w-full items-center justify-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-sm font-semibold leading-snug text-zinc-700 sm:text-base">
+              <Image
+                src="/brand/icon.png"
+                alt="Logo UnitKu"
+                width={22}
+                height={22}
+                priority
+                className="size-5 shrink-0 object-contain"
+              />
               Solusi Cerdas Pemilik Kost &amp; Kontrakan
             </p>
 
@@ -825,9 +839,14 @@ export default async function LandingPage() {
                 {/* Mock WhatsApp UnitKu */}
                 <div className="mt-4 overflow-hidden rounded-xl border border-emerald-100">
                   <div className="flex items-center gap-2.5 bg-emerald-700 px-3.5 py-2.5 text-white">
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/15 text-[12px] font-bold" aria-hidden="true">
-                      U
-                    </span>
+                    <Image
+                      src="/brand/icon.png"
+                      alt=""
+                      width={28}
+                      height={28}
+                      className="size-7 shrink-0 rounded-full object-contain"
+                      aria-hidden="true"
+                    />
                     <span className="min-w-0">
                       <span className="block truncate text-[12.5px] font-bold leading-tight">
                         UnitKu · Kost Griya Pratama

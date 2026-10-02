@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { ChevronsUpDown, DatabaseBackup, LayoutGrid, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Smartphone, Users, Wallet, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STAFF_ROLE_META, type StaffAccessRole } from "@/lib/staff-access";
@@ -108,12 +109,15 @@ export function Sidebar({
             collapsed && "justify-center px-0 py-0"
           )}
         >
-          <div
-            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--ik-accent)] text-[13px] font-extrabold text-[var(--ik-accent-fg)]"
+          <Image
+            src="/brand/icon.png"
+            alt="Logo UnitKu"
+            width={28}
+            height={28}
+            priority
+            className="size-7 shrink-0 rounded-md object-contain ring-1 ring-zinc-200"
             title={`${BRAND_NAME} — ${BRAND_TAGLINE}`}
-          >
-            U
-          </div>
+          />
           {!collapsed && (
             <span className="min-w-0 leading-tight">
               <span className="block text-[15px] font-extrabold tracking-tight text-zinc-900">{BRAND_NAME}</span>
