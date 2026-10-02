@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import Image from "next/image";
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api-client";
 import {
@@ -25,7 +26,7 @@ import {
   type StaffSession,
 } from "@/lib/staff-access";
 import { BRAND_WA_FOOTER } from "@/lib/brand";
-import { Building2, CloudOff, Loader2, Plus, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
+import { CloudOff, Loader2, Plus, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -1713,9 +1714,14 @@ function DashboardSkeleton() {
       role="status"
       aria-live="polite"
     >
-      <span className="flex size-10 items-center justify-center rounded-xl bg-zinc-900 text-white">
-        <Building2 className="size-5 animate-pulse" strokeWidth={1.75} aria-hidden="true" />
-      </span>
+      <Image
+        src="/brand/icon.png"
+        alt="Logo UnitKu"
+        width={40}
+        height={40}
+        priority
+        className="size-10 shrink-0 animate-pulse rounded-xl object-contain ring-1 ring-zinc-200"
+      />
       <p className="flex items-center gap-2 text-[13px] font-semibold text-zinc-800">
         <Loader2 className="size-4 animate-spin text-zinc-500" strokeWidth={2} aria-hidden="true" />
         Menyambungkan ke database…
