@@ -26,15 +26,20 @@ import type { PortalRekening } from "./tenant-portal";
 // HANYA bila sesi benar-benar batal, dan bersihkan cookie basi sebelum
 // pergi agar middleware tidak memantul balik.
 
-/** Konfirmasi sesi ke /api/auth/me — true HANYA bila dipastikan tidak ada user */
+/** Konfirmasi sesi ke /api/auth/me — true HANYA bila terkonfirmasi pasti:
+ *  HTTP 200 + body JSON terbaca + user === null. Kegagalan apa pun (500/503,
+ *  body rusak, timeout, network) = TIDAK TERKONFIRMASI → false — jangan usir
+ *  pengguna berdasarkan ketidakpastian (sumber utama logout/loop palsu). */
 async function isReallyLoggedOut(): Promise<boolean> {
   try {
     const res = await fetchWithTimeout("/api/auth/me", {
       cache: "no-store",
       timeoutMs: 8_000,
     });
+    if (!res.ok) return false; // 500/503 (mis. race auth sesaat) → tak terkonfirmasi
     const body = (await res.json().catch(() => null)) as { user?: unknown } | null;
-    return !body?.user; // user null → benar-benar belum masuk / sesi berakhir
+    if (body === null) return false; // body bukan JSON valid → tak terkonfirmasi
+    return body.user == null; // 200 + user null → benar-benar belum masuk
   } catch {
     // /api/auth/me sendiri gagal/timeout → TIDAK BISA dipastikan → jangan usir
     return false;
@@ -43,15 +48,19 @@ async function isReallyLoggedOut(): Promise<boolean> {
 
 /** Guard agar 401 beruntun tidak memicu beberapa redirect sekaligus */
 let handling401 = false;
+/** Redirect 401 maksimal SEKALI per muatan halaman — putus rantai pantulan
+ *  /dashboard ⇄ /login bila sesuatu 401 lagi saat halaman lama masih hidup. */
+let redirected401 = false;
 
 async function handle401(): Promise<void> {
-  if (handling401) return; // satu upaya dalam satu waktu
+  if (handling401 || redirected401) return; // satu upaya per waktu & per page-load
   const path = window.location.pathname;
   // Sudah di halaman auth → tidak ada yang perlu diarahkan (putus rantai loop)
   if (path === "/login" || path === "/register") return;
   handling401 = true;
   try {
     if (!(await isReallyLoggedOut())) return; // sesi masih ada / tak terkonfirmasi → jangan redirect
+    redirected401 = true; // komit: dari sini pasti pergi ke /login sekali saja
     // Bersihkan cookie basi (best-effort) — supaya middleware tidak memantulkan
     // balik ke /dashboard dengan sesi yang sudah batal.
     try {
@@ -66,6 +75,33 @@ async function handle401(): Promise<void> {
   } finally {
     handling401 = false;
   }
+}
+
+// ── Sesi sekali-muat (cache promise per page-load) ───────────────────────
+// Dipakai bootstrap dashboard & guard agar SEMUA pemeriksaan sesi berbagi
+// SATU jawaban /api/auth/me — konsisten (tak ada effect yang menyimpulkan
+// "demo" sementara yang lain menyimpulkan "owner") dan hemat request.
+
+export interface AuthMeResult {
+  user: { id: string; email?: string } | null;
+  mode?: "supabase" | "local";
+  demo?: boolean;
+  isSuperAdmin?: boolean;
+}
+
+let authMeOnce: Promise<AuthMeResult> | null = null;
+
+/** /api/auth/me di-cache SEKALI per muatan halaman; error tidak di-cache
+ *  (pemanggil berikutnya mencoba lagi). Gagal → melempar (caller punya
+ *  try-catch masing-masing). */
+export function getAuthMeOnce(): Promise<AuthMeResult> {
+  if (!authMeOnce) {
+    authMeOnce = request<AuthMeResult>("/api/auth/me").catch((err: unknown) => {
+      authMeOnce = null; // gagal → boleh dicoba ulang oleh pemeriksa berikutnya
+      throw err;
+    });
+  }
+  return authMeOnce;
 }
 
 /**

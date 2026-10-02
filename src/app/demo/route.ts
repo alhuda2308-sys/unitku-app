@@ -38,18 +38,33 @@ const OWNER_DASHBOARD_URL = "/dashboard";
  *  (tanpa panggilan API/database) — mode demo tidak pernah menunggu Supabase */
 const DEMO_DASHBOARD_URL = "/dashboard?demo=1";
 
+/** Batas waktu getUser() di /demo — Supabase Auth yang lambat/hang tidak boleh
+ *  membuat CTA "Coba Demo" menggantung; gagal/timeout = perlakukan sebagai
+ *  pengunjung baru (sesi demo dibuat), BUKAN error 500 (sumber reload/CTA mati). */
+const GET_USER_TIMEOUT_MS = 4_000;
+
 export async function GET(request: NextRequest) {
   const ownerDashboard = new URL(OWNER_DASHBOARD_URL, request.nextUrl.origin);
   const demoDashboard = new URL(DEMO_DASHBOARD_URL, request.nextUrl.origin);
 
   // ── Mode Supabase: owner yang sudah login jangan dipaksa masuk demo ────────
   if (isSupabaseConfigured()) {
-    const collector = createSupabaseAuthCollector(request);
-    const { data } = await collector.client.auth.getUser();
-    if (data.user) {
-      const response = NextResponse.redirect(ownerDashboard);
-      collector.applyCookies(response); // sertakan cookie refresh bila ada
-      return response;
+    try {
+      const collector = createSupabaseAuthCollector(request);
+      // Race dgn timeout — getUser() yang menggantung tidak boleh menahan CTA
+      const getUser = collector.client.auth.getUser().catch(() => ({ data: { user: null } }));
+      const timeout = new Promise<{ data: { user: null } }>((resolve) => {
+        setTimeout(() => resolve({ data: { user: null } }), GET_USER_TIMEOUT_MS);
+      });
+      const { data } = await Promise.race([getUser, timeout]);
+      if (data.user) {
+        const response = NextResponse.redirect(ownerDashboard);
+        collector.applyCookies(response); // sertakan cookie refresh bila ada
+        return response;
+      }
+    } catch {
+      // getUser gagal sesaat (token basi/race refresh) → jangan 500 —
+      // lanjut sebagai pengunjung baru (sesi demo dibuat di bawah).
     }
   } else {
     // ── Mode lokal: sesi valid existing (owner/demo) jangan ditimpa ──────────

@@ -83,12 +83,26 @@ export function OnboardingForm() {
         info = await getAuthInfo();
         if (!alive) return;
         if (!info.user) {
+          // Bersihkan cookie sesi basi (best-effort) agar middleware tidak
+          // memantulkan balik ke /onboarding — putus rantai loop total.
+          try {
+            await fetchWithTimeout("/api/auth/logout", {
+              method: "POST",
+              timeoutMs: 8_000,
+            });
+          } catch {
+            /* logout gagal → tetap lanjut, cookie akan ditolak server juga */
+          }
           router.replace("/login");
           return;
         }
       }
       if (info.demo) {
-        router.replace("/dashboard");
+        // ANTI PING-PONG (kunci): demo diarahkan ke /dashboard?demo=1 agar
+        // dashboard memasang dataset simulasi INSTAN tanpa API — mengarah ke
+        // /dashboard polos membuat bootstrap memanggil getProperty dan (bila
+        // gagal) memantulkan balik ke /onboarding = reload bolak-balik abadi.
+        router.replace("/dashboard?demo=1");
         return;
       }
       // Gerbang lisensi: akun belum lunas → layar gembok, bukan form onboarding

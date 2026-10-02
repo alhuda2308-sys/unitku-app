@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import { toast } from "@/lib/toast";
-import { api } from "@/lib/api-client";
+import { api, getAuthMeOnce } from "@/lib/api-client";
 import {
   applyDemoSnapshot,
   getDashboardSnapshot,
@@ -296,6 +296,22 @@ export default function IndoKostPage() {
         if (!alive) return;
         clearTimeout(watchdog);
         if (res.property === null) {
+          // ANTI PING-PONG: sebelum melempar ke wizard, pastikan ini BUKAN
+          // sesi demo — wizard onboarding memantulkan demo balik ke
+          // /dashboard?demo=1; tanpa guard ini /onboarding ⇄ /dashboard
+          // berputar tanpa ujung (reload abadi). Sesi demo cukup dipasang
+          // snapshot simulasi instan di sini.
+          try {
+            const me = await getAuthMeOnce();
+            if (!alive) return;
+            if (me.demo) {
+              setIsDemoSession(true);
+              rescueDemoIfLoading();
+              return;
+            }
+          } catch {
+            return; // sesi tak terkonfirmasi → jangan redirect membuta
+          }
           // Akun belum punya properti → wizard onboarding (bukan loader/error)
           navigating = true;
           window.location.replace("/onboarding");
@@ -356,7 +372,7 @@ export default function IndoKostPage() {
     (async () => {
       let info: Awaited<ReturnType<typeof api.getAuthMe>> | null = null;
       try {
-        info = await api.getAuthMe();
+        info = await getAuthMeOnce(); // cache bersama bootstrap — konsisten & hemat
       } catch {
         return; // /api/auth/me gagal — middleware sudah menangani sesi
       }
@@ -449,11 +465,23 @@ export default function IndoKostPage() {
     const check = () => {
       api
         .getProperty()
-        .then((res) => {
-          if (alive && res.property === null) {
-            window.location.replace("/onboarding");
+        .then(async (res) => {
+          if (!alive || res.property !== null) return; // properti ada → biarkan banner offline + retry bekerja
+          // ANTI PING-PONG: properti null + sesi demo → wizard akan memantul
+          // balik ke /dashboard?demo=1 (reload abadi). Cukup aktifkan snapshot
+          // demo instan di sini — JANGAN lempar sesi demo ke /onboarding.
+          try {
+            const me = await getAuthMeOnce();
+            if (!alive) return;
+            if (me.demo) {
+              setIsDemoSession(true);
+              rescueDemoIfLoading();
+              return;
+            }
+          } catch {
+            return; // sesi tak terkonfirmasi → jangan redirect membuta
           }
-          // properti ada → biarkan banner offline + retry yang bekerja
+          if (alive) window.location.replace("/onboarding");
         })
         .catch(() => {
           if (alive) timer = setTimeout(check, 8_000); // DB belum menjawab

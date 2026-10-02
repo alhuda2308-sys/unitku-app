@@ -57,9 +57,20 @@ export async function getAuthUser(): Promise<AuthUser | null> {
         },
       },
     });
-    const { data } = await supabase.auth.getUser();
-    if (data.user) {
-      return { id: data.user.id, email: data.user.email ?? "", demo: false };
+    // getUser() DIJAMIN tidak melempar: kegagalan sesaat (race rotasi refresh
+    // token antar request paralel, network auth down) TIDAK boleh membuat
+    // seluruh route handler 500 — cukup dianggap "tidak ada sesi Supabase"
+    // (fallback cookie demo tetap dievaluasi; isolasi data tetap ditegakkan
+    // oleh verifikasi di langkah berikutnya).
+    let supabaseUser: { id: string; email?: string } | null = null;
+    try {
+      const { data } = await supabase.auth.getUser();
+      supabaseUser = data.user ?? null;
+    } catch {
+      supabaseUser = null;
+    }
+    if (supabaseUser) {
+      return { id: supabaseUser.id, email: supabaseUser.email ?? "", demo: false };
     }
     // Tidak ada sesi Supabase → hormati cookie demo lokal (CTA /demo):
     // HANYA sesi demo yang boleh lewat jalur ini di produksi.
