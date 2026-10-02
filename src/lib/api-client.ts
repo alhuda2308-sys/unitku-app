@@ -263,11 +263,20 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ id, lines }),
     }),
-  /** Tandai lunas — server juga mencatat pemasukan ke Buku Kas (cashEntry) */
-  markInvoicePaid: (id: string) =>
-    request<{ invoice: ClientInvoice; room: ClientRoom; cashEntry?: ClientCashEntry }>("/api/invoices", {
+  /** Tandai lunas — server juga mencatat pemasukan ke Buku Kas (cashEntry).
+   *  Fallback anti-error "Tagihan tidak ditemukan": bila id tidak dikenal
+   *  (state basi) atau tidak disertakan, server memakai tagihan aktif milik
+   *  kamar (roomId) atau membuat invoice periode terkait yang langsung lunas
+   *  (created=true) — kamar ikut badge hijau & kas tercatat. */
+  markInvoicePaid: (id: string | null, roomId?: string, periodKey?: string) =>
+    request<{ invoice: ClientInvoice; room: ClientRoom; cashEntry?: ClientCashEntry; created?: boolean }>("/api/invoices", {
       method: "PATCH",
-      body: JSON.stringify({ id, status: "lunas" }),
+      body: JSON.stringify({
+        ...(id ? { id } : {}),
+        ...(roomId ? { roomId } : {}),
+        ...(periodKey ? { periodKey } : {}),
+        status: "lunas",
+      }),
     }),
   cancelInvoice: (id: string) =>
     request<{ ok: true }>(`/api/invoices?id=${encodeURIComponent(id)}`, { method: "DELETE" }),

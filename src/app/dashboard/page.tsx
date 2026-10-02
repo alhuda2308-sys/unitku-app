@@ -67,12 +67,16 @@ import {
   formatIDR,
   ROOMS,
   waLink,
+  dateToLabel,
   type Room,
 } from "@/lib/kost-data";
 import {
   INVOICES,
   buildBillingWaMessage,
   buildReceiptWaMessage,
+  currentPeriodKey,
+  periodLabelFromKey,
+  periodShortLabel,
   type Invoice,
   type InvoiceLine,
   type WaBillingContext,
@@ -81,6 +85,7 @@ import { portalLink } from "@/lib/tenant-portal";
 import { openExternal } from "@/lib/open-external";
 import {
   CASH_ENTRIES,
+  dateSortFromLabel,
   type CashEntry,
 } from "@/lib/kost-cashflow";
 import {
@@ -571,21 +576,133 @@ export default function IndoKostPage() {
     setSettingsTab("danger");
   };
 
-  /** Shared payment flip — server ditandai lunas lalu kamar+invoice diperbarui dari respons */
-  const markRoomPaid = (roomId: string) => {
-    const invoiceId = invoices.find((i) => i.roomId === roomId && i.status !== "lunas")?.id;
-    if (!invoiceId) {
-      toast.info(`Tidak ada tagihan tertunggak untuk Kamar ${roomId}.`);
+  // ── Mode data lokal: demo interaktif (?demo=1 / sesi demo) atau fallback
+  // offline (database tak terjangkau). Data di memori adalah dataset simulasi
+  // yang TIDAK ada di cloud — mutasi pembayaran wajib murni lokal; memanggil
+  // API dulu-lah yang memicu error "Tagihan tidak ditemukan" / 401.
+  const isLocalDataMode = instantDemo || isDemoSession || dbState === "offline";
+
+  /** Id unik entri kas lokal (demo/offline) — hindari tabrakan KAS-… */
+  const localCashId = () => `KAS-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+  /** Tandai lunas versi lokal (demo & offline) — instan di memori, tanpa API:
+   *  invoice lunas, kartu kamar badge hijau, pemasukan masuk Buku Kas lokal.
+   *  Bila tagihan belum ada di state (tanpa stateInv), record invoice periode
+   *  terkait langsung dibuat berstatus lunas — persis perilaku auto-create
+   *  server, jadi mode demo tidak pernah kehilangan fungsi pembayaran. */
+  const markPaidLocal = (roomId: string, stateInv?: Invoice) => {
+    const room = rooms.find((r) => r.id === roomId);
+    if (!room) {
+      toast.info(`Kamar ${roomId} tidak ada di denah saat ini.`);
       return;
     }
+    const now = new Date();
+    const todayLabel = dateToLabel(now);
+    const periodKey = stateInv?.periodKey ?? currentPeriodKey();
+    const inv: Invoice =
+      stateInv ?? {
+        id: `#INV-${periodKey.replace("-", "")}-${roomId}`,
+        roomId,
+        tenantName: room.tenant?.name ?? null,
+        tenantPhone: room.tenant?.phone ?? null,
+        roomType: room.type,
+        periodLabel: periodLabelFromKey(periodKey),
+        periodKey,
+        dueDate: todayLabel,
+        lines: [{ label: "Sewa Kamar", amount: room.price }],
+        total: room.price,
+        status: "lunas",
+        paidAt: todayLabel,
+      };
+    const paidInvoice: Invoice = { ...inv, status: "lunas", paidAt: todayLabel, dayOffset: undefined };
+    updateInvoices((prev) =>
+      prev.some((i) => i.id === inv.id)
+        ? prev.map((i) => (i.id === inv.id ? paidInvoice : i))
+        : [paidInvoice, ...prev],
+    );
+    // Kartu kamar: badge hijau "Lunas" + hilangkan tanda H+n/H-n pada tempo
+    updateRooms((prev) =>
+      prev.map((r) =>
+        r.id === roomId
+          ? {
+              ...r,
+              status: "lunas" as const,
+              invoice: r.invoice ? { ...r.invoice, dayOffset: undefined } : r.invoice,
+            }
+          : r,
+      ),
+    );
+    // Pemasukan sewa tercatat ke Buku Kas (format identik dgn catatan server)
+    const entry: CashEntry = {
+      id: localCashId(),
+      dateLabel: todayLabel,
+      dateSort: dateSortFromLabel(todayLabel),
+      type: "masuk",
+      category: "Sewa Kamar",
+      description: `Kamar ${roomId} · ${paidInvoice.tenantName ?? "Penyewa"} — Sewa ${periodShortLabel(paidInvoice.periodKey)}`,
+      amount: paidInvoice.total,
+    };
+    updateCashEntries((prev) => [entry, ...prev]);
+    toast.success("Tagihan berhasil ditandai lunas!", {
+      description: `Kamar ${roomId} · ${formatIDR(paidInvoice.total)} diterima ${todayLabel} · pemasukan dicatat ke Buku Kas${
+        dbState === "offline" && !instantDemo && !isDemoSession
+          ? " (lokal — database sedang offline)"
+          : " (mode demo)"
+      }.`,
+    });
+  };
+
+  /** Terapkan hasil server: sinkronkan invoice/kamar/Buku Kas dari respons.
+   *  Bila server menyelesaikan lewat fallback (id klien basi → tagihan aktif
+   *  lain), sisa tagihan belum-lunas kamar yang sama dibersihkan agar denah
+   *  tidak menampilkan menunggak palsu. */
+  const applyServerPayment = (
+    invoice: Invoice,
+    room: Room,
+    cashEntry: CashEntry | undefined,
+    staleInvoiceId: string | undefined,
+  ) => {
+    updateInvoices((prev) => {
+      const replaced = prev.some((i) => i.id === invoice.id)
+        ? prev.map((i) => (i.id === invoice.id ? invoice : i))
+        : [invoice, ...prev];
+      if (staleInvoiceId && staleInvoiceId !== invoice.id) {
+        return replaced.filter(
+          (i) =>
+            !(
+              i.roomId === invoice.roomId &&
+              i.id !== invoice.id &&
+              i.status !== "lunas" &&
+              i.status !== "verifikasi"
+            ),
+        );
+      }
+      return replaced;
+    });
+    updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+    if (cashEntry) updateCashEntries((prev) => [cashEntry, ...prev]);
+  };
+
+  /** Shared payment flip — server ditandai lunas lalu kamar+invoice diperbarui
+   *  dari respons. id basi / tanpa tagihan BUKAN kegagalan: server memakai
+   *  tagihan aktif kamar atau auto-create invoice periode terkait (lunas). */
+  const markRoomPaid = (roomId: string) => {
+    const stateInvoice = invoices.find((i) => i.roomId === roomId && i.status !== "lunas");
+
+    // MODE DEMO / OFFLINE: manipulasi state lokal — instan, tanpa API.
+    if (isLocalDataMode) {
+      markPaidLocal(roomId, stateInvoice);
+      return;
+    }
+
     api
-      .markInvoicePaid(invoiceId)
-      .then(({ invoice, room, cashEntry }) => {
-        updateInvoices((prev) => prev.map((i) => (i.id === invoice.id ? invoice : i)));
-        updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
-        if (cashEntry) updateCashEntries((prev) => [cashEntry, ...prev]);
+      .markInvoicePaid(stateInvoice?.id ?? null, roomId, stateInvoice?.periodKey)
+      .then(({ invoice, room, cashEntry, created }) => {
+        applyServerPayment(invoice, room, cashEntry, stateInvoice?.id);
         toast.success(`Pembayaran Kamar ${room.id} dicatat lunas`, {
-          description: `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""} · tersimpan ke cloud.`,
+          description: created
+            ? `Tagihan periode terkait dibuat otomatis · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""} · tersimpan ke cloud.`
+            : `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""} · tersimpan ke cloud.`,
         });
       })
       .catch((err: unknown) =>
@@ -595,16 +712,21 @@ export default function IndoKostPage() {
 
   const handleMarkPaid = (room: Room) => markRoomPaid(room.id);
 
-  /** Tagihan table "Tandai Lunas / Konfirmasi" — server-first, kamar & Buku Kas ikut disinkronkan */
+  /** Tagihan table "Tandai Lunas / Konfirmasi" — server-first dgn fallback
+   *  roomId, kamar & Buku Kas ikut disinkronkan; demo/offline murni lokal. */
   const handleInvoiceMarkPaid = (inv: Invoice) => {
+    if (isLocalDataMode) {
+      markPaidLocal(inv.roomId, inv);
+      return;
+    }
     api
-      .markInvoicePaid(inv.id)
-      .then(({ invoice, room, cashEntry }) => {
-        updateInvoices((prev) => prev.map((i) => (i.id === invoice.id ? invoice : i)));
-        updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
-        if (cashEntry) updateCashEntries((prev) => [cashEntry, ...prev]);
+      .markInvoicePaid(inv.id, inv.roomId, inv.periodKey)
+      .then(({ invoice, room, cashEntry, created }) => {
+        applyServerPayment(invoice, room, cashEntry, inv.id);
         toast.success(`Kamar ${inv.roomId} ditandai lunas`, {
-          description: `${invoice.id} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""}.`,
+          description: created
+            ? `${invoice.id} (dibuat otomatis) · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""}.`
+            : `${invoice.id} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""}.`,
         });
       })
       .catch((err: unknown) =>

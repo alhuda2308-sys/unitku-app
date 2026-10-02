@@ -23,7 +23,7 @@ import { getAuthUser } from "@/lib/auth/server";
 import { getOwnedPropertyIds, notOwned, unauthorized } from "@/lib/auth/ownership";
 import { MONTH_NAMES, dateToLabel } from "@/lib/kost-data";
 import { dateSortFromLabel } from "@/lib/kost-cashflow";
-import { periodLabelFromKey, periodShortLabel } from "@/lib/kost-invoices";
+import { periodKeyOf, periodLabelFromKey, periodShortLabel } from "@/lib/kost-invoices";
 
 export const dynamic = "force-dynamic";
 
@@ -206,20 +206,121 @@ export async function PATCH(request: NextRequest) {
     await ensureSeedForUser(user);
     const body = (await request.json().catch(() => ({}))) as {
       id?: unknown;
+      roomId?: unknown; // fallback: cari/buat tagihan milik kamar ini bila id tak dikenal
+      periodKey?: unknown; // opsional — periode tagihan yang dilunasi (auto-create)
       status?: unknown;
       lines?: unknown; // [{ label, amount }] — "Simpan & Siap Ditagih"
     };
-    if (typeof body.id !== "string") {
-      return NextResponse.json({ error: "Parameter id tagihan wajib diisi." }, { status: 400 });
+    const ownedIds = await getOwnedPropertyIds(user);
+    const rawId = typeof body.id === "string" ? body.id.trim() : "";
+    const fallbackRoomId = typeof body.roomId === "string" ? body.roomId.trim() : "";
+    if (!rawId && !fallbackRoomId) {
+      return NextResponse.json({ error: "Parameter id atau roomId tagihan wajib diisi." }, { status: 400 });
     }
 
-    const before = await db.invoice.findFirst({
-      where: {
-        id: body.id,
-        room: { propertyId: { in: await getOwnedPropertyIds(user) } },
-      },
-      include: { ...INVOICE_INCLUDE, room: { select: { propertyId: true } } },
-    });
+    const INVOICE_WITH_ROOM = { ...INVOICE_INCLUDE, room: { select: { propertyId: true } } };
+    let before = rawId
+      ? await db.invoice.findFirst({
+          where: { id: rawId, room: { propertyId: { in: ownedIds } } },
+          include: INVOICE_WITH_ROOM,
+        })
+      : null;
+
+    // ── Fallback / auto-create (khusus penandaan lunas) ─────────────────────
+    // id tidak dikenal (state klien basi) atau tidak disertakan BUKAN alasan
+    // gagal: pakai tagihan aktif milik kamar, atau catat invoice periode
+    // terkait yang langsung berstatus lunas (pembayaran manual/tunai tanpa
+    // tagihan terbit) — status kamar ikut hijau & pemasukan tercatat di kas.
+    let autoCreated = false;
+    if (!before && fallbackRoomId && body.status === "lunas" && !Array.isArray(body.lines)) {
+      const room = await db.room.findFirst({
+        where: { id: fallbackRoomId, propertyId: { in: ownedIds } },
+        include: {
+          tenant: true,
+          invoices: {
+            orderBy: { periodKey: "desc" },
+            include: { lines: { orderBy: { id: "asc" as const } } },
+          },
+        },
+      });
+      if (room) {
+        const reqPeriod =
+          typeof body.periodKey === "string" && PERIOD_KEY_RE.test(body.periodKey)
+            ? body.periodKey
+            : "";
+        const active = reqPeriod
+          ? (room.invoices.find((i) => i.periodKey === reqPeriod && i.status !== "lunas") ??
+            room.invoices.find((i) => i.status !== "lunas"))
+          : room.invoices.find((i) => i.status !== "lunas");
+        if (active) {
+          // Ada tagihan aktif — id dari klien basi, pakai tagihan sungguhan
+          before = await db.invoice.findFirst({
+            where: { id: active.id, room: { propertyId: { in: ownedIds } } },
+            include: INVOICE_WITH_ROOM,
+          });
+        } else {
+          // Tidak ada tagihan tertunggak sama sekali → catat invoice periode
+          // terkait (permintaan klien bila valid, bila tidak periode berjalan)
+          // yang langsung lunas — idempoten bila periode itu sudah ada.
+          const now = new Date();
+          const periodKey = reqPeriod || periodKeyOf(now);
+          const existing = await db.invoice.findUnique({
+            where: { roomId_periodKey: { roomId: room.id, periodKey } },
+            include: INVOICE_WITH_ROOM,
+          });
+          if (existing) {
+            before = existing;
+          } else {
+            const [year, month] = periodKey.split("-").map(Number);
+            const lastDay = new Date(year, month, 0).getDate();
+            const moveInDay = room.tenant?.moveInAt
+              ? room.tenant.moveInAt.getDate()
+              : now.getDate();
+            const dueDate = new Date(year, month - 1, Math.min(Math.max(1, moveInDay), lastDay));
+            // Rincian mengikuti tagihan terakhir kamar (Sewa Pokok + add-on berulang)
+            const prev = room.invoices[0];
+            const prevSewa = prev?.lines.find((l) => l.label === "Sewa Kamar")?.amount;
+            const sewaPokok = prevSewa ?? room.price;
+            const lines = [
+              { label: "Sewa Kamar", amount: sewaPokok },
+              ...(prev?.lines ?? [])
+                .filter((l) => isRecurringAddon(l.label))
+                .map((l) => ({ label: l.label, amount: l.amount })),
+            ];
+            const total = lines.reduce((a, l) => a + l.amount, 0);
+
+            const baseInvoiceId = `#INV-${periodKey.replace("-", "")}-${room.id}`;
+            let invoiceId = baseInvoiceId;
+            let seq = 2;
+            while (await db.invoice.findUnique({ where: { id: invoiceId }, select: { id: true } })) {
+              invoiceId = `${baseInvoiceId}-${seq}`;
+              seq += 1;
+            }
+
+            before = await db.invoice.create({
+              data: {
+                id: invoiceId,
+                roomId: room.id,
+                tenantName: room.tenant?.name ?? null,
+                tenantPhone: room.tenant?.phone ?? null,
+                roomType: room.type,
+                periodLabel: periodLabelFromKey(periodKey),
+                periodKey,
+                dueDate,
+                status: "lunas",
+                dayOffset: null,
+                paidAt: now,
+                total,
+                lines: { create: lines },
+              },
+              include: INVOICE_WITH_ROOM,
+            });
+            autoCreated = true;
+          }
+        }
+      }
+    }
+
     if (!before) {
       return NextResponse.json({ error: "Tagihan tidak ditemukan." }, { status: 404 });
     }
@@ -274,7 +375,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const invoice = await db.invoice.update({
-      where: { id: body.id },
+      where: { id: before.id },
       data,
       include: INVOICE_INCLUDE,
     });
@@ -287,9 +388,11 @@ export async function PATCH(request: NextRequest) {
       include: { tenant: true, invoices: { orderBy: { periodKey: "desc" }, take: 1 } },
     });
 
-    // Catat pemasukan otomatis ke Buku Kas — sekali saja (idempoten)
+    // Catat pemasukan otomatis ke Buku Kas — sekali saja (idempoten; invoice
+    // hasil auto-create juga langsung tercatat meski lahir sudah lunas)
+    const wasUnpaid = before.status !== "lunas";
     let cashEntryJson: ReturnType<typeof toClientCashEntry> | null = null;
-    if (body.status === "lunas" && before.status !== "lunas") {
+    if (body.status === "lunas" && (wasUnpaid || autoCreated)) {
       const dateLabel = dateToLabel(new Date());
       const entry = await db.cashEntry.create({
         data: {
@@ -312,6 +415,7 @@ export async function PATCH(request: NextRequest) {
       invoice: toClientInvoice(invoice),
       room: toClientRoom(room),
       ...(cashEntryJson ? { cashEntry: cashEntryJson } : {}),
+      ...(autoCreated ? { created: true } : {}),
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
