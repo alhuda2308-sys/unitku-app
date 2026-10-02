@@ -7,7 +7,9 @@
 //   1. Data otomatis dari kamar terpilih (properti, no. kamar, harga,
 //      fasilitas via checklist cepat, nomor WA owner dari Pengaturan).
 //   2. 3 format iklan otomatis (templating client-side, tanpa API):
-//      Grup Facebook / Komunitas · Status WhatsApp · Marketplace.
+//      Grup Facebook / Komunitas · Status WhatsApp · Marketplace —
+//      masing-masing dengan 4 variasi gaya (urgensi/kenyamanan/hemat/santai);
+//      "Buat Ulang Draf Otomatis" memutar ke variasi berbeda + toast.
 //   3. Preview bisa diedit manual → "Salin Teks Iklan" (toast) →
 //      "Buka WhatsApp" (draf terisi, tinggal pilih grup/kontak tujuan).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -20,6 +22,7 @@ import {
   Megaphone,
   RefreshCw,
   Smartphone,
+  Sparkles,
   Store,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -33,8 +36,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  generateAd,
+  AD_STYLE_COUNT,
+  AD_STYLE_META,
   adContactLink,
+  generateAd,
+  pickDifferentStyle,
   type AdFormatId,
   type AdGeneratorInput,
 } from "@/lib/ad-generator";
@@ -106,6 +112,12 @@ function AdModalBody({
   const [format, setFormat] = useState<AdFormatId>("facebook");
   const [selected, setSelected] = useState<string[]>(() => room.facilities ?? []);
   const [draft, setDraft] = useState<string>("");
+  // Variasi gaya aktif (0=Urgensi 1=Kenyamanan 2=Hemat 3=Santai) — tombol
+  // "Buat Ulang" memutar ke variasi BERBEDA supaya teks preview benar-benar
+  // berubah, bukan mengulang template statis yang sama.
+  const [styleIdx, setStyleIdx] = useState(0);
+  // Kunci animasi: naikkan tiap regenerate → textarea fade-in dgn teks baru
+  const [flashKey, setFlashKey] = useState(0);
 
   // Checklist cepat: fasilitas kamar + katalog master + opsi bawaan (dedup)
   const quickFacilities = useMemo(() => {
@@ -130,11 +142,12 @@ function AdModalBody({
     [propertyName, room.id, room.floor, room.type, room.price, selected, ownerWhatsapp],
   );
 
-  // Draf awal + regenerasi otomatis saat ganti format / checklist fasilitas.
-  // Edit manual tetap bisa — tombol "Buat Ulang" mengembalikan draf otomatis.
+  // Draf awal + regenerasi otomatis saat ganti format / checklist fasilitas /
+  // variasi gaya. Edit manual tetap bisa — tombol "Buat Ulang" memutar gaya
+  // ke variasi lain lalu draf dibangun ulang dari template variasi tersebut.
   useEffect(() => {
-    setDraft(generateAd(format, input));
-  }, [format, input]);
+    setDraft(generateAd(format, input, styleIdx));
+  }, [format, input, styleIdx]);
 
   const hasContact = Boolean(adContactLink(ownerWhatsapp));
 
@@ -151,6 +164,18 @@ function AdModalBody({
     } else {
       toast.error("Gagal menyalin — silakan salin manual dari kotak preview");
     }
+  };
+
+  /** Buat Ulang Draf Otomatis — putar ke variasi gaya BERBEDA dari yang
+   *  aktif (rotasi acak), bangun ulang draf dari data kamar aktual, lalu
+   *  beri umpan balik toast + animasi fade di kotak preview. */
+  const handleRegenerate = () => {
+    const next = pickDifferentStyle(styleIdx, AD_STYLE_COUNT);
+    setStyleIdx(next);
+    setFlashKey((k) => k + 1); // picu transisi fade-in pada preview
+    toast.success("Draf baru berhasil digenerate!", {
+      description: `Gaya ${AD_STYLE_META[next].label} — ${AD_STYLE_META[next].description}.`,
+    });
   };
 
   return (
@@ -258,22 +283,37 @@ function AdModalBody({
             </label>
             <span className="shrink-0 text-xs tabular-nums text-zinc-500">{draft.length} karakter</span>
           </div>
-          <textarea
-            id="ad-preview"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={13}
-            className="w-full resize-none rounded-lg border border-border bg-white p-3 font-sans text-[12.5px] leading-5 text-zinc-800 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-            aria-label="Teks iklan kamar"
-          />
-          <button
-            type="button"
-            onClick={() => setDraft(generateAd(format, input))}
-            className="mt-1.5 inline-flex items-center gap-1 rounded text-[11.5px] font-semibold text-zinc-600 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
+          <div
+            key={flashKey}
+            className="animate-in fade-in slide-in-from-bottom-1 duration-300"
           >
-            <RefreshCw className="size-3" strokeWidth={2} aria-hidden="true" />
-            Buat Ulang Draf Otomatis
-          </button>
+            <textarea
+              id="ad-preview"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={13}
+              className="w-full resize-none rounded-lg border border-border bg-white p-3 font-sans text-[12.5px] leading-5 text-zinc-800 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+              aria-label="Teks iklan kamar"
+            />
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={handleRegenerate}
+              className="inline-flex items-center gap-1 rounded text-[11.5px] font-semibold text-zinc-600 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
+            >
+              <RefreshCw className="size-3" strokeWidth={2} aria-hidden="true" />
+              Buat Ulang Draf Otomatis
+            </button>
+            {/* Indikator variasi aktif — bukti visual bahwa teks berotasi */}
+            <span
+              title={AD_STYLE_META[styleIdx].description}
+              className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10.5px] font-bold text-amber-800"
+            >
+              <Sparkles className="size-3" strokeWidth={2} aria-hidden="true" />
+              Gaya: {AD_STYLE_META[styleIdx].label} · {styleIdx + 1}/{AD_STYLE_COUNT}
+            </span>
+          </div>
         </div>
 
         {!hasContact && (
