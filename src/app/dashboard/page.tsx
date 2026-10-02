@@ -22,7 +22,7 @@ import {
   type StaffSession,
 } from "@/lib/staff-access";
 import { BRAND_WA_FOOTER } from "@/lib/brand";
-import { Building2, CloudOff, Loader2, Plus, RefreshCw, Sparkles, X } from "lucide-react";
+import { Building2, CloudOff, Loader2, Plus, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -180,6 +180,30 @@ export default function IndoKostPage() {
 
   // ── Sesi demo interaktif (CTA landing "Coba Denah Kost Saya — Gratis") ─────
   const [isDemoSession, setIsDemoSession] = useState(false);
+  const [resettingDemo, setResettingDemo] = useState(false);
+
+  /** Reset Data Demo — hapus & seed ulang dataset simulasi ke kondisi awal */
+  const handleResetDemo = useCallback(() => {
+    if (resettingDemo) return;
+    setResettingDemo(true);
+    api
+      .resetDemo()
+      .then(() => refreshDashboard())
+      .then(() => {
+        // Modul lokal (tiket & pengumuman) kembali ke dataset awal juga
+        setTickets(TICKETS);
+        setAnnouncements(ANNOUNCEMENTS);
+        setSelectedRoomId(null);
+        toast.success("Data demo berhasil direset", {
+          description:
+            "Seluruh data simulasi kembali ke kondisi awal — 12 kamar, penghuni, tagihan, buku kas & komplain.",
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Reset data demo gagal", { description: errMsg(err) }),
+      )
+      .finally(() => setResettingDemo(false));
+  }, [resettingDemo]);
 
   // ── Sesi staf mandiri (/staff?token=…) — null = akses owner penuh ──
   const staffSession = useSyncExternalStore(
@@ -230,13 +254,37 @@ export default function IndoKostPage() {
     document.documentElement.dataset.ikTheme = settings.theme;
   }, [settings.theme]);
 
-  // ── Bootstrap data dari Supabase (Route Handlers) — external store, tanpa setState-in-effect
+  // ── Bootstrap data dari Supabase (Route Handlers) — external store ─────────
+  // Akun baru yang belum onboarding TIDAK memuat kamar (API-nya akan menolak
+  // "Properti belum terdaftar" → toast error & mode offline palsu). Cek
+  // properti dulu: belum ada → langsung wizard /onboarding; ada → muat data.
   useEffect(() => {
-    loadDashboard().catch((err: unknown) => {
-      toast.error("Gagal terhubung database", {
-        description: err instanceof Error ? err.message : "Menampilkan data demo perangkat ini.",
+    let alive = true;
+    const sync = () =>
+      loadDashboard().catch((err: unknown) => {
+        toast.error("Gagal terhubung database", {
+          description: err instanceof Error ? err.message : "Menampilkan data demo perangkat ini.",
+        });
       });
-    });
+    api
+      .getProperty()
+      .then((res) => {
+        if (!alive) return;
+        if (res.property === null) {
+          window.location.replace("/onboarding");
+          return;
+        }
+        void sync();
+      })
+      .catch(() => {
+        // getProperty gagal (database offline) — tidak bisa dibedakan dari
+        // "belum onboarding" → lanjutkan alur lama (fallback data perangkat)
+        if (!alive) return;
+        void sync();
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // ── Bootstrap tiket komplain dari database (cloud-first, fallback mock demo)
@@ -1306,7 +1354,7 @@ export default function IndoKostPage() {
 
         <main className="flex-1 overflow-y-auto scrollbar-thin" aria-label="Konten utama">
           <div className="mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6">
-            {isDemoSession && <DemoBanner />}
+            {isDemoSession && <DemoBanner onReset={handleResetDemo} resetting={resettingDemo} />}
             {dbState === "offline" && <OfflineBanner onRetry={handleRetrySync} />}
             {view === "tagihan" ? (
               <TagihanView
@@ -1631,10 +1679,18 @@ function OfflineBanner({ onRetry }: { onRetry: () => void }) {
 
 // ── Banner Mode Demo Interaktif (sesi demo dari CTA landing /demo) ───────────
 // Sticky di atas konten main — selalu terlihat pengunjung mencoba demo, dengan
-// CTA konversi "Beli Lisensi Rp 399rb" (modal checkout, komponen BuyCta).
+// CTA konversi "Beli Lisensi Rp 399rb" (modal checkout, komponen BuyCta) dan
+// tombol kecil "Reset Data Demo" untuk mengembalikan data simulasi ke awal.
 
-function DemoBanner() {
+function DemoBanner({
+  onReset,
+  resetting,
+}: {
+  onReset: () => void;
+  resetting: boolean;
+}) {
   const [hidden, setHidden] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   if (hidden) return null;
   return (
     <div
@@ -1655,11 +1711,24 @@ function DemoBanner() {
             dan coba kirim tagihan WhatsApp.
           </span>
         </p>
-        <div className="flex shrink-0 items-center gap-1.5 sm:pl-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:pl-3">
           <BuyCta
             label="Beli Lisensi Rp 399rb"
             className="h-9 min-h-0 whitespace-nowrap rounded-lg px-3.5 py-0 text-[12.5px] font-bold sm:text-[13px]"
           />
+          <Button
+            variant="outline"
+            onClick={() => setConfirmReset(true)}
+            disabled={resetting}
+            className="h-9 gap-1.5 rounded-lg border-emerald-300 bg-white/70 px-2.5 text-[12px] font-semibold text-emerald-800 shadow-none hover:bg-emerald-100"
+          >
+            {resetting ? (
+              <Loader2 className="size-3.5 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+            ) : (
+              <RotateCcw className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+            )}
+            Reset Data Demo
+          </Button>
           <button
             type="button"
             onClick={() => setHidden(true)}
@@ -1670,6 +1739,41 @@ function DemoBanner() {
           </button>
         </div>
       </div>
+
+      <AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
+        <AlertDialogContent className="max-w-md rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-left text-base font-bold text-zinc-900">
+              Reset data demo?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-left text-[13px] leading-relaxed text-zinc-600">
+              Seluruh perubahan simulasi (penghuni, tagihan, buku kas, komplain) dihapus
+              dan data kembali ke kondisi awal — 12 kamar lengkap dengan penghuni contoh.
+              Data asli Anda tidak terpengaruh.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="h-9 text-[13px]">Batal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onReset}
+              disabled={resetting}
+              className="h-9 bg-orange-600 text-[13px] font-semibold hover:bg-orange-700"
+            >
+              {resetting ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+                  Mereset…
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                  Ya, Reset Data
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

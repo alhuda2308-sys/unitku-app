@@ -291,6 +291,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ mode }),
     }),
+
+  // /api/demo/reset — khusus sesi demo: hapus & seed ulang data simulasi
+  resetDemo: () =>
+    request<{ ok: true }>("/api/demo/reset", { method: "POST" }),
 };
 
 // ── Verifikasi portal staf (/staff) — dipanggil tanpa sesi owner ─────────────

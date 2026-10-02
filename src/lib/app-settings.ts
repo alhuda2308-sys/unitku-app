@@ -358,7 +358,7 @@ export const DEFAULT_SETTINGS: IndoKostSettings = {
     tipe: "kost",
     alamat:
       "Jl. Cendana Raya No. 45, Kel. Sukamaju, Kec. Cibinong, Kab. Bogor, Jawa Barat 16913",
-    lantai: "2",
+    lantai: "1",
     jamMalam: "22:00",
     aturan:
       "1. Jam malam pukul 22.00 — tamu tidak boleh melewati jam tersebut.\n2. Dilarang merokok di dalam kamar & area umum.\n3. Tamu menginap wajib lapor penjaga (maks. 2 malam).\n4. Tagihan dibayar paling lambat tanggal 28 setiap bulan.",
@@ -369,7 +369,7 @@ export const DEFAULT_SETTINGS: IndoKostSettings = {
       id: "kgp",
       name: "Kost Griya Pratama",
       type: "kost",
-      unitCount: 24,
+      unitCount: 12,
       address: "Jl. Cendana Raya No. 45, Cibinong, Bogor",
       aktif: true,
     },

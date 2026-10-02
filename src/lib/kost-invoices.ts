@@ -3,7 +3,7 @@
 // Billing period: Sep 2026 (bulan berjalan). Snapshot: 26 Sep 2026.
 //
 // Numbers reconcile exactly with the Phase 2 spec:
-//   Total     : Rp38.500.000 (24 kamar)
+//   Total     : Rp19.350.000 (12 kamar)
 //   Diterima  : Rp29.750.000 (18 invoice — 16 Lunas + 2 Menunggu Verifikasi) = 77%
 //   Belum bayar: Rp8.750.000 (6 kamar — 3 Menunggak + 3 Jatuh Tempo H-3)
 //   Pengingat WA terkirim: 18
@@ -206,32 +206,6 @@ export const INVOICES: Invoice[] = [
     [sewa(1_750_000)], "lunas", { paidAt: "12 Sep 2026" }),
   make("112", "Fajar Nugroho", "+62 878-9920-1145", "Tipe A - AC", "21 Sep 2026",
     [sewa(1_500_000), listrik(170_000)], "lunas", { paidAt: "19 Sep 2026" }),
-
-  // ── Lantai 2 ───────────────────────────────────────────────────────────────
-  make("201", "Rina Marlina", "+62 812-4470-2238", "Tipe A - AC", "29 Sep 2026",
-    [sewa(1_500_000), listrik(100_000)], "jatuhTempo", { dayOffset: 3 }),
-  make("202", "Joko Prasetyo", "+62 856-7780-3312", "Tipe B - Kipas", "9 Sep 2026",
-    [sewa(1_100_000), listrik(100_000)], "lunas", { paidAt: "8 Sep 2026" }),
-  make("203", "Ayu Kartika", "+62 812-9915-7734", "Tipe A - AC", "29 Sep 2026",
-    [sewa(1_500_000), listrik(100_000)], "jatuhTempo", { dayOffset: 3 }),
-  make("204", "Hendra Gunawan", "+62 813-5521-8896", "Tipe AC Deluxe", "2 Sep 2026",
-    [sewa(1_750_000), listrik(400_000)], "lunas", { paidAt: "1 Sep 2026" }),
-  make("205", "Intan Permata", "+62 812-2245-9910", "Tipe B - Kipas", "25 Sep 2026",
-    [sewa(1_100_000), listrik(100_000)], "menunggak", { dayOffset: 1 }),
-  make("206", null, null, "Tipe B - Kipas", "6 Sep 2026",
-    [sewa(1_100_000)], "lunas", { paidAt: "5 Sep 2026" }),
-  make("207", "Bagus Wicaksono", "+62 878-3390-5521", "Tipe A - AC", "19 Sep 2026",
-    [sewa(1_500_000), listrik(250_000)], "lunas", { paidAt: "17 Sep 2026" }),
-  make("208", "Novi Suryani", "+62 812-6634-2219", "Tipe AC Deluxe", "25 Sep 2026",
-    [sewa(1_750_000), listrik(350_000)], "lunas", { paidAt: "24 Sep 2026" }),
-  make("209", "Eko Purnomo", "+62 856-2214-7789", "Tipe B - Kipas", "14 Sep 2026",
-    [sewa(1_100_000), listrik(110_000)], "lunas", { paidAt: "13 Sep 2026" }),
-  make("210", "Lestari Ningsih", "+62 812-8890-5541", "Tipe A - AC", "8 Sep 2026",
-    [sewa(1_500_000), listrik(200_000)], "lunas", { paidAt: "7 Sep 2026" }),
-  make("211", "Rudi Hartono", "+62 813-4470-9912", "Tipe AC Deluxe", "27 Sep 2026",
-    [sewa(1_750_000), listrik(400_000)], "verifikasi", { paidAt: "24 Sep 2026" }),
-  make("212", null, null, "Tipe A - AC", "16 Sep 2026",
-    [sewa(1_500_000)], "lunas", { paidAt: "15 Sep 2026" }),
 ];
 
 // ── Derived stats ────────────────────────────────────────────────────────────
