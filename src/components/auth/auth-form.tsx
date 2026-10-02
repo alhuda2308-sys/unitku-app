@@ -3,15 +3,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Form autentikasi terpusat (dipakai /login dan /register)
 //
-// Satu kartu dengan tab Masuk / Daftar Akun Baru. Semua logika sesi diambil
-// dari kontrak src/lib/auth/client — komponen ini hanya UI + validasi klien.
+// Satu kartu dengan tab Masuk / Daftar Akun Baru — HANYA email & kata sandi
+// agar form ringkas dan terfokus (opsi login sosial & tombol demo dihapus;
+// demo interaktif kini masuk langsung dari CTA landing via /demo, tanpa login).
+// Semua logika sesi diambil dari kontrak src/lib/auth/client — komponen ini
+// hanya UI + validasi klien.
 // CATATAN: memakai useSearchParams → halaman pemakai wajib membungkus dengan
 // <Suspense>.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, MailCheck, TriangleAlert, Zap } from "lucide-react";
+import { Loader2, MailCheck, TriangleAlert } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -20,15 +23,12 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   afterAuthRedirect,
-  isSupabaseConfigured,
   signIn,
-  signInAsDemo,
-  signInWithGoogle,
   signUp,
 } from "@/lib/auth/client";
 
 type Mode = "login" | "register";
-type Pending = null | "form" | "google" | "demo";
+type Pending = null | "form";
 
 const COPY: Record<Mode, { title: string; subtitle: string }> = {
   login: {
@@ -43,30 +43,6 @@ const COPY: Record<Mode, { title: string; subtitle: string }> = {
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
-/** Logo Google resmi (4 warna) — inline SVG, bukan lucide */
-function GoogleMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-      <path
-        fill="#4285F4"
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84Z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15A11 11 0 0 0 2.18 7.06L5.84 9.9c.87-2.6 3.3-4.52 6.16-4.52Z"
-      />
-    </svg>
-  );
-}
-
 export function AuthForm({ initialMode }: { initialMode: Mode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -78,7 +54,6 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
   const [error, setError] = useState<string | null>(null);
   const [awaitConfirm, setAwaitConfirm] = useState(false);
 
-  const oauthError = searchParams.get("error");
   const nextParam = searchParams.get("next");
   const busy = pending !== null;
 
@@ -138,42 +113,6 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
     }
   };
 
-  const onGoogle = async () => {
-    if (busy) return;
-    setError(null);
-    setAwaitConfirm(false);
-    setPending("google");
-    try {
-      const res = await signInWithGoogle();
-      if (!res.ok) setError(res.error);
-    } catch {
-      setError("Login Google gagal — coba lagi atau gunakan email & kata sandi.");
-    } finally {
-      setPending(null);
-    }
-  };
-
-  const onDemo = async () => {
-    if (busy) return;
-    setError(null);
-    setAwaitConfirm(false);
-    setPending("demo");
-    try {
-      const res = await signInAsDemo();
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      await redirectAfterAuth();
-    } catch {
-      setError("Terjadi kesalahan tak terduga — coba lagi.");
-    } finally {
-      setPending(null);
-    }
-  };
-
-  const supabase = isSupabaseConfigured();
-
   return (
     <div className="w-full max-w-md">
       {/* Branding */}
@@ -203,16 +142,6 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
             </TabsTrigger>
           </TabsList>
         </Tabs>
-
-        {/* Error dari OAuth (?error=oauth-gagal / oauth-tidak-aktif) */}
-        {oauthError && (
-          <Alert variant="destructive" className="mt-4">
-            <TriangleAlert strokeWidth={1.75} />
-            <AlertDescription className="text-[12.5px]">
-              Login Google gagal — coba lagi atau gunakan email &amp; kata sandi.
-            </AlertDescription>
-          </Alert>
-        )}
 
         {/* Error validasi klien / server */}
         {error && (
@@ -285,57 +214,6 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
             )}
           </Button>
         </form>
-
-        {supabase ? (
-          <>
-            <div className="my-4 flex items-center gap-3" aria-hidden="true">
-              <span className="h-px flex-1 bg-zinc-200" />
-              <span className="text-[12.5px] text-zinc-400">atau</span>
-              <span className="h-px flex-1 bg-zinc-200" />
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onGoogle}
-              disabled={busy}
-              className="h-10 w-full text-[13px] text-zinc-800"
-            >
-              {pending === "google" ? (
-                <Loader2 className="animate-spin text-zinc-500" strokeWidth={1.75} aria-hidden="true" />
-              ) : (
-                <GoogleMark className="size-4" />
-              )}
-              Lanjutkan dengan Google
-            </Button>
-          </>
-        ) : (
-          <>
-            <div className="my-4 flex items-center gap-3" aria-hidden="true">
-              <span className="h-px flex-1 bg-zinc-200" />
-              <span className="text-[12.5px] text-zinc-400">atau</span>
-              <span className="h-px flex-1 bg-zinc-200" />
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onDemo}
-              disabled={busy}
-              className="h-auto w-full flex-col gap-0.5 py-2.5 text-[13px] text-zinc-800"
-            >
-              <span className="flex items-center gap-2">
-                {pending === "demo" ? (
-                  <Loader2 className="animate-spin text-zinc-500" strokeWidth={1.75} aria-hidden="true" />
-                ) : (
-                  <Zap strokeWidth={1.75} aria-hidden="true" />
-                )}
-                Masuk sebagai Demo
-              </span>
-              <span className="text-xs font-normal text-zinc-500">
-                Coba UnitKu tanpa akun (data contoh)
-              </span>
-            </Button>
-          </>
-        )}
 
         {/* Pindah mode */}
         <p className="mt-4 text-center text-[12.5px] text-zinc-600">

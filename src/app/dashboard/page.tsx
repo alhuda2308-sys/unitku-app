@@ -22,7 +22,7 @@ import {
   type StaffSession,
 } from "@/lib/staff-access";
 import { BRAND_WA_FOOTER } from "@/lib/brand";
-import { Building2, CloudOff, Loader2, Plus, RefreshCw } from "lucide-react";
+import { Building2, CloudOff, Loader2, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -46,6 +46,7 @@ import { MaintenancePanel } from "@/components/kost/maintenance-panel";
 import { AnnouncementPanel } from "@/components/kost/announcement-panel";
 import { TenantPortal } from "@/components/kost/tenant-portal";
 import { LicenseGate } from "@/components/billing/license-gate";
+import { BuyCta } from "@/components/landing/buy-cta";
 import { PenghuniView } from "@/components/kost/penghuni-view";
 import { KasView } from "@/components/kost/kas-view";
 import { SettingsView } from "@/components/kost/settings-view";
@@ -177,6 +178,9 @@ export default function IndoKostPage() {
     checkoutUrl: string;
   } | null>(null);
 
+  // ── Sesi demo interaktif (CTA landing "Coba Denah Kost Saya — Gratis") ─────
+  const [isDemoSession, setIsDemoSession] = useState(false);
+
   // ── Sesi staf mandiri (/staff?token=…) — null = akses owner penuh ──
   const staffSession = useSyncExternalStore(
     subscribeStaffSession,
@@ -269,8 +273,15 @@ export default function IndoKostPage() {
         (info:
           | { user?: { id: string; email?: string } | null; demo?: boolean }
           | null) => {
-          // Demo / belum masuk (middleware sudah menangani) → jangan ganggu
-          if (!alive || !info?.user || info.demo) return;
+          if (!alive) return;
+          // Sesi demo (CTA landing /demo) → tampilkan banner demo interaktif;
+          // tanpa gerbang lisensi & tanpa redirect onboarding.
+          if (info?.user && info.demo) {
+            setIsDemoSession(true);
+            return;
+          }
+          // Belum masuk (middleware sudah menangani) → jangan ganggu
+          if (!info?.user) return;
           // Gerbang lisensi dulu: belum lunas → layar gembok (sebelum onboarding)
           return fetch("/api/billing/license", { cache: "no-store" })
             .then((r) => r.json())
@@ -1295,6 +1306,7 @@ export default function IndoKostPage() {
 
         <main className="flex-1 overflow-y-auto scrollbar-thin" aria-label="Konten utama">
           <div className="mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6">
+            {isDemoSession && <DemoBanner />}
             {dbState === "offline" && <OfflineBanner onRetry={handleRetrySync} />}
             {view === "tagihan" ? (
               <TagihanView
@@ -1613,6 +1625,51 @@ function OfflineBanner({ onRetry }: { onRetry: () => void }) {
         <RefreshCw className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
         Coba Sambungkan Ulang
       </Button>
+    </div>
+  );
+}
+
+// ── Banner Mode Demo Interaktif (sesi demo dari CTA landing /demo) ───────────
+// Sticky di atas konten main — selalu terlihat pengunjung mencoba demo, dengan
+// CTA konversi "Beli Lisensi Rp 399rb" (modal checkout, komponen BuyCta).
+
+function DemoBanner() {
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return null;
+  return (
+    <div
+      role="status"
+      aria-label="Banner Mode Demo Interaktif"
+      className="sticky top-0 z-30 -mx-3.5 -mt-4 border-b border-emerald-200 bg-emerald-50/95 px-3.5 py-2.5 shadow-[0_1px_3px_rgba(5,150,105,0.10)] backdrop-blur lg:-mx-6 lg:px-6"
+    >
+      <div className="mx-auto flex max-w-[1440px] flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <p className="flex min-w-0 items-start gap-2 text-[12.5px] leading-snug text-emerald-900">
+          <Sparkles
+            className="mt-0.5 size-4 shrink-0 text-emerald-600"
+            strokeWidth={1.75}
+            aria-hidden="true"
+          />
+          <span>
+            <span className="font-bold">Mode Demo Interaktif</span> — Anda sedang mencoba
+            fitur UnitKu dengan data simulasi. Bebas klik denah kamar, lihat status sewa,
+            dan coba kirim tagihan WhatsApp.
+          </span>
+        </p>
+        <div className="flex shrink-0 items-center gap-1.5 sm:pl-3">
+          <BuyCta
+            label="Beli Lisensi Rp 399rb"
+            className="h-9 min-h-0 whitespace-nowrap rounded-lg px-3.5 py-0 text-[12.5px] font-bold sm:text-[13px]"
+          />
+          <button
+            type="button"
+            onClick={() => setHidden(true)}
+            aria-label="Tutup banner demo"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
+          >
+            <X className="size-4" strokeWidth={1.75} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,24 +1,26 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — GET /demo — Masuk dashboard demo TANPA registrasi (satu klik)
 //
-// Dipakai CTA landing "Coba Denah Kost Saya — Gratis". Mode lokal (sandbox /
-// self-host tanpa Supabase Auth): membuat sesi demo (ownerId "demo-owner")
-// yang melihat dataset seed realistis "Kost Griya Pratama" (denah 2 lantai,
-// penghuni, tagihan, buku kas) lalu redirect ke /dashboard — data seed
-// dimuat otomatis oleh ensureSeedForUser().
+// Dipakai CTA landing "Coba Denah Kost Saya — Gratis". Membuat sesi demo
+// (ownerId "demo-owner") yang melihat dataset seed realistis "Kost Griya
+// Pratama" (denah, penghuni, tagihan, buku kas) lalu redirect ke /dashboard —
+// data seed dimuat otomatis oleh ensureSeedForUser().
 //
-// Mode Supabase (produksi): sesi demo tanpa akun tidak tersedia → diarahkan
-// ke /login?next=/dashboard agar pengunjung tetap punya jalur jelas.
+// Bekerja di SEMUA mode auth:
+//  - Mode lokal (sandbox/self-host): cookie HMAC "unitku_session" — alur asli.
+//  - Mode Supabase (produksi): cookie demo lokal yang sama; getAuthUser()
+//    menghormatinya HANYA bila tidak ada sesi Supabase dan flag demo:true
+//    (sub dipaksa DEMO_OWNER_ID) — pengunjung tetap masuk tanpa registrasi.
 //
-// Sesi yang SUDAH ada (owner sungguhan maupun demo) TIDAK ditimpa — aman
-// diklik oleh owner yang sedang login.
+// Sesi Supabase yang SUDAH ada (owner sungguhan) TIDAK diganggu — owner yang
+// sedang login langsung diarahkan ke dashboard miliknya, bukan mode demo.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
   DEMO_OWNER_ID,
-  getAuthMode,
+  isSupabaseConfigured,
   SESSION_COOKIE,
 } from "@/lib/auth/config";
 import {
@@ -26,29 +28,34 @@ import {
   sessionCookieOptions,
   verifySessionToken,
 } from "@/lib/auth/local";
+import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
 
 export const dynamic = "force-dynamic";
 
+const DASHBOARD_URL = "/dashboard";
+
 export async function GET(request: NextRequest) {
-  if (getAuthMode() === "supabase") {
-    // Produksi Supabase Auth: demo tanpa akun dinonaktifkan — arahkan ke login
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.search = "";
-    url.searchParams.set("next", "/dashboard");
-    return NextResponse.redirect(url);
+  const dashboard = new URL(DASHBOARD_URL, request.nextUrl.origin);
+
+  // ── Mode Supabase: owner yang sudah login jangan dipaksa masuk demo ────────
+  if (isSupabaseConfigured()) {
+    const collector = createSupabaseAuthCollector(request);
+    const { data } = await collector.client.auth.getUser();
+    if (data.user) {
+      const response = NextResponse.redirect(dashboard);
+      collector.applyCookies(response); // sertakan cookie refresh bila ada
+      return response;
+    }
+  } else {
+    // ── Mode lokal: sesi valid existing (owner/demo) jangan ditimpa ──────────
+    const existing = request.cookies.get(SESSION_COOKIE)?.value;
+    if (existing && verifySessionToken(existing)) {
+      return NextResponse.redirect(dashboard);
+    }
   }
 
-  // Sudah punya sesi valid (owner / demo) → jangan timpa cookie, langsung masuk
-  const existing = request.cookies.get(SESSION_COOKIE)?.value;
-  if (existing && verifySessionToken(existing)) {
-    return NextResponse.redirect(new URL("/dashboard", request.nextUrl.origin));
-  }
-
-  // Pengunjung baru → buat sesi demo & redirect ke dashboard berisi data seed
-  const response = NextResponse.redirect(
-    new URL("/dashboard", request.nextUrl.origin),
-  );
+  // ── Pengunjung baru → buat sesi demo & masuk dashboard berisi data seed ────
+  const response = NextResponse.redirect(dashboard);
   response.cookies.set(
     SESSION_COOKIE,
     createSessionToken({

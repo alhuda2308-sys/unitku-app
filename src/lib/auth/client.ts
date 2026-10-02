@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Klien autentikasi (dipakai komponen sisi browser)
 //
-// Semua alur (Masuk/Daftar/Keluar/Demo) seragam lewat endpoint /api/auth/*,
-// sehingga komponen TIDAK perlu tahu mode aktif (Supabase vs lokal).
-// Google OAuth (khusus mode Supabase) memakai browser client @supabase/ssr
-// dengan redirect ke /auth/callback.
+// Semua alur (Masuk/Daftar/Keluar) seragam lewat endpoint /api/auth/*, sehingga
+// komponen TIDAK perlu tahu mode aktif (Supabase vs lokal).
+// Demo interaktif TANPA akun tidak lewat sini — CTA landing langsung ke GET /demo
+// (route handler yang menyetel cookie sesi demo, bekerja di semua mode auth).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { isSupabaseConfigured } from "./config";
@@ -71,7 +71,7 @@ export async function signOut(): Promise<void> {
   }
 }
 
-/** Masuk cepat tanpa akun (khusus mode lokal) — sesi demo data contoh */
+/** Masuk cepat tanpa akun — sesi demo data contoh (CTA landing memakai GET /demo) */
 export async function signInAsDemo(): Promise<AuthResult> {
   try {
     const { status, data } = await postAuth("/api/auth/demo");
@@ -79,28 +79,6 @@ export async function signInAsDemo(): Promise<AuthResult> {
     return { ok: true };
   } catch {
     return { ok: false, error: "Tidak dapat terhubung ke server — periksa koneksi internet." };
-  }
-}
-
-/** Login cepat Google — khusus mode Supabase (memredirect keluar halaman) */
-export async function signInWithGoogle(): Promise<AuthResult> {
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Login Google hanya tersedia saat Supabase Auth aktif." };
-  }
-  try {
-    const { createBrowserClient } = await import("@supabase/ssr");
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
-    });
-    if (error) return { ok: false, error: error.message };
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "Gagal memulai login Google." };
   }
 }
 

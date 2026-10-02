@@ -81,7 +81,11 @@ export async function middleware(request: NextRequest) {
   if (isSupabaseConfigured()) {
     const { client, getResponse } = createSupabaseMiddlewareClient(request);
     const { data } = await client.auth.getUser();
-    const hasSession = Boolean(data.user);
+    // Sesi Supabase ATAU cookie demo lokal (CTA /demo). Cek cookie hanya
+    // keberadaan — verifikasi HMAC + pembatasan demo dilakukan penuh di
+    // getAuthUser() (route handler), pola sama dengan mode lokal.
+    const hasSession =
+      Boolean(data.user) || Boolean(request.cookies.get(SESSION_COOKIE)?.value);
 
     if (isPublicPage(pathname)) {
       if (hasSession && isAuthPage) {
