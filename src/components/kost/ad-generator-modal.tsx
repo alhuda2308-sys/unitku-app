@@ -1,0 +1,343 @@
+"use client";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UnitKu — Generator Iklan Kamar Siap Copas ke Sosmed (Dashboard)
+//
+// Modal pembuat draf iklan promosi untuk kamar berstatus KOSONG:
+//   1. Data otomatis dari kamar terpilih (properti, no. kamar, harga,
+//      fasilitas via checklist cepat, nomor WA owner dari Pengaturan).
+//   2. 3 format iklan otomatis (templating client-side, tanpa API):
+//      Grup Facebook / Komunitas · Status WhatsApp · Marketplace.
+//   3. Preview bisa diedit manual → "Salin Teks Iklan" (toast) →
+//      "Buka WhatsApp" (draf terisi, tinggal pilih grup/kontak tujuan).
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  Building2,
+  Check,
+  Copy,
+  Megaphone,
+  RefreshCw,
+  Smartphone,
+  Store,
+} from "lucide-react";
+import { toast } from "@/lib/toast";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  generateAd,
+  adContactLink,
+  type AdFormatId,
+  type AdGeneratorInput,
+} from "@/lib/ad-generator";
+import { FACILITY_OPTIONS, formatIDR, type Room } from "@/lib/kost-data";
+import type { FacilityItem } from "@/lib/app-settings";
+import { cn } from "@/lib/utils";
+import { WaIcon } from "./wa-icon";
+
+interface AdGeneratorModalProps {
+  room: Room | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Nama properti (Pengaturan → Profil Properti) */
+  propertyName: string;
+  /** Nomor WhatsApp owner (Pengaturan → Profil Saya) */
+  ownerWhatsapp: string;
+  /** Katalog master fasilitas unit (Pengaturan → Katalog Fasilitas) */
+  facilityCatalog?: FacilityItem[];
+}
+
+const AD_FORMATS: {
+  id: AdFormatId;
+  label: string;
+  hint: string;
+  icon: typeof Megaphone;
+}[] = [
+  { id: "facebook", label: "Grup Facebook / Komunitas", hint: "Lengkap, ramah, rapi + emoji", icon: Megaphone },
+  { id: "whatsapp", label: "Status / Story WhatsApp", hint: "Singkat, kasual, padat", icon: Smartphone },
+  { id: "marketplace", label: "Marketplace", hint: "Terstruktur, to the point", icon: Store },
+];
+
+/** Clipboard imun konteks non-secure: Clipboard API → fallback execCommand */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // lanjut ke fallback
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Inner body keyed by room id so format/facility state resets on every open */
+function AdModalBody({
+  room,
+  propertyName,
+  ownerWhatsapp,
+  facilityCatalog,
+}: {
+  room: Room;
+  propertyName: string;
+  ownerWhatsapp: string;
+  facilityCatalog?: FacilityItem[];
+}) {
+  const [format, setFormat] = useState<AdFormatId>("facebook");
+  const [selected, setSelected] = useState<string[]>(() => room.facilities ?? []);
+  const [draft, setDraft] = useState<string>("");
+
+  // Checklist cepat: fasilitas kamar + katalog master + opsi bawaan (dedup)
+  const quickFacilities = useMemo(() => {
+    const pool = [
+      ...(room.facilities ?? []),
+      ...(facilityCatalog ?? []).map((f) => f.label),
+      ...FACILITY_OPTIONS,
+    ];
+    return Array.from(new Set(pool.filter((f) => f.trim().length > 0))).slice(0, 14);
+  }, [room.id, room.facilities, facilityCatalog]);
+
+  const input = useMemo<AdGeneratorInput>(
+    () => ({
+      propertyName,
+      roomId: room.id,
+      floor: room.floor,
+      type: room.type,
+      price: room.price,
+      facilities: selected,
+      ownerWhatsapp,
+    }),
+    [propertyName, room.id, room.floor, room.type, room.price, selected, ownerWhatsapp],
+  );
+
+  // Draf awal + regenerasi otomatis saat ganti format / checklist fasilitas.
+  // Edit manual tetap bisa — tombol "Buat Ulang" mengembalikan draf otomatis.
+  useEffect(() => {
+    setDraft(generateAd(format, input));
+  }, [format, input]);
+
+  const hasContact = Boolean(adContactLink(ownerWhatsapp));
+
+  const toggleFacility = (f: string) => {
+    setSelected((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
+  };
+
+  const handleCopy = async () => {
+    const ok = await copyText(draft);
+    if (ok) {
+      toast.success("Teks iklan disalin — siap di-paste ke sosmed", {
+        description: `Kamar ${room.id} · ${AD_FORMATS.find((f) => f.id === format)?.label ?? ""}`,
+      });
+    } else {
+      toast.error("Gagal menyalin — silakan salin manual dari kotak preview");
+    }
+  };
+
+  return (
+    <>
+      <DialogHeader className="border-b border-border p-4">
+        <DialogTitle className="text-[15px] font-bold tracking-tight text-zinc-900">
+          Buat Iklan Kamar — Kamar {room.id}
+        </DialogTitle>
+        <DialogDescription className="text-[12.5px] text-zinc-700">
+          Draf iklan promosi otomatis dari data kamar — pilih format, sesuaikan,
+          lalu salin &amp; sebar ke sosmed.
+        </DialogDescription>
+      </DialogHeader>
+
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 scrollbar-thin">
+        {/* Ringkasan kamar sumber */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border bg-zinc-50 px-3 py-2 text-[12px] font-medium text-zinc-700">
+          <Building2 className="size-3.5 shrink-0 text-zinc-500" strokeWidth={1.75} aria-hidden="true" />
+          <span className="max-w-[180px] truncate font-bold text-zinc-900">{propertyName}</span>
+          <span className="text-zinc-400" aria-hidden="true">·</span>
+          <span>Kamar {room.id}</span>
+          <span className="text-zinc-400" aria-hidden="true">·</span>
+          <span className="tabular-nums">{formatIDR(room.price)}/bln</span>
+        </div>
+
+        {/* Pilihan format iklan */}
+        <div>
+          <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-zinc-700">
+            Format Iklan
+          </p>
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3" role="tablist" aria-label="Format iklan">
+            {AD_FORMATS.map((f) => {
+              const Icon = f.icon;
+              const active = format === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setFormat(f.id)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60",
+                    active
+                      ? "border-amber-500 bg-amber-50 ring-1 ring-amber-500"
+                      : "border-border bg-white text-zinc-700 hover:bg-zinc-50",
+                  )}
+                >
+                  <Icon
+                    className={cn("size-4 shrink-0", active ? "text-amber-600" : "text-zinc-500")}
+                    strokeWidth={1.75}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 leading-tight">
+                    <span className={cn("block truncate text-[12.5px] font-bold", active && "text-amber-900")}>
+                      {f.label}
+                    </span>
+                    <span className="block truncate text-[11px] text-zinc-500">{f.hint}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Checklist fasilitas cepat */}
+        <div>
+          <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-zinc-700">
+            Fasilitas <span className="font-medium normal-case tracking-normal text-zinc-500">(klik utk tambah/hapus dari iklan)</span>
+          </p>
+          <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto scrollbar-thin">
+            {quickFacilities.map((f) => {
+              const on = selected.includes(f);
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleFacility(f)}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11.5px] font-semibold transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60",
+                    on
+                      ? "border-emerald-600 bg-emerald-600 text-white"
+                      : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100",
+                  )}
+                >
+                  {on && <Check className="size-3" strokeWidth={2.5} aria-hidden="true" />}
+                  {f}
+                </button>
+              );
+            })}
+            {quickFacilities.length === 0 && (
+              <p className="text-[12px] text-zinc-500">Belum ada fasilitas — tambahkan lewat Kelola Kamar.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Preview bisa diedit manual */}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label htmlFor="ad-preview" className="text-xs font-bold uppercase tracking-wider text-zinc-700">
+              Preview Iklan — Bisa Diedit
+            </label>
+            <span className="shrink-0 text-xs tabular-nums text-zinc-500">{draft.length} karakter</span>
+          </div>
+          <textarea
+            id="ad-preview"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={13}
+            className="w-full resize-none rounded-lg border border-border bg-white p-3 font-sans text-[12.5px] leading-5 text-zinc-800 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+            aria-label="Teks iklan kamar"
+          />
+          <button
+            type="button"
+            onClick={() => setDraft(generateAd(format, input))}
+            className="mt-1.5 inline-flex items-center gap-1 rounded text-[11.5px] font-semibold text-zinc-600 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
+          >
+            <RefreshCw className="size-3" strokeWidth={2} aria-hidden="true" />
+            Buat Ulang Draf Otomatis
+          </button>
+        </div>
+
+        {!hasContact && (
+          <p className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11.5px] font-medium leading-4 text-amber-800">
+            Nomor WhatsApp Anda belum diisi — iklan tampil tanpa link chat.
+            Lengkapi di Pengaturan → Profil Saya agar calon penyewa bisa langsung chat.
+          </p>
+        )}
+      </div>
+
+      <DialogFooter className="border-t border-border p-4 sm:justify-between">
+        <Button
+          variant="outline"
+          onClick={handleCopy}
+          disabled={draft.length === 0}
+          className="h-9 border-zinc-200 bg-white text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+        >
+          <Copy className="size-3.5" strokeWidth={1.75} />
+          Salin Teks Iklan
+        </Button>
+        <a
+          href={`https://wa.me/?text=${encodeURIComponent(draft)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() =>
+            toast.success("Draf iklan terbuka di WhatsApp", {
+              description: "Pilih grup, kontak, atau bagikan ke Status Anda.",
+            })
+          }
+          aria-disabled={draft.length === 0}
+          className={cn(
+            "inline-flex h-9 items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-emerald-700",
+            draft.length === 0 && "pointer-events-none opacity-50",
+          )}
+        >
+          <WaIcon className="size-4" />
+          Buka WhatsApp
+        </a>
+      </DialogFooter>
+    </>
+  );
+}
+
+export function AdGeneratorModal({
+  room,
+  open,
+  onOpenChange,
+  propertyName,
+  ownerWhatsapp,
+  facilityCatalog,
+}: AdGeneratorModalProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[85dvh] max-w-[560px] flex-col gap-0 overflow-hidden p-0" aria-describedby={undefined}>
+        {room && (
+          <AdModalBody
+            key={room.id}
+            room={room}
+            propertyName={propertyName}
+            ownerWhatsapp={ownerWhatsapp}
+            facilityCatalog={facilityCatalog}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -52,6 +52,7 @@ import { SettingsView } from "@/components/kost/settings-view";
 import { CheckinModal, type CheckinPayload } from "@/components/kost/checkin-modal";
 import { RoomAddModal } from "@/components/kost/room-add-modal";
 import { RoomManageModal, type RoomPatch } from "@/components/kost/room-manage-modal";
+import { AdGeneratorModal } from "@/components/kost/ad-generator-modal";
 import type { CheckoutPayload } from "@/components/kost/checkout-dialog";
 import type { ExpenseDraft } from "@/components/kost/expense-modal";
 import type { IncomeDraft } from "@/components/kost/income-modal";
@@ -163,6 +164,8 @@ export default function IndoKostPage() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  /** Generator Iklan Sosmed — kamar kosong yang sedang dibuatkan iklan */
+  const [adRoomId, setAdRoomId] = useState<string | null>(null);
   // Pengaturan global — sumber kebenaran: localStorage (useSyncExternalStore), persist otomatis
   const settings = useSyncExternalStore(subscribeSettings, getSettingsSnapshot, getServerSettingsSnapshot);
   const [settingsTab, setSettingsTab] = useState("profil-saya");
@@ -207,6 +210,11 @@ export default function IndoKostPage() {
   const selectedRoom = useMemo(
     () => rooms.find((r) => r.id === selectedRoomId) ?? null,
     [rooms, selectedRoomId]
+  );
+
+  const adRoom = useMemo(
+    () => rooms.find((r) => r.id === adRoomId) ?? null,
+    [rooms, adRoomId]
   );
 
   // ── Pengaturan: persist ke localStorage + tema global ────────────────────
@@ -1438,6 +1446,7 @@ export default function IndoKostPage() {
                   }}
                   onDeleteRoom={handleRequestDeleteRoom}
                   onCheckinRoom={(room) => openCheckin(room.id)}
+                  onAdRoom={(room) => setAdRoomId(room.id)}
                   canManage={canManageRooms}
                   onAddRoom={() => setAddRoomOpen(true)}
                 />
@@ -1475,8 +1484,21 @@ export default function IndoKostPage() {
         onMarkPaid={handleMarkPaid}
         onSendInvoice={handleSendInvoice}
         onCheckIn={(room) => openCheckin(room.id)}
+        onCreateAd={(room) => setAdRoomId(room.id)}
         propertyName={property}
         canManage={canManageRooms}
+      />
+
+      {/* Generator Iklan Kamar Siap Copas ke Sosmed — kamar kosong */}
+      <AdGeneratorModal
+        room={adRoom}
+        open={adRoomId !== null}
+        onOpenChange={(o) => {
+          if (!o) setAdRoomId(null);
+        }}
+        propertyName={property}
+        ownerWhatsapp={settings.owner.whatsapp}
+        facilityCatalog={settings.facilities.unit}
       />
 
       <CheckinModal

@@ -18,6 +18,8 @@ interface RoomMatrixProps {
   onManageRoom: (room: Room) => void;
   onDeleteRoom: (room: Room) => void;
   onCheckinRoom?: (room: Room) => void;
+  /** Kamar kosong siap huni → tombol aksen "Buat Iklan Kamar" di kartu */
+  onAdRoom?: (room: Room) => void;
   /** false = peran read-only (Penjaga) — kartu tanpa menu opsi */
   canManage?: boolean;
   onAddRoom: () => void;
@@ -32,6 +34,7 @@ export function RoomMatrix({
   onManageRoom,
   onDeleteRoom,
   onCheckinRoom,
+  onAdRoom,
   canManage = true,
   onAddRoom,
 }: RoomMatrixProps) {
@@ -129,6 +132,7 @@ export function RoomMatrix({
                   onManage={onManageRoom}
                   onDelete={onDeleteRoom}
                   onCheckin={onCheckinRoom}
+                  onCreateAd={onAdRoom}
                   canManage={canManage}
                 />
               ))}

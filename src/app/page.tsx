@@ -18,6 +18,7 @@ import {
   DoorOpen,
   FileDown,
   LayoutGrid,
+  Megaphone,
   MessageCircle,
   Notebook,
   Receipt,
@@ -91,6 +92,7 @@ const OFFER_BENEFITS = [
   "Akses penuh tanpa batas waktu",
   "Bebas input berapa pun jumlah kamar / pintu kontrakan",
   "Denah visual, invoice WhatsApp, & pembukuan kas otomatis",
+  "Generator iklan kamar siap sebar ke Facebook & WhatsApp",
   "Support multi-cabang properti",
   "Gratis pembaruan fitur baru ke depannya",
 ] as const;
@@ -327,7 +329,7 @@ export default async function LandingPage() {
             </p>
 
             <ul className="mx-auto mt-7 flex max-w-3xl flex-col items-center justify-center gap-x-6 gap-y-2 sm:flex-row sm:flex-wrap">
-              {["Bayar sekali aktif selamanya", "Tanpa langganan bulanan", "Langsung aktif otomatis"].map(
+              {["Generator iklan kamar siap sebar ke Facebook & WhatsApp", "Bayar sekali aktif selamanya", "Tanpa langganan bulanan", "Langsung aktif otomatis"].map(
                 (item) => (
                   <li
                     key={item}
@@ -414,7 +416,7 @@ export default async function LandingPage() {
               </p>
             </div>
 
-            <div className="mt-8 grid gap-4 lg:grid-cols-3">
+            <div className="mt-8 grid gap-4 lg:grid-flow-dense lg:grid-cols-3">
               {/* Bento 1 — BESAR: Denah Kamar Visual */}
               <article className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] lg:col-span-2 lg:row-span-2">
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
@@ -624,6 +626,56 @@ export default async function LandingPage() {
                       <Banknote className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
                       Cek Tagihan
                     </span>
+                  </div>
+                </div>
+              </article>
+
+              {/* Bento 6 — Auto-Iklan Sosmed (Fitur Eksklusif, Killer Feature) — full-width penutup grid */}
+              <article className="relative flex flex-col overflow-hidden rounded-xl border-2 border-amber-400 bg-white p-5 shadow-[0_8px_24px_rgba(245,158,11,0.10)] lg:col-span-3">
+                <span className="mb-3.5 inline-flex items-center self-start rounded-full bg-amber-400 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-950">
+                  <Megaphone className="mr-1.5 size-3" strokeWidth={2.25} aria-hidden="true" />
+                  Fitur Eksklusif — Bebas Pusing Promosi
+                </span>
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-100">
+                  <Megaphone className="size-5 text-amber-700" strokeWidth={1.75} aria-hidden="true" />
+                </span>
+                <h3 className="mt-3.5 max-w-lg text-xl font-bold leading-snug sm:text-2xl">
+                  Bantu Kamar Cepat Penuh (Auto-Iklan Sosmed)
+                </h3>
+                <p className="mt-2 max-w-lg text-base leading-relaxed text-slate-600 sm:text-lg">
+                  Ada kamar kosong? Gak perlu pusing bikin kata-kata. Klik satu
+                  tombol, sistem otomatis buatkan draf iklan menarik siap copas
+                  ke Facebook Groups, Marketplace, &amp; Status WhatsApp lengkap
+                  dengan link chat Anda.
+                </p>
+
+                <div className="mt-5 grid flex-1 content-start gap-3 rounded-lg border border-zinc-100 bg-[#f8fafc] p-3 sm:grid-cols-[auto_minmax(0,1fr)]">
+                  <div className="flex flex-col items-start gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-2 text-[12.5px] font-bold text-white shadow-sm">
+                      <Megaphone className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                      Buat Iklan Kamar
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {["Grup Facebook", "Status WA", "Marketplace"].map((t) => (
+                        <span
+                          key={t}
+                          className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-lg rounded-tl-sm border border-emerald-100 bg-emerald-50 p-3">
+                    <p className="text-[12.5px] leading-relaxed text-zinc-700">
+                      📢 KAMAR KOSONG — KOST GRIYA PRATAMA 📢 … Harga sewa{" "}
+                      <span className="font-semibold tabular-nums">Rp1.500.000</span>/bulan ·{" "}
+                      ✅ AC ✅ Kamar Mandi Dalam ✅ Lemari …{" "}
+                      <span className="font-semibold text-emerald-700">👉 wa.me/62812xxxx</span>
+                    </p>
+                    <p className="mt-2 text-[12.5px] font-medium text-emerald-700">
+                      ✓ Siap copas ke sosmed — link chat otomatis nempel di iklan
+                    </p>
                   </div>
                 </div>
               </article>

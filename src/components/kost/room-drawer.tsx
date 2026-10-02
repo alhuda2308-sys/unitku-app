@@ -1,6 +1,6 @@
 "use client";
 
-import { BadgeCheck, DoorOpen, MessageCircle, PhoneCall } from "lucide-react";
+import { BadgeCheck, DoorOpen, Megaphone, MessageCircle, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -28,6 +28,8 @@ interface RoomDrawerProps {
   onMarkPaid: (room: Room) => void;
   onSendInvoice: (room: Room) => void;
   onCheckIn: (room: Room) => void;
+  /** Kamar kosong → buka Generator Iklan Sosmed (opsional) */
+  onCreateAd?: (room: Room) => void;
   /** Nama properti — tampil pada QR & tautan portal penyewa */
   propertyName: string;
   /** false = peran read-only (Penjaga) — aksi ubah data disembunyikan */
@@ -85,6 +87,7 @@ export function RoomDrawer({
   onMarkPaid,
   onSendInvoice,
   onCheckIn,
+  onCreateAd,
   canManage = true,
   propertyName,
 }: RoomDrawerProps) {
@@ -132,6 +135,20 @@ export function RoomDrawer({
                       >
                         Check-in Penghuni
                       </Button>
+                    )}
+                    {onCreateAd && (
+                      <>
+                        <Button
+                          onClick={() => onCreateAd(room)}
+                          className="mt-0.5 h-8 bg-gradient-to-r from-amber-500 to-orange-500 px-3 text-[12.5px] font-bold text-white shadow-none transition-all hover:from-amber-600 hover:to-orange-600"
+                        >
+                          <Megaphone className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                          Buat Iklan Kamar / Promosi Sosmed
+                        </Button>
+                        <p className="text-[11px] leading-tight text-zinc-500">
+                          Draf iklan otomatis siap copas ke Facebook, Marketplace &amp; Status WA
+                        </p>
+                      </>
                     )}
                   </div>
 

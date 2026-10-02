@@ -49,6 +49,7 @@ const CURRENT_PRICE_LABEL = `Rp ${LICENSE_AMOUNT_IDR.toLocaleString("id-ID")}`;
 const BENEFITS = [
   "Kelola denah kamar & status sewa real-time",
   "Kirim tagihan & kwitansi otomatis via WhatsApp",
+  "Generator iklan kamar siap sebar ke Facebook & WhatsApp",
   "Tanpa biaya bulanan / biaya per kamar selamanya",
 ] as const;
 
