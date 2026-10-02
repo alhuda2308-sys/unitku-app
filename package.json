@@ -89,7 +89,6 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "bun-types": "^1.3.4",
-    "embedded-postgres": "^18.4.0-beta.17",
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "tailwindcss": "^4",
@@ -97,7 +96,6 @@
     "typescript": "^5"
   },
   "trustedDependencies": [
-    "@embedded-postgres/linux-x64",
     "@parcel/watcher",
     "@swc/core",
     "es5-ext",
