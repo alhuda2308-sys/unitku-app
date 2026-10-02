@@ -38,11 +38,16 @@ import {
 import {
   AD_STYLE_COUNT,
   AD_STYLE_META,
+  HOUSE_FACILITY_PRIORITY,
   adContactLink,
+  adModalTitle,
+  adPropertyScope,
+  adUnitNoun,
   generateAd,
   pickDifferentStyle,
   type AdFormatId,
   type AdGeneratorInput,
+  type AdPropertyScope,
 } from "@/lib/ad-generator";
 import { FACILITY_OPTIONS, formatIDR, type Room } from "@/lib/kost-data";
 import type { FacilityItem } from "@/lib/app-settings";
@@ -59,6 +64,9 @@ interface AdGeneratorModalProps {
   ownerWhatsapp: string;
   /** Katalog master fasilitas unit (Pengaturan → Katalog Fasilitas) */
   facilityCatalog?: FacilityItem[];
+  /** Tipe properti aktif (kost / kontrakan / rusun) — menentukan label,
+   *  judul modal & struktur draf iklan (Kamar vs Unit Kontrakan) */
+  propertyType?: string;
 }
 
 const AD_FORMATS: {
@@ -103,11 +111,13 @@ function AdModalBody({
   propertyName,
   ownerWhatsapp,
   facilityCatalog,
+  propertyType,
 }: {
   room: Room;
   propertyName: string;
   ownerWhatsapp: string;
   facilityCatalog?: FacilityItem[];
+  propertyType?: string;
 }) {
   const [format, setFormat] = useState<AdFormatId>("facebook");
   const [selected, setSelected] = useState<string[]>(() => room.facilities ?? []);
@@ -119,15 +129,29 @@ function AdModalBody({
   // Kunci animasi: naikkan tiap regenerate → textarea fade-in dgn teks baru
   const [flashKey, setFlashKey] = useState(0);
 
-  // Checklist cepat: fasilitas kamar + katalog master + opsi bawaan (dedup)
+  /** Scope properti aktif — Kost (Kamar) vs Kontrakan/Rusun (Unit) */
+  const scope: AdPropertyScope = useMemo(() => adPropertyScope(propertyType), [propertyType]);
+  const unitWord = adUnitNoun(scope);
+
+  // Checklist cepat: fasilitas kamar + katalog master + opsi bawaan (dedup).
+  // Kontrakan/rusun: fasilitas prioritas rumah (dapur, ruang tamu, parkir, …)
+  // ditampilkan paling depan agar iklan langsung menonjolkan yang relevan.
   const quickFacilities = useMemo(() => {
-    const pool = [
-      ...(room.facilities ?? []),
-      ...(facilityCatalog ?? []).map((f) => f.label),
-      ...FACILITY_OPTIONS,
-    ];
+    const pool =
+      scope === "kost"
+        ? [
+            ...(room.facilities ?? []),
+            ...(facilityCatalog ?? []).map((f) => f.label),
+            ...FACILITY_OPTIONS,
+          ]
+        : [
+            ...HOUSE_FACILITY_PRIORITY,
+            ...(room.facilities ?? []),
+            ...(facilityCatalog ?? []).map((f) => f.label),
+            ...FACILITY_OPTIONS,
+          ];
     return Array.from(new Set(pool.filter((f) => f.trim().length > 0))).slice(0, 14);
-  }, [room.id, room.facilities, facilityCatalog]);
+  }, [scope, room.id, room.facilities, facilityCatalog]);
 
   const input = useMemo<AdGeneratorInput>(
     () => ({
@@ -138,8 +162,9 @@ function AdModalBody({
       price: room.price,
       facilities: selected,
       ownerWhatsapp,
+      propertyType,
     }),
-    [propertyName, room.id, room.floor, room.type, room.price, selected, ownerWhatsapp],
+    [propertyName, room.id, room.floor, room.type, room.price, selected, ownerWhatsapp, propertyType],
   );
 
   // Draf awal + regenerasi otomatis saat ganti format / checklist fasilitas /
@@ -159,7 +184,7 @@ function AdModalBody({
     const ok = await copyText(draft);
     if (ok) {
       toast.success("Teks iklan disalin — siap di-paste ke sosmed", {
-        description: `Kamar ${room.id} · ${AD_FORMATS.find((f) => f.id === format)?.label ?? ""}`,
+        description: `${unitWord} ${room.id} · ${AD_FORMATS.find((f) => f.id === format)?.label ?? ""}`,
       });
     } else {
       toast.error("Gagal menyalin — silakan salin manual dari kotak preview");
@@ -182,10 +207,10 @@ function AdModalBody({
     <>
       <DialogHeader className="border-b border-border p-4">
         <DialogTitle className="text-[15px] font-bold tracking-tight text-zinc-900">
-          Buat Iklan Kamar — Kamar {room.id}
+          {adModalTitle(scope, room.id)}
         </DialogTitle>
         <DialogDescription className="text-[12.5px] text-zinc-700">
-          Draf iklan promosi otomatis dari data kamar — pilih format, sesuaikan,
+          Draf iklan promosi otomatis dari data unit — pilih format, sesuaikan,
           lalu salin &amp; sebar ke sosmed.
         </DialogDescription>
       </DialogHeader>
@@ -196,7 +221,7 @@ function AdModalBody({
           <Building2 className="size-3.5 shrink-0 text-zinc-500" strokeWidth={1.75} aria-hidden="true" />
           <span className="max-w-[180px] truncate font-bold text-zinc-900">{propertyName}</span>
           <span className="text-zinc-400" aria-hidden="true">·</span>
-          <span>Kamar {room.id}</span>
+          <span>{unitWord} {room.id}</span>
           <span className="text-zinc-400" aria-hidden="true">·</span>
           <span className="tabular-nums">{formatIDR(room.price)}/bln</span>
         </div>
@@ -293,7 +318,7 @@ function AdModalBody({
               onChange={(e) => setDraft(e.target.value)}
               rows={13}
               className="w-full resize-none rounded-lg border border-border bg-white p-3 font-sans text-[12.5px] leading-5 text-zinc-800 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-              aria-label="Teks iklan kamar"
+              aria-label={`Teks iklan ${unitWord.toLowerCase()} ${room.id}`}
             />
           </div>
           <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
@@ -364,6 +389,7 @@ export function AdGeneratorModal({
   propertyName,
   ownerWhatsapp,
   facilityCatalog,
+  propertyType,
 }: AdGeneratorModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -375,6 +401,7 @@ export function AdGeneratorModal({
             propertyName={propertyName}
             ownerWhatsapp={ownerWhatsapp}
             facilityCatalog={facilityCatalog}
+            propertyType={propertyType}
           />
         )}
       </DialogContent>

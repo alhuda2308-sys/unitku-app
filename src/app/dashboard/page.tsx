@@ -1609,6 +1609,7 @@ export default function IndoKostPage() {
                   onCheckinRoom={(room) => openCheckin(room.id)}
                   onAdRoom={(room) => setAdRoomId(room.id)}
                   canManage={canManageRooms}
+                  propertyType={settings.propertyProfile.tipe}
                   onAddRoom={() => setAddRoomOpen(true)}
                 />
               </>
@@ -1648,6 +1649,7 @@ export default function IndoKostPage() {
         onCreateAd={(room) => setAdRoomId(room.id)}
         propertyName={property}
         canManage={canManageRooms}
+        propertyType={settings.propertyProfile.tipe}
       />
 
       {/* Generator Iklan Kamar Siap Copas ke Sosmed — kamar kosong */}
@@ -1660,6 +1662,7 @@ export default function IndoKostPage() {
         propertyName={property}
         ownerWhatsapp={settings.owner.whatsapp}
         facilityCatalog={settings.facilities.unit}
+        propertyType={settings.propertyProfile.tipe}
       />
 
       <CheckinModal

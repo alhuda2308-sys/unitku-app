@@ -18,6 +18,7 @@ import {
   type Room,
 } from "@/lib/kost-data";
 import { cn } from "@/lib/utils";
+import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { FacilityBadge } from "./facility-badge";
 import { PortalAccessCard } from "./portal-access-card";
 
@@ -28,12 +29,14 @@ interface RoomDrawerProps {
   onMarkPaid: (room: Room) => void;
   onSendInvoice: (room: Room) => void;
   onCheckIn: (room: Room) => void;
-  /** Kamar kosong → buka Generator Iklan Sosmed (opsional) */
+  /** Unit kosong → buka Generator Iklan Sosmed (opsional) */
   onCreateAd?: (room: Room) => void;
   /** Nama properti — tampil pada QR & tautan portal penyewa */
   propertyName: string;
   /** false = peran read-only (Penjaga) — aksi ubah data disembunyikan */
   canManage?: boolean;
+  /** Tipe properti aktif — label CTA iklan adaptif (Kamar/Kontrakan/Unit) */
+  propertyType?: string;
 }
 
 function SectionCard({
@@ -90,6 +93,7 @@ export function RoomDrawer({
   onCreateAd,
   canManage = true,
   propertyName,
+  propertyType,
 }: RoomDrawerProps) {
   const vacant = room?.status === "kosong";
 
@@ -143,7 +147,7 @@ export function RoomDrawer({
                           className="mt-0.5 h-8 bg-gradient-to-r from-amber-500 to-orange-500 px-3 text-[12.5px] font-bold text-white shadow-none transition-all hover:from-amber-600 hover:to-orange-600"
                         >
                           <Megaphone className="size-3.5" strokeWidth={2} aria-hidden="true" />
-                          Buat Iklan Kamar / Promosi Sosmed
+                          {adCtaLabel(adPropertyScope(propertyType))} / Promosi Sosmed
                         </Button>
                         <p className="text-[11px] leading-tight text-zinc-500">
                           Draf iklan otomatis siap copas ke Facebook, Marketplace &amp; Status WA

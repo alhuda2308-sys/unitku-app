@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { formatIDRShort, OPERATIONAL_META, type Room } from "@/lib/kost-data";
+import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { StatusBadge, STATUS_SKIN } from "./status-badge";
 
 interface RoomCardProps {
@@ -19,10 +20,13 @@ interface RoomCardProps {
   /** false = peran read-only (Penjaga) — menu opsi disembunyikan */
   onDelete: (room: Room) => void;
   onCheckin?: (room: Room) => void;
-  /** Kamar kosong siap huni → tombol aksen "Buat Iklan Kamar" (Generator Iklan Sosmed) */
+  /** Unit kosong siap huni → tombol aksen "Buat Iklan …" (Generator Iklan Sosmed) */
   onCreateAd?: (room: Room) => void;
   /** false = sembunyikan menu kebab Opsi (Penjaga) — default true */
   canManage?: boolean;
+  /** Tipe properti aktif (kost/kontrakan/rusun) — label tombol adaptif:
+  *  "Buat Iklan Kamar" (kost) / "Buat Iklan Kontrakan" / "Buat Iklan Unit" */
+  propertyType?: string;
 }
 
 /**
@@ -30,11 +34,13 @@ interface RoomCardProps {
  * (lunas/jatuh tempo/menunggak/kosong) dan tema aktif. Tinggi seragam
  * h-[124px], tata letak 3 baris presisi (justify-between).
  */
-export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCreateAd, canManage = true }: RoomCardProps) {
+export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCreateAd, canManage = true, propertyType }: RoomCardProps) {
   const isVacant = room.status === "kosong";
   const op = room.operational ?? "siap";
   /** Kamar kosong siap huni → tampilkan tombol aksen Generator Iklan Sosmed */
   const showAdCta = isVacant && op === "siap" && Boolean(onCreateAd);
+  /** Label tombol iklan adaptif tipe properti aktif (Kamar/Kontrakan/Unit) */
+  const adCta = adCtaLabel(adPropertyScope(propertyType));
   const skin = STATUS_SKIN[room.status];
   const vacantLabel =
     op === "siap" ? (
@@ -132,7 +138,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
           )}
         >
           <Megaphone className="size-3" strokeWidth={2.25} aria-hidden="true" />
-          Buat Iklan Kamar
+          {adCta}
         </button>
       )}
 

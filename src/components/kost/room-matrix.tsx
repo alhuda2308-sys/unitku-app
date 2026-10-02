@@ -18,10 +18,12 @@ interface RoomMatrixProps {
   onManageRoom: (room: Room) => void;
   onDeleteRoom: (room: Room) => void;
   onCheckinRoom?: (room: Room) => void;
-  /** Kamar kosong siap huni → tombol aksen "Buat Iklan Kamar" di kartu */
+  /** Kamar kosong siap huni → tombol aksen "Buat Iklan …" di kartu */
   onAdRoom?: (room: Room) => void;
   /** false = peran read-only (Penjaga) — kartu tanpa menu opsi */
   canManage?: boolean;
+  /** Tipe properti aktif — label tombol iklan kartu adaptif (Kamar/Kontrakan/Unit) */
+  propertyType?: string;
   onAddRoom: () => void;
 }
 
@@ -36,6 +38,7 @@ export function RoomMatrix({
   onCheckinRoom,
   onAdRoom,
   canManage = true,
+  propertyType,
   onAddRoom,
 }: RoomMatrixProps) {
   const counts: Record<TabValue, number> = {
@@ -134,6 +137,7 @@ export function RoomMatrix({
                   onCheckin={onCheckinRoom}
                   onCreateAd={onAdRoom}
                   canManage={canManage}
+                  propertyType={propertyType}
                 />
               ))}
             </div>
