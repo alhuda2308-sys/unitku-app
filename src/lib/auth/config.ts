@@ -66,4 +66,5 @@ export const PUBLIC_PAGE_PREFIXES = [
   "/auth/callback", // exchange kode OAuth Google (Supabase)
   "/payment", // halaman sukses setelah bayar lisensi (Mayar redirect)
   "/checkout", // halaman checkout khusus iklan Facebook Ads (publik, tanpa sesi)
+  "/demo", // masuk dashboard demo tanpa registrasi (CTA landing "Coba Denah Kost Saya")
 ];

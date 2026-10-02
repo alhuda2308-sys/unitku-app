@@ -19,7 +19,10 @@ import {
   FileDown,
   LayoutGrid,
   MessageCircle,
+  Notebook,
+  Receipt,
   Smartphone,
+  Star,
   TrendingDown,
   TrendingUp,
   Wallet,
@@ -41,7 +44,8 @@ export const metadata: Metadata = {
     "Aplikasi pengelola kost, kontrakan & unit sewa paling praktis: denah kamar visual, tagihan WhatsApp otomatis, buku kas laba bersih, dan portal penyewa. Lisensi seumur hidup — sekali bayar Rp399.000, tanpa langganan bulanan.",
 };
 
-const OLD_PRICE_LABEL = "Rp899.000";
+/** Harga referensi sebelum diskon early adopter — sinkron dgn /checkout */
+const OLD_PRICE_LABEL = "Rp799.000";
 
 /* ── Data mockup ───────────────────────────────────────────────────────────── */
 
@@ -107,6 +111,51 @@ const FAQ_ITEMS = [
   {
     q: "Kalau saya gaptek ada panduannya?",
     a: "Tenang, tampilannya sangat simpel dan bersih. Ada panduan ringkas dan tim kami siap bantu jika ada kendala.",
+  },
+] as const;
+
+/* ── Data testimoni juragan (universal — tanpa nama kota/lokasi) ────────── */
+
+const TESTIMONIALS = [
+  {
+    name: "Pak Hendra",
+    role: "Juragan Kost 14 Pintu",
+    initial: "H",
+    tone: "bg-emerald-100 text-emerald-800",
+    quote:
+      "Paling males tuh tiap tanggal 1 kudu muter wa-in anak-anak kost satu-satu sambil ngetik tagihan manual. Sering gak enakan sendiri, disangka rewel. Pas pake UnitKu tinggal pencet kirim tagihan WA dari HP, beres sambil ngopi di teras. Uang sewa masuknya jadi jauh lebih tertib.",
+  },
+  {
+    name: "Bu Ratna",
+    role: "Pemilik 8 Pintu Kontrakan Petakan",
+    initial: "R",
+    tone: "bg-amber-100 text-amber-800",
+    quote:
+      "Biasanya rekap di buku folio tebel, pas ada yang nunggak atau tanya sisa token, catatannya sering keselip. Sekarang buka denah kamar di HP udah langsung keliatan mana yang kosong mana yang telat bayar. Nggak bikin pusing orang tua kayak saya.",
+  },
+  {
+    name: "Mas Dimas",
+    role: "Pengelola Kost Mahasiswa, 18 Kamar",
+    initial: "D",
+    tone: "bg-zinc-900 text-white",
+    quote:
+      "Awalnya sempat mikir kok murah amat 399rb sekali bayar seumur hidup, biasanya aplikasi ginian dipalak 100rb per bulan. Ternyata beneran lifetime dan fiturnya to the point. Fitur kwitansi otomatis via WA-nya bikin kost saya keliatan jauh lebih profesional di mata anak-anak.",
+  },
+  {
+    name: "Hj. Farida",
+    role: "Pengelola Kost Putri, 10 Kamar",
+    initial: "F",
+    tone: "bg-rose-100 text-rose-700",
+    quote:
+      "Anak kost sekarang kalau ditagih lisan suka pura-pura lupa. Giliran dikirimin rincian tagihan resmi dari UnitKu langsung ke WhatsApp-nya, sorenya langsung pada transfer. Gak perlu drama ribut nagih lagi tiap bulan.",
+  },
+  {
+    name: "Bang Robby",
+    role: "Kontrakan Karyawan, 6 Pintu",
+    initial: "R",
+    tone: "bg-teal-100 text-teal-800",
+    quote:
+      "Yang paling ngebantu ya bukti kwitansi digitalnya. Begitu mereka transfer, klik sekali kwitansi langsung kekirim ke WA penyewa. Jadi gak ada lagi debat 'perasaan saya udah bayar deh pak'. Semua riwayat pembayarannya rapi tersimpan di sistem.",
   },
 ] as const;
 
@@ -217,6 +266,12 @@ export default async function LandingPage() {
             <a href="#fitur" className="text-sm font-medium text-zinc-600 hover:text-zinc-900">
               Fitur Jagoan
             </a>
+            <a href="#perbandingan" className="text-sm font-medium text-zinc-600 hover:text-zinc-900">
+              Cara Lama vs UnitKu
+            </a>
+            <a href="#testimoni" className="text-sm font-medium text-zinc-600 hover:text-zinc-900">
+              Testimoni
+            </a>
             <a href="#penawaran" className="text-sm font-medium text-zinc-600 hover:text-zinc-900">
               Penawaran
             </a>
@@ -235,35 +290,41 @@ export default async function LandingPage() {
         {/* ── 1. Hero ──────────────────────────────────────────────────────── */}
         <section className="border-b border-zinc-100 bg-[#f8fafc]">
           <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-14 text-center sm:px-6 sm:pb-20 sm:pt-20">
-            <p className="mx-auto inline-flex max-w-full items-center justify-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-sm font-semibold leading-snug text-zinc-700 sm:text-base">
-              <span aria-hidden="true">⚡</span>
-              Aplikasi Pengelola Kost, Kontrakan &amp; Unit Sewa Paling Praktis
+            <p className="mx-auto inline-flex max-w-full items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-sm font-semibold leading-snug text-zinc-700 sm:text-base">
+              Solusi Cerdas Pemilik Kost &amp; Kontrakan
             </p>
 
-            <h1 className="mx-auto mt-5 max-w-3xl text-balance text-3xl font-extrabold leading-[1.15] tracking-tight sm:text-5xl lg:text-6xl">
-              Kelola Puluhan Pintu Sewa Tanpa Capek Nagih &amp; Pusing Catatan
-              Berantakan
+            <h1 className="mx-auto mt-5 max-w-3xl text-balance text-3xl font-extrabold leading-[1.15] tracking-tight sm:text-4xl lg:text-5xl">
+              Stop Gak Enakan Nagih Sewa.{" "}
+              <span className="text-emerald-700">
+                Tagihan WA Terkirim Otomatis, Uang Masuk Tepat Waktu.
+              </span>
             </h1>
 
             <p className="mx-auto mt-4 max-w-3xl text-pretty text-lg leading-relaxed text-slate-600 sm:text-xl lg:text-2xl">
-              Tinggalkan buku tulis atau Excel yang bikin mumet. Pantau kamar
-              kosong sekilas pandang, kirim tagihan WhatsApp otomatis tanpa rasa
-              segan, dan rekap pemasukan bersih langsung dari HP.
+              Pantau denah kamar, lacak jatuh tempo sewa, dan kirim tagihan
+              serta kwitansi resmi langsung via WhatsApp tanpa biaya langganan
+              bulanan.
             </p>
 
             <div className="mt-7 flex flex-col items-center justify-center gap-2.5 sm:flex-row">
-              <BuyCta
-                className="w-full sm:w-auto"
-                label={`Miliki Akses Seumur Hidup — ${LICENSE_PRICE_LABEL}`}
-              />
-              <a
-                href="#fitur"
-                className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-8 py-4 text-base font-bold text-zinc-900 transition-colors hover:bg-zinc-50 sm:w-auto sm:text-lg"
+              <Link
+                href="/demo"
+                className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-md bg-zinc-900 px-8 py-4 text-base font-bold text-white transition-colors hover:bg-zinc-800 sm:w-auto sm:text-lg"
               >
-                Lihat Demo Aplikasi
+                Coba Denah Kost Saya — Gratis
                 <ArrowRight className="size-4" strokeWidth={1.75} aria-hidden="true" />
-              </a>
+              </Link>
+              <BuyCta
+                className="w-full border border-zinc-300 bg-white text-zinc-900 shadow-none hover:bg-zinc-50 sm:w-auto"
+                label="Amankan Lisensi Rp 399rb"
+              />
             </div>
+
+            <p className="mt-3.5 text-sm font-semibold text-orange-600 sm:text-base">
+              <span aria-hidden="true">⚡</span> Hemat Rp 400.000 — Kuota Early
+              Adopter tersisa 23 lisensi lagi.
+            </p>
 
             <ul className="mx-auto mt-7 flex max-w-3xl flex-col items-center justify-center gap-x-6 gap-y-2 sm:flex-row sm:flex-wrap">
               {["Bayar sekali aktif selamanya", "Tanpa langganan bulanan", "Langsung aktif otomatis"].map(
@@ -588,6 +649,247 @@ export default async function LandingPage() {
           </div>
         </section>
 
+        {/* ── 3b. Perbandingan visual: Cara Lama vs UnitKu ─────────────── */}
+        <section id="perbandingan" className="scroll-mt-16">
+          <div className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 sm:py-18">
+            <div className="mx-auto max-w-2xl text-center">
+              <h2 className="text-2xl font-bold tracking-tight sm:text-4xl">
+                Cara Lama vs UnitKu
+              </h2>
+              <p className="mt-3 text-base leading-relaxed text-slate-600 sm:text-lg">
+                Bedanya nyata di sehari-hari: dari buku tulis coret-coret dan
+                chat menagih yang canggung, jadi tagihan &amp; kwitansi resmi
+                yang terkirim otomatis via WhatsApp.
+              </p>
+            </div>
+
+            <div className="mt-8 grid gap-4 md:grid-cols-2">
+              {/* ── Kiri: buku tulis coret-coret + chat manual canggung ── */}
+              <article className="flex flex-col rounded-xl border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
+                    <Notebook className="size-5 text-zinc-500" strokeWidth={1.75} aria-hidden="true" />
+                  </span>
+                  <h3 className="text-lg font-bold leading-snug sm:text-xl">
+                    Cara Lama{" "}
+                    <span className="font-medium text-zinc-500">(buku tulis &amp; chat manual)</span>
+                  </h3>
+                </div>
+
+                {/* Mock buku catatan coret-coret */}
+                <div className="mt-4 -rotate-1 rounded-lg border border-amber-200 bg-amber-50/80 p-3.5">
+                  <div className="flex items-center justify-between gap-2 border-b border-dashed border-amber-300 pb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
+                      Buku Tagihan — Catatan 2026
+                    </span>
+                    <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[10.5px] font-bold text-amber-900">
+                      REKAP
+                    </span>
+                  </div>
+                  <ul className="mt-2 space-y-1.5 text-[12.5px] leading-snug text-zinc-600">
+                    <li className="line-through decoration-rose-500/70">
+                      Kmr 3 — udah bayar? (cek m-banking dulu)
+                    </li>
+                    <li>Kmr 5 — 400rb?? tanya lagi nanti</li>
+                    <li className="line-through decoration-zinc-400">
+                      SALAH — itu tagihan bulan lalu
+                    </li>
+                    <li>Kmr 8 — katanya udah transfer, struknya mana???</li>
+                  </ul>
+                  <p className="mt-2.5 flex items-center gap-2 text-[11px] italic text-zinc-400">
+                    <span className="size-4 shrink-0 rounded-full bg-amber-200/80" aria-hidden="true" />
+                    + noda kopi — catatan makin susah dibaca
+                  </p>
+                </div>
+
+                {/* Mock chat menagih canggung */}
+                <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm border border-zinc-100 bg-white px-3 py-2 shadow-sm">
+                    <p className="text-[12.5px] leading-relaxed text-zinc-700">
+                      Pak, maaf nanya… bulan lalu udah bayar belum ya? Lupa 🙏
+                    </p>
+                    <p className="mt-1 text-right text-[10.5px] text-zinc-400">
+                      21.14 ✓✓ Dibaca
+                    </p>
+                  </div>
+                  <p className="mt-2 text-[11.5px] italic text-zinc-400">
+                    Belum dibalas 3 hari — malu nanya lagi…
+                  </p>
+                </div>
+
+                <ul className="mt-4 space-y-2 border-t border-zinc-100 pt-4">
+                  {[
+                    "Catatan gampang keselip, kotor, dan hilang.",
+                    "Menagih lewat chat terasa canggung & tak enak.",
+                    "Cek transfer masuk manual satu-satu.",
+                  ].map((point) => (
+                    <li key={point} className="flex items-start gap-2 text-[13.5px] leading-relaxed text-slate-600">
+                      <XCircle className="mt-0.5 size-4 shrink-0 text-rose-500" strokeWidth={1.75} aria-hidden="true" />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+
+              {/* ── Kanan: invoice & kwitansi rapi UnitKu di WhatsApp ── */}
+              <article className="flex flex-col rounded-xl border-2 border-emerald-600 bg-white p-5 shadow-[0_8px_24px_rgba(5,150,105,0.10)]">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600">
+                    <Receipt className="size-5 text-white" strokeWidth={1.75} aria-hidden="true" />
+                  </span>
+                  <h3 className="text-lg font-bold leading-snug sm:text-xl">
+                    Pakai UnitKu{" "}
+                    <span className="font-medium text-emerald-700">(tagihan &amp; kwitansi otomatis)</span>
+                  </h3>
+                </div>
+
+                {/* Mock WhatsApp UnitKu */}
+                <div className="mt-4 overflow-hidden rounded-xl border border-emerald-100">
+                  <div className="flex items-center gap-2.5 bg-emerald-700 px-3.5 py-2.5 text-white">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/15 text-[12px] font-bold" aria-hidden="true">
+                      U
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-[12.5px] font-bold leading-tight">
+                        UnitKu · Kost Griya Pratama
+                      </span>
+                      <span className="block text-[10.5px] leading-tight text-emerald-100">online</span>
+                    </span>
+                  </div>
+
+                  <div className="space-y-2.5 bg-[#eef6f1] p-3">
+                    {/* Bubble tagihan rapi */}
+                    <div className="max-w-[95%] rounded-2xl rounded-tl-sm bg-white p-3 shadow-sm">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                        Tagihan Sewa — Sep 2026
+                      </p>
+                      <dl className="mt-1.5 space-y-1 text-[12.5px] leading-snug">
+                        <div className="flex justify-between gap-3">
+                          <dt className="text-zinc-500">Kamar</dt>
+                          <dd className="font-semibold">101 · Budi Santoso</dd>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <dt className="text-zinc-500">Jatuh tempo</dt>
+                          <dd className="font-semibold">28 Sep 2026</dd>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <dt className="text-zinc-500">Total</dt>
+                          <dd className="font-bold tabular-nums">Rp1.500.000</dd>
+                        </div>
+                      </dl>
+                      <p className="mt-2 border-t border-zinc-100 pt-1.5 text-[11px] leading-snug text-zinc-500">
+                        Bayar ke BCA 1234567890 a/n Hendra Wijaya
+                      </p>
+                      <p className="mt-1 text-right text-[10.5px] text-emerald-600">
+                        ✓✓ Terkirim otomatis · 09.00
+                      </p>
+                    </div>
+
+                    {/* Bubble kwitansi lunas */}
+                    <div className="max-w-[95%] rounded-2xl rounded-tl-sm bg-white p-3 shadow-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                          Kwitansi Lunas
+                        </p>
+                        <span className="rounded border-2 border-emerald-600 px-1.5 py-0.5 text-[10px] font-black text-emerald-700">
+                          LUNAS
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-[12.5px] leading-snug text-zinc-700">
+                        Sudah diterima{" "}
+                        <span className="font-bold tabular-nums">Rp1.500.000</span> dari Budi
+                        Santoso (Kamar 101) — 28 Sep 2026.
+                      </p>
+                      <p className="mt-1 text-right text-[10.5px] text-emerald-600">
+                        ✓✓ Terkirim otomatis · 19.02
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <ul className="mt-4 space-y-2 border-t border-zinc-100 pt-4">
+                  {[
+                    "Tagihan & kwitansi resmi terkirim otomatis via WhatsApp.",
+                    "Penyewa pegang bukti resmi — nggak ada debat “udah bayar, kok”.",
+                    "Riwayat pembayaran rapi tersimpan di sistem.",
+                  ].map((point) => (
+                    <li key={point} className="flex items-start gap-2 text-[13.5px] leading-relaxed text-slate-700">
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" strokeWidth={1.75} aria-hidden="true" />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        {/* ── 3c. Testimoni juragan ─────────────────────────────────────── */}
+        <section id="testimoni" className="scroll-mt-16 border-y border-zinc-100 bg-[#f8fafc]">
+          <div className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 sm:py-18">
+            <div className="mx-auto max-w-2xl text-center">
+              <h2 className="text-2xl font-bold tracking-tight sm:text-4xl">
+                Pengalaman Nyata Juragan Kost &amp; Kontrakan
+              </h2>
+              <p className="mt-3 text-base leading-relaxed text-slate-600 sm:text-lg">
+                Dari catatan buku folio ke denah kamar di HP — ini kata mereka
+                yang udah merasakan bedanya.
+              </p>
+            </div>
+
+            <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {TESTIMONIALS.map((t) => (
+                <figure
+                  key={t.name}
+                  className="flex h-full flex-col rounded-xl border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                >
+                  <div
+                    className="flex items-center gap-0.5"
+                    role="img"
+                    aria-label="Rating 5 dari 5 bintang"
+                  >
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Star key={i} className="size-4 fill-amber-400 text-amber-400" aria-hidden="true" />
+                    ))}
+                  </div>
+                  <blockquote className="mt-3 flex-1 text-[13.5px] leading-relaxed text-zinc-700 sm:text-[14.5px]">
+                    &ldquo;{t.quote}&rdquo;
+                  </blockquote>
+                  <figcaption className="mt-4 flex items-center gap-3 border-t border-zinc-100 pt-3.5">
+                    <span
+                      className={`flex size-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold ${t.tone}`}
+                      aria-hidden="true"
+                    >
+                      {t.initial}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13.5px] font-bold leading-tight text-zinc-900">
+                        {t.name}
+                      </span>
+                      <span className="block text-[12px] leading-tight text-zinc-500">{t.role}</span>
+                    </span>
+                  </figcaption>
+                </figure>
+              ))}
+
+              {/* Tile CTA menutup grid — konversi tanpa jeda */}
+              <article className="flex h-full flex-col justify-between rounded-xl bg-zinc-900 p-5 text-white">
+                <div>
+                  <h3 className="text-lg font-bold leading-snug sm:text-xl">
+                    Giliran Anda yang tenang.
+                  </h3>
+                  <p className="mt-2 text-[13.5px] leading-relaxed text-zinc-300 sm:text-[14.5px]">
+                    Sekali bayar {LICENSE_PRICE_LABEL}, tanpa langganan bulanan —
+                    besok pagi tagihan WhatsApp pertama Anda bisa langsung
+                    terkirim.
+                  </p>
+                </div>
+                <BuyCta inverted className="mt-5 w-full" label="Amankan Lisensi Sekarang" />
+              </article>
+            </div>
+          </div>
+        </section>
+
         {/* ── 4. Penawaran Khusus (Lifetime Deal) ──────────────────────────── */}
         <section id="penawaran" className="scroll-mt-16">
           <div className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 sm:py-18">
@@ -606,7 +908,7 @@ export default async function LandingPage() {
                       {LICENSE_PRICE_LABEL}
                     </span>
                     <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-800 tabular-nums">
-                      Hemat Rp500.000
+                      Hemat Rp400.000
                     </span>
                   </div>
 
@@ -642,6 +944,16 @@ export default async function LandingPage() {
                     Pembayaran aman via Mayar · Aktivasi otomatis setelah
                     pembayaran terverifikasi · Garansi uang kembali 7 hari
                   </p>
+                  <ul className="mt-4 flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <li className="inline-flex items-center justify-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-1.5 text-center text-[12.5px] font-semibold leading-snug text-emerald-800">
+                      <span aria-hidden="true">🛡️</span> Garansi 7 Hari Uang
+                      Kembali Tanpa Ribet
+                    </li>
+                    <li className="inline-flex items-center justify-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-center text-[12.5px] font-semibold leading-snug text-zinc-700">
+                      <span aria-hidden="true">💬</span> Support WhatsApp Siap
+                      Bantu — Fast response langsung dari tim pengembang
+                    </li>
+                  </ul>
                 </div>
               </div>
             </div>

@@ -133,6 +133,18 @@ export function SiteFooter({ variant = "full" }: { variant?: "full" | "slim" }) 
           </nav>
         </div>
 
+        {/* Trust badge — garansi & dukungan tim pengembang */}
+        <ul className="mt-8 flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <li className="inline-flex items-center justify-center gap-1.5 rounded-full border border-emerald-200 bg-white px-3.5 py-1.5 text-center text-[12.5px] font-semibold leading-snug text-emerald-800">
+            <span aria-hidden="true">🛡️</span> Garansi 7 Hari Uang Kembali Tanpa
+            Ribet
+          </li>
+          <li className="inline-flex items-center justify-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-center text-[12.5px] font-semibold leading-snug text-zinc-700">
+            <span aria-hidden="true">💬</span> Support WhatsApp Siap Bantu — Fast
+            response langsung dari tim pengembang
+          </li>
+        </ul>
+
         <div className="mt-8 flex flex-col items-center justify-between gap-2 border-t border-zinc-200 pt-5 sm:flex-row">
           <p className="text-[12.5px] text-zinc-500">{COPYRIGHT_LINE}</p>
           <p className="text-[12.5px] text-zinc-500">

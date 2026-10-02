@@ -274,6 +274,18 @@ export function BuyCta({
                 </a>
               </Button>
             </div>
+
+            {/* Trust badge — jaminan & dukungan (penguat konversi) */}
+            <div className="space-y-1 pt-1.5 text-center">
+              <p className="text-[11.5px] font-semibold leading-snug text-zinc-700">
+                <span aria-hidden="true">🛡️</span> Garansi 7 Hari Uang Kembali
+                Tanpa Ribet
+              </p>
+              <p className="text-[11.5px] leading-snug text-zinc-500">
+                <span aria-hidden="true">💬</span> Support WhatsApp Siap Bantu —
+                Fast response langsung dari tim pengembang
+              </p>
+            </div>
           </form>
         </DialogContent>
       </Dialog>
