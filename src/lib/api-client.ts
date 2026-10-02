@@ -6,6 +6,7 @@
 // toast notifikasi sukses/gagal di seluruh dashboard.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { fetchWithTimeout, isTimeoutError } from "@/lib/http";
 import type { Room as ClientRoom, RoomStatus } from "@/lib/kost-data";
 import type { Invoice as ClientInvoice } from "@/lib/kost-invoices";
 import type { CashEntry as ClientCashEntry, CashType } from "@/lib/kost-cashflow";
@@ -15,16 +16,26 @@ import type { StaffAccessMember } from "@/lib/staff-access";
 import type { ClientProperty } from "@/lib/server/mappers";
 import type { PortalRekening } from "./tenant-portal";
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+/**
+ * Semua permintaan API dijamin SELALU settle (sukses / HTTP error / timeout) —
+ * koneksi database yang menggantung tidak boleh membuat UI loading abadi.
+ * Default 15 dtk; operasi berat (onboarding buat puluhan kamar) boleh lebih.
+ */
+async function request<T>(url: string, init?: RequestInit, timeoutMs = 15_000): Promise<T> {
   const method = init?.method ?? "GET";
   let res: Response;
+  let body: (T & { error?: string }) | null;
   try {
-    res = await fetch(url, {
-      cache: "no-store",
-      headers: init?.body ? { "Content-Type": "application/json" } : undefined,
-      ...init,
-    });
+    res = await fetchWithTimeout(url, { cache: "no-store", timeoutMs, ...init });
+    body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
   } catch (cause) {
+    if (isTimeoutError(cause)) {
+      console.error(`[UnitKu API] ${method} ${url} → timeout setelah ${timeoutMs} ms`);
+      throw new Error(
+        "Server tidak merespons (timeout) — koneksi database lambat atau terputus.",
+        { cause },
+      );
+    }
     // Network error sungguhan (server mati, DNS, CORS, offline) — log penyebab
     // aslinya agar terlihat jelas di console browser (F12), jangan ditelan.
     console.error(
@@ -35,7 +46,6 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       cause,
     });
   }
-  const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
   if (!res.ok) {
     // 401 = sesi berakhir — arahkan ke /login (kecuali endpoint auth itu sendiri)
     if (res.status === 401 && typeof window !== "undefined" && !url.startsWith("/api/auth/")) {
@@ -70,6 +80,19 @@ export interface PropertyPatchInput {
 }
 
 export const api = {
+  // /api/auth/me — info sesi (dengan timeout; user null bila belum masuk)
+  getAuthMe: () =>
+    request<{
+      user: { id: string; email?: string } | null;
+      mode?: "supabase" | "local";
+      demo?: boolean;
+      isSuperAdmin?: boolean;
+    }>("/api/auth/me"),
+
+  // /api/billing/license — gerbang lisensi (fail-open ditangani pemanggil)
+  getLicense: () =>
+    request<{ licensed?: boolean; checkoutUrl?: string }>("/api/billing/license"),
+
   // /api/properties — property null bila owner belum onboarding
   getProperty: () => request<{ property: ClientProperty | null }>("/api/properties"),
   updateProperty: (patch: PropertyPatchInput) =>

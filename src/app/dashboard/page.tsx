@@ -4,10 +4,13 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { toast } from "@/lib/toast";
 import { api } from "@/lib/api-client";
 import {
+  applyDemoSnapshot,
   getDashboardSnapshot,
   getServerDashboardSnapshot,
   loadDashboard,
+  markStalled,
   refreshDashboard,
+  rescueDemoIfLoading,
   subscribeDashboard,
   updateCashEntries,
   updateInvoices,
@@ -179,31 +182,30 @@ export default function IndoKostPage() {
   } | null>(null);
 
   // ── Sesi demo interaktif (CTA landing "Coba Denah Kost Saya — Gratis") ─────
+  // instantDemo: datang dari GET /demo (redirect /dashboard?demo=1) → dataset
+  // simulasi 12 kamar dipasang SEKALI di render pertama TANPA panggilan
+  // API/Supabase — mode demo tampil < 1 detik dan tidak pernah menunggu DB.
+  const [instantDemo] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("demo") === "1",
+  );
   const [isDemoSession, setIsDemoSession] = useState(false);
-  const [resettingDemo, setResettingDemo] = useState(false);
 
-  /** Reset Data Demo — hapus & seed ulang dataset simulasi ke kondisi awal */
+  /** Reset Data Demo — dataset simulasi kembali persis ke kondisi awal.
+   *  Murni in-memory (instan, tanpa API): data demo tidak pernah bergantung DB. */
   const handleResetDemo = useCallback(() => {
-    if (resettingDemo) return;
-    setResettingDemo(true);
-    api
-      .resetDemo()
-      .then(() => refreshDashboard())
-      .then(() => {
-        // Modul lokal (tiket & pengumuman) kembali ke dataset awal juga
-        setTickets(TICKETS);
-        setAnnouncements(ANNOUNCEMENTS);
-        setSelectedRoomId(null);
-        toast.success("Data demo berhasil direset", {
-          description:
-            "Seluruh data simulasi kembali ke kondisi awal — 12 kamar, penghuni, tagihan, buku kas & komplain.",
-        });
-      })
-      .catch((err: unknown) =>
-        toast.error("Reset data demo gagal", { description: errMsg(err) }),
-      )
-      .finally(() => setResettingDemo(false));
-  }, [resettingDemo]);
+    applyDemoSnapshot();
+    // Modul lokal (tiket & pengumuman) kembali ke dataset awal juga
+    setTickets(TICKETS);
+    setAnnouncements(ANNOUNCEMENTS);
+    setSelectedRoomId(null);
+    setAdRoomId(null);
+    toast.success("Data demo berhasil direset", {
+      description:
+        "Seluruh data simulasi kembali ke kondisi awal — 12 kamar, penghuni, tagihan, buku kas & komplain.",
+    });
+  }, []);
 
   // ── Sesi staf mandiri (/staff?token=…) — null = akses owner penuh ──
   const staffSession = useSyncExternalStore(
@@ -254,41 +256,73 @@ export default function IndoKostPage() {
     document.documentElement.dataset.ikTheme = settings.theme;
   }, [settings.theme]);
 
-  // ── Bootstrap data dari Supabase (Route Handlers) — external store ─────────
-  // Akun baru yang belum onboarding TIDAK memuat kamar (API-nya akan menolak
-  // "Properti belum terdaftar" → toast error & mode offline palsu). Cek
-  // properti dulu: belum ada → langsung wizard /onboarding; ada → muat data.
+  // ── Bootstrap data dashboard ────────────────────────────────────────────────
+  // MODE DEMO (?demo=1 dari GET /demo): pasang dataset simulasi 12 kamar
+  // SEKALI jalan TANPA memanggil API/Supabase sama sekali — tidak ada loading,
+  // tidak pernah "0 Kamar", tidak pernah skeleton menunggu database.
+  //
+  // AKUN ASLI: cek properti dulu (belum onboarding → langsung wizard
+  // /onboarding, bukan error), lalu muat kamar/tagihan/kas. Seluruh alur
+  // memakai try-catch-finally + fetch ber-timeout + watchdog 5 dtk — apa pun
+  // yang terjadi (sukses, data kosong, error, database menggantung), loading
+  // SELALU selesai dan pengguna tidak pernah menatap skeleton abadi.
   useEffect(() => {
+    if (instantDemo) {
+      applyDemoSnapshot();
+      setIsDemoSession(true);
+      return;
+    }
+
     let alive = true;
+    let navigating = false;
+
+    // Watchdog: database tak pernah menjawab dalam 5 detik → lepas ke mode
+    // offline (data demo perangkat + banner) — TIDAK ada loader tak berujung.
+    const watchdog = setTimeout(() => {
+      if (alive) markStalled();
+    }, 5_000);
+
     const sync = () =>
       loadDashboard().catch((err: unknown) => {
         toast.error("Gagal terhubung database", {
           description: err instanceof Error ? err.message : "Menampilkan data demo perangkat ini.",
         });
       });
-    api
-      .getProperty()
-      .then((res) => {
+
+    (async () => {
+      try {
+        const res = await api.getProperty();
         if (!alive) return;
+        clearTimeout(watchdog);
         if (res.property === null) {
+          // Akun belum punya properti → wizard onboarding (bukan loader/error)
+          navigating = true;
           window.location.replace("/onboarding");
           return;
         }
-        void sync();
-      })
-      .catch(() => {
+        await sync();
+      } catch {
         // getProperty gagal (database offline) — tidak bisa dibedakan dari
-        // "belum onboarding" → lanjutkan alur lama (fallback data perangkat)
+        // "belum onboarding" → lanjutkan alur fallback data perangkat
         if (!alive) return;
-        void sync();
-      });
+        await sync();
+      } finally {
+        // Jaminan terakhir: status "loading" tidak boleh tersisa apa pun yang
+        // terjadi (watchdog sudah dibersihkan; sync selalu menetapkan status).
+        clearTimeout(watchdog);
+        if (alive && !navigating) markStalled();
+      }
+    })();
+
     return () => {
       alive = false;
+      clearTimeout(watchdog);
     };
-  }, []);
+  }, [instantDemo]);
 
   // ── Bootstrap tiket komplain dari database (cloud-first, fallback mock demo)
   useEffect(() => {
+    if (instantDemo) return; // demo: tiket simulasi lokal — tanpa API
     let alive = true;
     api
       .getTickets()
@@ -301,7 +335,7 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [instantDemo]);
 
   /** Tombol "Coba Sambungkan Ulang" pada banner offline */
   const handleRetrySync = () => {
@@ -313,60 +347,61 @@ export default function IndoKostPage() {
   };
 
   // ── Guard onboarding + gerbang lisensi (jual putus Mayar) ───────────────────
+  // Semua panggilan ber-timeout (api.getAuthMe/getLicense/getProperty) sehingga
+  // guard tidak pernah menggantung; kegagalan ditangani try-catch per langkah.
   useEffect(() => {
+    if (instantDemo) return; // demo: banner & data mock sudah aktif — tanpa API
     let alive = true;
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => r.json())
-      .then(
-        (info:
-          | { user?: { id: string; email?: string } | null; demo?: boolean }
-          | null) => {
-          if (!alive) return;
-          // Sesi demo (CTA landing /demo) → tampilkan banner demo interaktif;
-          // tanpa gerbang lisensi & tanpa redirect onboarding.
-          if (info?.user && info.demo) {
-            setIsDemoSession(true);
-            return;
-          }
-          // Belum masuk (middleware sudah menangani) → jangan ganggu
-          if (!info?.user) return;
-          // Gerbang lisensi dulu: belum lunas → layar gembok (sebelum onboarding)
-          return fetch("/api/billing/license", { cache: "no-store" })
-            .then((r) => r.json())
-            .then(
-              (lic: { licensed?: boolean; checkoutUrl?: string } | null) => {
-                if (!alive) return;
-                if (lic && lic.licensed === false) {
-                  setLicenseGate({
-                    email: info.user?.email ?? "",
-                    checkoutUrl:
-                      typeof lic.checkoutUrl === "string" ? lic.checkoutUrl : "",
-                  });
-                  return;
-                }
-                // API lisensi gagal (offline) → fail-open; lanjut cek properti
-                return api
-                  .getProperty()
-                  .then((res) => {
-                    if (alive && res.property === null) {
-                      window.location.replace("/onboarding");
-                    }
-                  })
-                  .catch(() => {
-                    /* offline — biarkan mode demo/offline berjalan */
-                  });
-              },
-            );
-        },
-      )
-      .catch(() => {});
+    (async () => {
+      let info: Awaited<ReturnType<typeof api.getAuthMe>> | null = null;
+      try {
+        info = await api.getAuthMe();
+      } catch {
+        return; // /api/auth/me gagal — middleware sudah menangani sesi
+      }
+      if (!alive || !info?.user) return;
+      // Sesi demo (CTA landing /demo) → tampilkan banner demo interaktif;
+      // tanpa gerbang lisensi & tanpa redirect onboarding.
+      if (info.demo) {
+        setIsDemoSession(true);
+        // Bila bootstrap masih menggantung (database hang), selamatkan UI
+        // dengan data simulasi instan — demo tidak menunggu database.
+        rescueDemoIfLoading();
+        return;
+      }
+      // Gerbang lisensi dulu: belum lunas → layar gembok (sebelum onboarding)
+      try {
+        const lic = await api.getLicense();
+        if (!alive) return;
+        if (lic && lic.licensed === false) {
+          setLicenseGate({
+            email: info.user?.email ?? "",
+            checkoutUrl: typeof lic.checkoutUrl === "string" ? lic.checkoutUrl : "",
+          });
+          return;
+        }
+        // API lisensi gagal (offline) → fail-open; lanjut cek properti
+      } catch {
+        if (!alive) return;
+      }
+      // Lisensi OK → pastikan properti ada; belum → wizard onboarding
+      try {
+        const res = await api.getProperty();
+        if (alive && res.property === null) {
+          window.location.replace("/onboarding");
+        }
+      } catch {
+        /* offline — biarkan mode demo/offline berjalan */
+      }
+    })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [instantDemo]);
 
   // ── Sinkron profil properti & rekening dari database (cloud = sumber kebenaran)
   useEffect(() => {
+    if (instantDemo) return; // demo: profil simulasi lokal — tanpa API
     let alive = true;
     api
       .getProperty()
@@ -400,7 +435,35 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [instantDemo]);
+
+  // ── Anti-stuck akun baru: bila dashboard jatuh ke mode offline saat mount
+  // (getProperty sempat menggantung), verifikasi properti SEKALI database
+  // menjawab — akun yang ternyata belum onboarding langsung diarahkan ke
+  // wizard, bukan tertahan di data demo perangkat tanpa penjelasan.
+  useEffect(() => {
+    if (dbState !== "offline" || instantDemo || licenseGate) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = () => {
+      api
+        .getProperty()
+        .then((res) => {
+          if (alive && res.property === null) {
+            window.location.replace("/onboarding");
+          }
+          // properti ada → biarkan banner offline + retry yang bekerja
+        })
+        .catch(() => {
+          if (alive) timer = setTimeout(check, 8_000); // DB belum menjawab
+        });
+    };
+    check();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [dbState, instantDemo, licenseGate]);
 
   const manageRoom = useMemo(
     () => rooms.find((r) => r.id === manageRoomId) ?? null,
@@ -1354,7 +1417,7 @@ export default function IndoKostPage() {
 
         <main className="flex-1 overflow-y-auto scrollbar-thin" aria-label="Konten utama">
           <div className="mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6">
-            {isDemoSession && <DemoBanner onReset={handleResetDemo} resetting={resettingDemo} />}
+            {isDemoSession && <DemoBanner onReset={handleResetDemo} />}
             {dbState === "offline" && <OfflineBanner onRetry={handleRetrySync} />}
             {view === "tagihan" ? (
               <TagihanView
@@ -1473,7 +1536,13 @@ export default function IndoKostPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <p className="hidden text-[13px] font-medium text-zinc-700 sm:block">
-                      {syncedAt ? `Tersinkron cloud · ${syncedAt}` : "Menyambungkan ke cloud…"}
+                      {syncedAt
+                        ? `Tersinkron cloud · ${syncedAt}`
+                        : isDemoSession
+                          ? "Mode Demo · data simulasi"
+                          : dbState === "offline"
+                            ? "Mode offline · data perangkat"
+                            : "Menyambungkan ke cloud…"}
                     </p>
                     {canManageRooms && (
                       <Button
@@ -1682,13 +1751,7 @@ function OfflineBanner({ onRetry }: { onRetry: () => void }) {
 // CTA konversi "Beli Lisensi Rp 399rb" (modal checkout, komponen BuyCta) dan
 // tombol kecil "Reset Data Demo" untuk mengembalikan data simulasi ke awal.
 
-function DemoBanner({
-  onReset,
-  resetting,
-}: {
-  onReset: () => void;
-  resetting: boolean;
-}) {
+function DemoBanner({ onReset }: { onReset: () => void }) {
   const [hidden, setHidden] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   if (hidden) return null;
@@ -1719,14 +1782,9 @@ function DemoBanner({
           <Button
             variant="outline"
             onClick={() => setConfirmReset(true)}
-            disabled={resetting}
             className="h-9 gap-1.5 rounded-lg border-emerald-300 bg-white/70 px-2.5 text-[12px] font-semibold text-emerald-800 shadow-none hover:bg-emerald-100"
           >
-            {resetting ? (
-              <Loader2 className="size-3.5 animate-spin" strokeWidth={1.75} aria-hidden="true" />
-            ) : (
-              <RotateCcw className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
-            )}
+            <RotateCcw className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
             Reset Data Demo
           </Button>
           <button
@@ -1756,20 +1814,10 @@ function DemoBanner({
             <AlertDialogCancel className="h-9 text-[13px]">Batal</AlertDialogCancel>
             <AlertDialogAction
               onClick={onReset}
-              disabled={resetting}
               className="h-9 bg-orange-600 text-[13px] font-semibold hover:bg-orange-700"
             >
-              {resetting ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" strokeWidth={1.75} aria-hidden="true" />
-                  Mereset…
-                </>
-              ) : (
-                <>
-                  <RotateCcw className="size-4" strokeWidth={1.75} aria-hidden="true" />
-                  Ya, Reset Data
-                </>
-              )}
+              <RotateCcw className="size-4" strokeWidth={1.75} aria-hidden="true" />
+              Ya, Reset Data
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

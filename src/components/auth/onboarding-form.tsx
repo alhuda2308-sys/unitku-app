@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getAuthInfo } from "@/lib/auth/client";
+import { fetchWithTimeout, isTimeoutError } from "@/lib/http";
 import { toast } from "@/lib/toast";
 import {
   PROPERTY_TYPE_META,
@@ -79,7 +80,10 @@ export function OnboardingForm() {
       }
       // Gerbang lisensi: akun belum lunas → layar gembok, bukan form onboarding
       try {
-        const res = await fetch("/api/billing/license", { cache: "no-store" });
+        const res = await fetchWithTimeout("/api/billing/license", {
+          cache: "no-store",
+          timeoutMs: 10_000,
+        });
         const lic = (await res.json().catch(() => null)) as {
           licensed?: boolean;
           checkoutUrl?: string;
@@ -142,7 +146,10 @@ export function OnboardingForm() {
     setError(null);
     setBusy(true);
     try {
-      const res = await fetch("/api/onboarding", {
+      // Timeout 30 dtk — membuat properti + puluhan kamar di database bisa
+      // lebih lambat dari request biasa, TETAPI harus tetap terbatas agar
+      // tombol "Menyimpan…" tidak berputar selamanya saat database hang.
+      const res = await fetchWithTimeout("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -152,6 +159,7 @@ export function OnboardingForm() {
           roomCount: rooms,
           price: priceValue,
         }),
+        timeoutMs: 30_000,
       });
       const data = (await res.json().catch(() => ({}))) as {
         roomsCreated?: number;
@@ -175,9 +183,15 @@ export function OnboardingForm() {
           ? data.error
           : "Gagal membuat properti — coba lagi sebentar.",
       );
-    } catch {
-      setError("Tidak dapat terhubung ke server — periksa koneksi internet.");
+    } catch (cause) {
+      setError(
+        isTimeoutError(cause)
+          ? "Server tidak merespons (timeout) — database lambat. Coba lagi sebentar."
+          : "Tidak dapat terhubung ke server — periksa koneksi internet.",
+      );
     } finally {
+      // SELALU dieksekusi — sukses, gagal, maupun timeout: tombol tidak pernah
+      // terjebak dalam keadaan "Menyimpan…".
       setBusy(false);
     }
   };

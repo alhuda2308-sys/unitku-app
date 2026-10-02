@@ -32,30 +32,37 @@ import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
 
 export const dynamic = "force-dynamic";
 
-const DASHBOARD_URL = "/dashboard";
+/** Owner asli → dashboard biasa; sesi demo → dashboard dgn mode demo instan */
+const OWNER_DASHBOARD_URL = "/dashboard";
+/** ?demo=1 → dashboard memasang dataset simulasi 12 kamar secara instan
+ *  (tanpa panggilan API/database) — mode demo tidak pernah menunggu Supabase */
+const DEMO_DASHBOARD_URL = "/dashboard?demo=1";
 
 export async function GET(request: NextRequest) {
-  const dashboard = new URL(DASHBOARD_URL, request.nextUrl.origin);
+  const ownerDashboard = new URL(OWNER_DASHBOARD_URL, request.nextUrl.origin);
+  const demoDashboard = new URL(DEMO_DASHBOARD_URL, request.nextUrl.origin);
 
   // ── Mode Supabase: owner yang sudah login jangan dipaksa masuk demo ────────
   if (isSupabaseConfigured()) {
     const collector = createSupabaseAuthCollector(request);
     const { data } = await collector.client.auth.getUser();
     if (data.user) {
-      const response = NextResponse.redirect(dashboard);
+      const response = NextResponse.redirect(ownerDashboard);
       collector.applyCookies(response); // sertakan cookie refresh bila ada
       return response;
     }
   } else {
     // ── Mode lokal: sesi valid existing (owner/demo) jangan ditimpa ──────────
     const existing = request.cookies.get(SESSION_COOKIE)?.value;
-    if (existing && verifySessionToken(existing)) {
-      return NextResponse.redirect(dashboard);
+    const payload = existing ? verifySessionToken(existing) : null;
+    if (payload) {
+      // Demo lama tetap diarahkan ke mode demo instan; owner asli → biasa
+      return NextResponse.redirect(payload.demo ? demoDashboard : ownerDashboard);
     }
   }
 
   // ── Pengunjung baru → buat sesi demo & masuk dashboard berisi data seed ────
-  const response = NextResponse.redirect(dashboard);
+  const response = NextResponse.redirect(demoDashboard);
   response.cookies.set(
     SESSION_COOKIE,
     createSessionToken({

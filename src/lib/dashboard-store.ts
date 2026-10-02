@@ -136,11 +136,19 @@ async function recoverDashboard(): Promise<boolean> {
 }
 
 async function pollHealthOnce(): Promise<boolean> {
+  // Dengan pengaman waktu — probe yang menggantung tidak boleh menumpuk
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
   try {
-    const res = await fetch("/api/health", { cache: "no-store" });
+    const res = await fetch("/api/health", {
+      cache: "no-store",
+      signal: controller.signal,
+    });
     return res.ok;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -176,15 +184,70 @@ function startRecoveryPolling(): void {
 }
 
 /**
+ * Mode demo instan (?demo=1 — redirect dari GET /demo): pasang dataset
+ * simulasi 12 kamar LANGSUNG tanpa satu pun panggilan API/database. Dashboard
+ * tampil < 1 detik dan tidak pernah menunggu Supabase. Mutasi berikutnya
+ * tetap dapat dicoba lewat API bila database sehat.
+ */
+export function applyDemoSnapshot(): void {
+  stopRecoveryPolling();
+  setState({
+    rooms: ROOMS,
+    invoices: INVOICES,
+    cashEntries: CASH_ENTRIES,
+    status: "ready",
+    syncedAt: null,
+  });
+}
+
+/**
+ * Pengaman anti-hang (watchdog dashboard): bila status masih "loading" setelah
+ * batas waktu — koneksi database tidak pernah menjawab — lepaskan skeleton
+ * dan tampilkan fallback data demo + banner offline. Polling pemulihan
+ * berjalan sampai database merespons kembali (data asli otomatis masuk).
+ * Aman dipanggil kapan saja: hanya bertindak saat status masih "loading".
+ */
+export function markStalled(): void {
+  if (state.status !== "loading") return;
+  console.warn(
+    "[UnitKu] Database tidak merespons tepat waktu — skeleton dilepas, mode offline diaktifkan (watchdog).",
+  );
+  setState({
+    rooms: ROOMS,
+    invoices: INVOICES,
+    cashEntries: CASH_ENTRIES,
+    status: "offline",
+  });
+  startRecoveryPolling();
+}
+
+/**
+ * Penyelamat sesi demo: /api/auth/me mendeteksi demo saat bootstrap masih
+ * menggantung di database — pasang dataset simulasi instan (status "ready",
+ * tanpa banner offline) supaya demo tidak pernah menunggu Supabase.
+ * Hanya bertindak bila status masih "loading" (tidak menimpa data hidup).
+ */
+export function rescueDemoIfLoading(): void {
+  if (state.status !== "loading") return;
+  applyDemoSnapshot();
+}
+
+/**
  * Muat data dari cloud (kamar + tagihan + kas). Status "loading" → skeleton
  * layar penuh; kegagalan sementara di-retry otomatis (warm-up server,
  * SQLITE_BUSY, dsb. tidak langsung menjatuhkan mode offline). Setelah 3
  * percobaan gagal → status "offline" + fallback dataset demo + polling
  * /api/health utk pemulihan otomatis. Melempar error agar pemanggil
  * menampilkan toast.
+ *
+ * Dijamin SELALU selesai: tiap fetch punya timeout, sehingga status tak
+ * mungkin menggantung di "loading" — sukses ("ready") maupun gagal
+ * ("offline") selalu dicatat sebelum fungsi kembali.
  */
 export async function loadDashboard(): Promise<void> {
-  setState({ status: "loading" });
+  // Saat mode offline (fallback sudah tampil), JANGAN balik ke skeleton —
+  // biarkan data demo tetap terlihat selama percobaan ulang berjalan.
+  if (state.status !== "offline") setState({ status: "loading" });
   const attempts: [number, number][] = [
     [1, 0],
     [2, 500],
@@ -213,6 +276,9 @@ export async function loadDashboard(): Promise<void> {
     describeError(lastError),
     "\n  (Detail permintaan gagal: lihat log [UnitKu API] di atas — network error / HTTP 4xx-5xx)",
   );
+  // Cegah balapan: bila data sudah dipulihkan lewat jalur lain (watchdog +
+  // polling kesehatan berhasil lebih dulu), jangan timpa status "ready".
+  if (state.status === "ready") return;
   setState({
     rooms: ROOMS,
     invoices: INVOICES,
