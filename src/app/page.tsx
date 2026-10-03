@@ -12,7 +12,6 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import {
-  ArrowRight,
   Banknote,
   Building2,
   CheckCircle2,
@@ -37,6 +36,7 @@ import {
 import { getAuthUser } from "@/lib/auth/server";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { BuyCta } from "@/components/landing/buy-cta";
+import { DemoCta } from "@/components/landing/demo-cta";
 import { SiteFooter } from "@/components/landing/site-footer";
 import {
   BRAND,
@@ -327,13 +327,7 @@ export default async function LandingPage() {
             </p>
 
             <div className="mt-7 flex flex-col items-center justify-center gap-2.5 sm:flex-row">
-              <Link
-                href="/demo"
-                className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-md bg-zinc-900 px-8 py-4 text-base font-bold text-white transition-colors hover:bg-zinc-800 sm:w-auto sm:text-lg"
-              >
-                Coba Denah Kost Saya — Gratis
-                <ArrowRight className="size-4" strokeWidth={1.75} aria-hidden="true" />
-              </Link>
+              <DemoCta />
               <BuyCta
                 className="w-full border border-zinc-300 bg-white text-zinc-900 shadow-none hover:bg-zinc-50 sm:w-auto"
                 label="Amankan Lisensi Rp 399rb"

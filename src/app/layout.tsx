@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { MetaPixel } from "@/components/meta-pixel";
 
 const jakarta = Plus_Jakarta_Sans({
   variable: "--font-jakarta",
@@ -65,6 +66,8 @@ export default function RootLayout({
   return (
     <html lang="id" suppressHydrationWarning>
       <body className={`${jakarta.variable} ${geistMono.variable} antialiased bg-background text-foreground`}>
+        {/* Meta Pixel situs-lebar — PageView otomatis di semua halaman */}
+        <MetaPixel />
         {children}
         <Toaster position="bottom-right" theme="light" richColors />
       </body>
