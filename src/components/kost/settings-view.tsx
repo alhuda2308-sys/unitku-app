@@ -82,6 +82,7 @@ import {
 } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
 import { DangerZone } from "./danger-zone";
+import { ChangePasswordCard } from "@/components/kost/change-password-card";
 import { WaIcon } from "./wa-icon";
 import { StaffAccessManager } from "./staff-access-manager";
 import { PwaInstallCard } from "./pwa-install";
@@ -626,6 +627,7 @@ function ProfilSayaTab({
                 : undefined
           }
         />
+        <ChangePasswordCard />
       </div>
     </Pane>
   );

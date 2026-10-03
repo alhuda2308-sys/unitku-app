@@ -91,6 +91,23 @@ export async function signInAsDemo(): Promise<AuthResult> {
   }
 }
 
+/** Ganti password akun owner yang sedang masuk — HANYA mode Supabase Auth
+ *  (mode lokal/demo akan ditolak server dengan pesan jelas) */
+export async function updatePassword(password: string): Promise<AuthResult> {
+  try {
+    const { status, data } = await postAuth("/api/auth/update-password", { password });
+    if (status !== 200) {
+      return { ok: false, error: errorOf(data, "Gagal memperbarui password.") };
+    }
+    return { ok: true };
+  } catch (cause) {
+    if (isTimeoutError(cause)) {
+      return { ok: false, error: "Server tidak merespons (timeout) — coba lagi sebentar." };
+    }
+    return { ok: false, error: "Tidak dapat terhubung ke server — periksa koneksi internet." };
+  }
+}
+
 /** Info sesi aktif — user null bila belum masuk (dengan timeout anti-hang) */
 export async function getAuthInfo(): Promise<AuthInfo> {
   try {
