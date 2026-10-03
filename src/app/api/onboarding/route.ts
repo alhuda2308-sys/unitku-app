@@ -1,9 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/onboarding — Onboarding properti pertama (setelah registrasi)
 //
-// Membuat record Property milik owner + slot kamar awal (01, 02, …) secara
-// otomatis, lalu owner diarahkan ke dashboard utama. Ditolak bila owner
-// sudah punya properti atau masih dalam sesi demo.
+// Membuat record Property milik owner + (opsional) slot kamar awal (01, 02, …)
+// secara otomatis — wizard 2 langkah: (1) tipe/nama/alamat, (2) setup cepat
+// "Buat Otomatis X Kamar" atau "Isi Nanti / Manual" (roomCount 0).
+// Owner lalu diarahkan ke dashboard utama. Ditolak bila owner sudah punya
+// properti atau masih dalam sesi demo.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -13,6 +15,7 @@ import { db } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth/server";
 import { unauthorized } from "@/lib/auth/ownership";
 import { toClientProperty } from "@/lib/server/mappers";
+import { PROPERTY_TYPES } from "@/lib/app-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +43,9 @@ export async function POST(request: NextRequest) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const address = typeof body.address === "string" ? body.address.trim() : "";
   const roomCount = Math.round(Number(body.roomCount));
+  const price = Math.round(Number(body.price ?? 0));
+  const tipeRaw = typeof body.tipe === "string" ? body.tipe : "kost";
+  const tipe = (PROPERTY_TYPES as readonly string[]).includes(tipeRaw) ? tipeRaw : "kost";
 
   if (name.length < 2 || name.length > 80) {
     return NextResponse.json(
@@ -47,9 +53,16 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  if (!Number.isFinite(roomCount) || roomCount < 1 || roomCount > 50) {
+  // roomCount 0 = "Isi Nanti / Manual" — properti dibuat tanpa kamar
+  if (!Number.isFinite(roomCount) || roomCount < 0 || roomCount > 50) {
     return NextResponse.json(
-      { error: "Jumlah kamar awal harus angka 1–50." },
+      { error: "Jumlah kamar harus angka 0–50." },
+      { status: 400 },
+    );
+  }
+  if (!Number.isFinite(price) || price < 0 || price > 100_000_000) {
+    return NextResponse.json(
+      { error: "Harga sewa per kamar tidak valid." },
       { status: 400 },
     );
   }
@@ -74,7 +87,7 @@ export async function POST(request: NextRequest) {
         id: await nextPropertyId(),
         ownerId: user.id,
         name,
-        tipe: "kost",
+        tipe,
         alamat: address || null,
       },
     });
@@ -97,7 +110,7 @@ export async function POST(request: NextRequest) {
             propertyId: property.id,
             floor: 1,
             type: "",
-            price: 0,
+            price,
             status: "kosong",
             facilities: [],
           },

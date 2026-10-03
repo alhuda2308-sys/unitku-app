@@ -3,13 +3,15 @@
 //
 // GET pertama pada endpoint mana pun (rooms/invoices/cash/staff/properties)
 // memanggil ensureSeed(): bila tabel masih kosong, seluruh dataset demo
-// (24 kamar + penghuni, tagihan Sep 2026, buku kas, 2 staf contoh, properti
+// (12 kamar + penghuni, tagihan Sep 2026, buku kas, 2 staf contoh, properti
 // utama "Kost Griya Pratama") dimigrasikan ke Supabase. Dari titik ini data
 // tersimpan permanen di cloud & tersinkron lintas perangkat.
 //
 // Memoisasi promise per proses → request paralel (rooms+cash+invoices bersamaan)
 // hanya memicu satu kali seed. Bila tabel sudah terisi, fungsi langsung kembali.
 // ─────────────────────────────────────────────────────────────────────────────
+
+import { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/prisma";
 import { DEMO_OWNER_ID } from "@/lib/auth/config";
@@ -29,6 +31,22 @@ export function ensureSeed(): Promise<void> {
     throw err;
   });
   return seedPromise;
+}
+
+/**
+ * Jalankan operasi seed sambil mengabaikan tabrakan id unik (P2002).
+ * Di serverless (Vercel) beberapa instance bisa memicu seed BERSAMAAN pada
+ * request demo pertama — semua id seed konstan, jadi P2002 hanya berarti
+ * "instance lain sedang/sudah menulis data yang sama" → aman dilanjutkan.
+ * Tanpa ini, request demo yang kalah race menjawab 500 → dashboard offline.
+ */
+async function ignoreUniqueConflict(op: () => Promise<unknown>): Promise<void> {
+  try {
+    await op();
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return;
+    throw err;
+  }
 }
 
 /**
@@ -56,24 +74,27 @@ async function runSeed(): Promise<void> {
   // demo (ownerId = DEMO_OWNER_ID) dan tidak pernah muncul di dashboard owner.
   // Owner nyata mendapat properti kosong via /api/onboarding.
 
-  // ── Properti utama ────────────────────────────────────────────────────────
-  await db.property.create({
-    data: {
-      id: SEED_PROPERTY_ID,
-      ownerId: DEMO_OWNER_ID,
-      name: "Kost Griya Pratama",
-      tipe: "kost",
-      alamat: "Jl. Cendana Raya No. 45, Kel. Sukamaju, Kec. Cibinong, Kab. Bogor, Jawa Barat 16913",
-      bankName: "BCA",
-      bankAccountNo: "1234567890",
-      bankAccountName: "Hendra Wijaya",
-    },
-  });
-
-  // ── Kamar + penghuni (dataset mock → relasional) ─────────────────────────
-  for (const room of ROOMS) {
-    await db.room.create({
+  // ── Properti utama (P2002-safe: instance lain mungkin sudah membuat) ──────
+  await ignoreUniqueConflict(() =>
+    db.property.create({
       data: {
+        id: SEED_PROPERTY_ID,
+        ownerId: DEMO_OWNER_ID,
+        name: "Kost Griya Pratama",
+        tipe: "kost",
+        alamat: "Jl. Cendana Raya No. 45, Kel. Sukamaju, Kec. Cibinong, Kab. Bogor, Jawa Barat 16913",
+        bankName: "BCA",
+        bankAccountNo: "1234567890",
+        bankAccountName: "Hendra Wijaya",
+      },
+    }),
+  );
+
+  // ── Kamar + penghuni (dataset mock → relasional, P2002-safe) ───────────────
+  for (const room of ROOMS) {
+    await ignoreUniqueConflict(() =>
+      db.room.create({
+        data: {
         id: room.id,
         propertyId: SEED_PROPERTY_ID,
         floor: room.floor,
@@ -102,12 +123,14 @@ async function runSeed(): Promise<void> {
             }
           : {}),
       },
-    });
+      }),
+    );
   }
 
-  // ── Tagihan & rincian (Sep 2026) ──────────────────────────────────────────
+  // ── Tagihan & rincian (Sep 2026, P2002-safe) ───────────────────────────────
   for (const inv of INVOICES) {
-    await db.invoice.create({
+    await ignoreUniqueConflict(() =>
+      db.invoice.create({
       data: {
         id: inv.id,
         roomId: inv.roomId,
@@ -125,11 +148,13 @@ async function runSeed(): Promise<void> {
           create: inv.lines.map((l) => ({ label: l.label, amount: l.amount })),
         },
       },
-    });
+      }),
+    );
   }
 
   // ── Buku kas (Sep 2026) ───────────────────────────────────────────────────
-  await db.cashEntry.createMany({
+  await ignoreUniqueConflict(() =>
+    db.cashEntry.createMany({
     data: CASH_ENTRIES.map((e) => ({
       id: e.id,
       // Isolasi multi-tenant — kas demo milik properti seed
@@ -144,10 +169,12 @@ async function runSeed(): Promise<void> {
       dateSort: e.dateSort ?? dateSortFromLabel(e.dateLabel),
       attachment: e.attachment ?? null,
     })),
-  });
+    }),
+  );
 
   // ── Staf contoh (link akses + PIN — bisa langsung diuji dari portal /staff) ─
-  await db.staffMember.createMany({
+  await ignoreUniqueConflict(() =>
+    db.staffMember.createMany({
     data: [
       {
         propertyId: SEED_PROPERTY_ID,
@@ -168,7 +195,8 @@ async function runSeed(): Promise<void> {
         isActive: true,
       },
     ],
-  });
+    }),
+  );
 
   // ── Tiket komplain & pemeliharaan (Sep 2026) ───────────────────────────────
   await seedTicketsIfEmpty();
@@ -181,7 +209,8 @@ async function runSeed(): Promise<void> {
 async function seedTechniciansIfEmpty(): Promise<void> {
   const count = await db.technicianContact.count();
   if (count > 0) return;
-  await db.technicianContact.createMany({
+  await ignoreUniqueConflict(() =>
+    db.technicianContact.createMany({
     data: [
       {
         propertyId: SEED_PROPERTY_ID,
@@ -205,14 +234,16 @@ async function seedTechniciansIfEmpty(): Promise<void> {
         isPrimary: false,
       },
     ],
-  });
+    }),
+  );
 }
 
 /** Seed tiket demo — idempoten: hanya bila tabel masih kosong */
 async function seedTicketsIfEmpty(): Promise<void> {
   const count = await db.ticket.count();
   if (count > 0) return;
-  await db.ticket.createMany({
+  await ignoreUniqueConflict(() =>
+    db.ticket.createMany({
     data: TICKETS.map((t) => ({
       id: t.id,
       // Properti seed — tiket fasilitas (roomId null) tetap terikat kgp
@@ -234,7 +265,8 @@ async function seedTicketsIfEmpty(): Promise<void> {
       teknisiPhone: t.teknisi?.phone ?? null,
       selesaiLabel: t.selesaiLabel ?? null,
     })),
-  });
+    }),
+  );
 }
 
 /** ID transaksi kas berikutnya — keluar "KX-012", masuk "KM-001", … (lanjutan seed) */
@@ -256,4 +288,29 @@ export async function nextTicketId(): Promise<string> {
     return Number.isFinite(n) ? Math.max(m, n) : m;
   }, 0);
   return `#TKT-${String(max + 1).padStart(3, "0")}`;
+}
+
+/**
+ * Hapus SELURUH data properti demo ("Kost Griya Pratama") lalu seed ulang
+ * dari nol — dipakai tombol "Reset Data Demo" (POST /api/demo/reset) agar
+ * dataset simulasi kembali persis ke kondisi awal (penghuni, tagihan, kas,
+ * staf, tiket). HANYA boleh dipanggil untuk sesi demo.
+ *
+ * Urutan hapus aman FK: tiket & kas & staf (onDelete SetNull — harus dihapus
+ * manual) → kamar (tenant/invoice/lines ikut Cascade) → properti.
+ */
+export async function resetDemoSeed(): Promise<void> {
+  const roomScope = { propertyId: SEED_PROPERTY_ID };
+
+  await db.ticket.deleteMany({
+    // SetNull — tiket demo harus dibersihkan SEBELUM room/property dihapus
+    where: { OR: [{ propertyId: SEED_PROPERTY_ID }, { room: roomScope }] },
+  });
+  await db.cashEntry.deleteMany({ where: { propertyId: SEED_PROPERTY_ID } });
+  await db.staffMember.deleteMany({ where: { propertyId: SEED_PROPERTY_ID } });
+  await db.room.deleteMany({ where: roomScope }); // tenant + invoice + lines cascade
+  await db.property.deleteMany({ where: { id: SEED_PROPERTY_ID } });
+
+  // Seed ulang penuh — bypass memo ensureSeed (data memang baru saja dihapus)
+  await runSeed();
 }

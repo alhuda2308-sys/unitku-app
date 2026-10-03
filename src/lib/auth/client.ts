@@ -1,13 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Klien autentikasi (dipakai komponen sisi browser)
 //
-// Semua alur (Masuk/Daftar/Keluar/Demo) seragam lewat endpoint /api/auth/*,
-// sehingga komponen TIDAK perlu tahu mode aktif (Supabase vs lokal).
-// Google OAuth (khusus mode Supabase) memakai browser client @supabase/ssr
-// dengan redirect ke /auth/callback.
+// Semua alur (Masuk/Daftar/Keluar) seragam lewat endpoint /api/auth/*, sehingga
+// komponen TIDAK perlu tahu mode aktif (Supabase vs lokal).
+// Demo interaktif TANPA akun tidak lewat sini — CTA landing langsung ke GET /demo
+// (route handler yang menyetel cookie sesi demo, bekerja di semua mode auth).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { isSupabaseConfigured } from "./config";
+import { fetchWithTimeout, isTimeoutError } from "@/lib/http";
 
 export { isSupabaseConfigured } from "./config";
 
@@ -26,7 +27,9 @@ export type SignUpResult =
   | { ok: false; error: string };
 
 async function postAuth(path: string, body?: unknown): Promise<{ status: number; data: Record<string, unknown> }> {
-  const res = await fetch(path, {
+  // Timeout 15 dtk — endpoint auth yang menggantung (Supabase Auth down)
+  // tidak boleh membuat tombol "Masuk" berputar selamanya.
+  const res = await fetchWithTimeout(path, {
     method: "POST",
     cache: "no-store",
     headers: body ? { "Content-Type": "application/json" } : undefined,
@@ -46,7 +49,10 @@ export async function signIn(email: string, password: string): Promise<AuthResul
     const { status, data } = await postAuth("/api/auth/login", { email, password });
     if (status !== 200) return { ok: false, error: errorOf(data, "Email atau password salah.") };
     return { ok: true };
-  } catch {
+  } catch (cause) {
+    if (isTimeoutError(cause)) {
+      return { ok: false, error: "Server tidak merespons (timeout) — coba lagi sebentar." };
+    }
     return { ok: false, error: "Tidak dapat terhubung ke server — periksa koneksi internet." };
   }
 }
@@ -57,7 +63,10 @@ export async function signUp(email: string, password: string): Promise<SignUpRes
     const { status, data } = await postAuth("/api/auth/register", { email, password });
     if (status !== 200) return { ok: false, error: errorOf(data, "Gagal mendaftarkan akun.") };
     return { ok: true, needsEmailConfirmation: data.needsEmailConfirmation === true };
-  } catch {
+  } catch (cause) {
+    if (isTimeoutError(cause)) {
+      return { ok: false, error: "Server tidak merespons (timeout) — coba lagi sebentar." };
+    }
     return { ok: false, error: "Tidak dapat terhubung ke server — periksa koneksi internet." };
   }
 }
@@ -71,7 +80,7 @@ export async function signOut(): Promise<void> {
   }
 }
 
-/** Masuk cepat tanpa akun (khusus mode lokal) — sesi demo data contoh */
+/** Masuk cepat tanpa akun — sesi demo data contoh (CTA landing memakai GET /demo) */
 export async function signInAsDemo(): Promise<AuthResult> {
   try {
     const { status, data } = await postAuth("/api/auth/demo");
@@ -82,32 +91,13 @@ export async function signInAsDemo(): Promise<AuthResult> {
   }
 }
 
-/** Login cepat Google — khusus mode Supabase (memredirect keluar halaman) */
-export async function signInWithGoogle(): Promise<AuthResult> {
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Login Google hanya tersedia saat Supabase Auth aktif." };
-  }
-  try {
-    const { createBrowserClient } = await import("@supabase/ssr");
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
-    });
-    if (error) return { ok: false, error: error.message };
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "Gagal memulai login Google." };
-  }
-}
-
-/** Info sesi aktif — user null bila belum masuk */
+/** Info sesi aktif — user null bila belum masuk (dengan timeout anti-hang) */
 export async function getAuthInfo(): Promise<AuthInfo> {
   try {
-    const res = await fetch("/api/auth/me", { cache: "no-store" });
+    const res = await fetchWithTimeout("/api/auth/me", {
+      cache: "no-store",
+      timeoutMs: 8_000,
+    });
     const data = (await res.json().catch(() => ({}))) as Partial<AuthInfo>;
     return {
       user: data.user ?? null,
@@ -130,7 +120,10 @@ export async function afterAuthRedirect(next?: string | null): Promise<string> {
   const info = await getAuthInfo();
   if (info.demo) return next && next.startsWith("/") ? next : "/dashboard";
   try {
-    const res = await fetch("/api/properties", { cache: "no-store" });
+    const res = await fetchWithTimeout("/api/properties", {
+      cache: "no-store",
+      timeoutMs: 10_000,
+    });
     if (res.ok) {
       const data = (await res.json().catch(() => null)) as { property?: unknown } | null;
       if (data && data.property === null) return "/onboarding";
@@ -138,7 +131,12 @@ export async function afterAuthRedirect(next?: string | null): Promise<string> {
   } catch {
     /* offline — biarkan dashboard yang menangani */
   }
-  return next && next.startsWith("/") && !next.startsWith("/login") && !next.startsWith("/register")
-    ? next
-    : "/dashboard";
+  // Hint mode demo (?demo=1) hanya milik sesi demo — owner asli yang baru
+  // masuk tidak boleh mendarat di dashboard simulasi.
+  const cleanNext = next && next.startsWith("/") ? next.replace(/[?&]demo=1/, "") : null;
+  return cleanNext && cleanNext.startsWith("/dashboard")
+    ? cleanNext
+    : next && next.startsWith("/") && !next.startsWith("/login") && !next.startsWith("/register")
+      ? next
+      : "/dashboard";
 }

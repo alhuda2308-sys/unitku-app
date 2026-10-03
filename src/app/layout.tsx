@@ -26,7 +26,18 @@ export const metadata: Metadata = {
     title: "UnitKu",
   },
   icons: {
-    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2318181b'/><text y='68' x='50' text-anchor='middle' font-size='56' font-family='sans-serif' font-weight='700' fill='white'>U</text></svg>",
+    icon: [
+      {
+        url: "/brand/icon.png",
+        type: "image/png",
+        sizes: "512x512",
+      },
+      {
+        url: "/icons/icon-192.png",
+        type: "image/png",
+        sizes: "192x192",
+      },
+    ],
     apple: [
       {
         url: "/icons/apple-touch-icon.png",

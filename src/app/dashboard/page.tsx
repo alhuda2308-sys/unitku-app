@@ -1,13 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import Image from "next/image";
 import { toast } from "@/lib/toast";
-import { api } from "@/lib/api-client";
+import { api, getAuthMeOnce } from "@/lib/api-client";
 import {
+  applyDemoSnapshot,
   getDashboardSnapshot,
   getServerDashboardSnapshot,
   loadDashboard,
+  markStalled,
   refreshDashboard,
+  rescueDemoIfLoading,
   subscribeDashboard,
   updateCashEntries,
   updateInvoices,
@@ -22,7 +26,7 @@ import {
   type StaffSession,
 } from "@/lib/staff-access";
 import { BRAND_WA_FOOTER } from "@/lib/brand";
-import { Building2, CloudOff, Loader2, Plus, RefreshCw } from "lucide-react";
+import { CloudOff, Loader2, Plus, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -46,12 +50,14 @@ import { MaintenancePanel } from "@/components/kost/maintenance-panel";
 import { AnnouncementPanel } from "@/components/kost/announcement-panel";
 import { TenantPortal } from "@/components/kost/tenant-portal";
 import { LicenseGate } from "@/components/billing/license-gate";
+import { BuyCta } from "@/components/landing/buy-cta";
 import { PenghuniView } from "@/components/kost/penghuni-view";
 import { KasView } from "@/components/kost/kas-view";
 import { SettingsView } from "@/components/kost/settings-view";
 import { CheckinModal, type CheckinPayload } from "@/components/kost/checkin-modal";
 import { RoomAddModal } from "@/components/kost/room-add-modal";
 import { RoomManageModal, type RoomPatch } from "@/components/kost/room-manage-modal";
+import { AdGeneratorModal } from "@/components/kost/ad-generator-modal";
 import type { CheckoutPayload } from "@/components/kost/checkout-dialog";
 import type { ExpenseDraft } from "@/components/kost/expense-modal";
 import type { IncomeDraft } from "@/components/kost/income-modal";
@@ -61,12 +67,16 @@ import {
   formatIDR,
   ROOMS,
   waLink,
+  dateToLabel,
   type Room,
 } from "@/lib/kost-data";
 import {
   INVOICES,
   buildBillingWaMessage,
   buildReceiptWaMessage,
+  currentPeriodKey,
+  periodLabelFromKey,
+  periodShortLabel,
   type Invoice,
   type InvoiceLine,
   type WaBillingContext,
@@ -75,6 +85,7 @@ import { portalLink } from "@/lib/tenant-portal";
 import { openExternal } from "@/lib/open-external";
 import {
   CASH_ENTRIES,
+  dateSortFromLabel,
   type CashEntry,
 } from "@/lib/kost-cashflow";
 import {
@@ -163,6 +174,8 @@ export default function IndoKostPage() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  /** Generator Iklan Sosmed — kamar kosong yang sedang dibuatkan iklan */
+  const [adRoomId, setAdRoomId] = useState<string | null>(null);
   // Pengaturan global — sumber kebenaran: localStorage (useSyncExternalStore), persist otomatis
   const settings = useSyncExternalStore(subscribeSettings, getSettingsSnapshot, getServerSettingsSnapshot);
   const [settingsTab, setSettingsTab] = useState("profil-saya");
@@ -173,6 +186,32 @@ export default function IndoKostPage() {
     email: string;
     checkoutUrl: string;
   } | null>(null);
+
+  // ── Sesi demo interaktif (CTA landing "Coba Denah Kost Saya — Gratis") ─────
+  // instantDemo: datang dari GET /demo (redirect /dashboard?demo=1) → dataset
+  // simulasi 12 kamar dipasang SEKALI di render pertama TANPA panggilan
+  // API/Supabase — mode demo tampil < 1 detik dan tidak pernah menunggu DB.
+  const [instantDemo] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("demo") === "1",
+  );
+  const [isDemoSession, setIsDemoSession] = useState(false);
+
+  /** Reset Data Demo — dataset simulasi kembali persis ke kondisi awal.
+   *  Murni in-memory (instan, tanpa API): data demo tidak pernah bergantung DB. */
+  const handleResetDemo = useCallback(() => {
+    applyDemoSnapshot();
+    // Modul lokal (tiket & pengumuman) kembali ke dataset awal juga
+    setTickets(TICKETS);
+    setAnnouncements(ANNOUNCEMENTS);
+    setSelectedRoomId(null);
+    setAdRoomId(null);
+    toast.success("Data demo berhasil direset", {
+      description:
+        "Seluruh data simulasi kembali ke kondisi awal — 12 kamar, penghuni, tagihan, buku kas & komplain.",
+    });
+  }, []);
 
   // ── Sesi staf mandiri (/staff?token=…) — null = akses owner penuh ──
   const staffSession = useSyncExternalStore(
@@ -209,6 +248,11 @@ export default function IndoKostPage() {
     [rooms, selectedRoomId]
   );
 
+  const adRoom = useMemo(
+    () => rooms.find((r) => r.id === adRoomId) ?? null,
+    [rooms, adRoomId]
+  );
+
   // ── Pengaturan: persist ke localStorage + tema global ────────────────────
   const updateSettings = useCallback((patch: Partial<IndoKostSettings> | ((s: IndoKostSettings) => Partial<IndoKostSettings>)) => {
     updateStoredSettings(patch);
@@ -218,17 +262,89 @@ export default function IndoKostPage() {
     document.documentElement.dataset.ikTheme = settings.theme;
   }, [settings.theme]);
 
-  // ── Bootstrap data dari Supabase (Route Handlers) — external store, tanpa setState-in-effect
+  // ── Bootstrap data dashboard ────────────────────────────────────────────────
+  // MODE DEMO (?demo=1 dari GET /demo): pasang dataset simulasi 12 kamar
+  // SEKALI jalan TANPA memanggil API/Supabase sama sekali — tidak ada loading,
+  // tidak pernah "0 Kamar", tidak pernah skeleton menunggu database.
+  //
+  // AKUN ASLI: cek properti dulu (belum onboarding → langsung wizard
+  // /onboarding, bukan error), lalu muat kamar/tagihan/kas. Seluruh alur
+  // memakai try-catch-finally + fetch ber-timeout + watchdog 5 dtk — apa pun
+  // yang terjadi (sukses, data kosong, error, database menggantung), loading
+  // SELALU selesai dan pengguna tidak pernah menatap skeleton abadi.
   useEffect(() => {
-    loadDashboard().catch((err: unknown) => {
-      toast.error("Gagal terhubung database", {
-        description: err instanceof Error ? err.message : "Menampilkan data demo perangkat ini.",
+    if (instantDemo) {
+      applyDemoSnapshot();
+      setIsDemoSession(true);
+      return;
+    }
+
+    let alive = true;
+    let navigating = false;
+
+    // Watchdog: database tak pernah menjawab dalam 5 detik → lepas ke mode
+    // offline (data demo perangkat + banner) — TIDAK ada loader tak berujung.
+    const watchdog = setTimeout(() => {
+      if (alive) markStalled();
+    }, 5_000);
+
+    const sync = () =>
+      loadDashboard().catch((err: unknown) => {
+        toast.error("Gagal terhubung database", {
+          description: err instanceof Error ? err.message : "Menampilkan data demo perangkat ini.",
+        });
       });
-    });
-  }, []);
+
+    (async () => {
+      try {
+        const res = await api.getProperty();
+        if (!alive) return;
+        clearTimeout(watchdog);
+        if (res.property === null) {
+          // ANTI PING-PONG: sebelum melempar ke wizard, pastikan ini BUKAN
+          // sesi demo — wizard onboarding memantulkan demo balik ke
+          // /dashboard?demo=1; tanpa guard ini /onboarding ⇄ /dashboard
+          // berputar tanpa ujung (reload abadi). Sesi demo cukup dipasang
+          // snapshot simulasi instan di sini.
+          try {
+            const me = await getAuthMeOnce();
+            if (!alive) return;
+            if (me.demo) {
+              setIsDemoSession(true);
+              rescueDemoIfLoading();
+              return;
+            }
+          } catch {
+            return; // sesi tak terkonfirmasi → jangan redirect membuta
+          }
+          // Akun belum punya properti → wizard onboarding (bukan loader/error)
+          navigating = true;
+          window.location.replace("/onboarding");
+          return;
+        }
+        await sync();
+      } catch {
+        // getProperty gagal (database offline) — tidak bisa dibedakan dari
+        // "belum onboarding" → lanjutkan alur fallback data perangkat
+        if (!alive) return;
+        await sync();
+      } finally {
+        // Jaminan terakhir: status "loading" tidak boleh tersisa apa pun yang
+        // terjadi (watchdog sudah dibersihkan; sync selalu menetapkan status).
+        clearTimeout(watchdog);
+        if (alive && !navigating) markStalled();
+      }
+    })();
+
+    return () => {
+      alive = false;
+      clearTimeout(watchdog);
+    };
+  }, [instantDemo]);
 
   // ── Bootstrap tiket komplain dari database (cloud-first, fallback mock demo)
   useEffect(() => {
+    if (instantDemo) return; // demo: tiket simulasi lokal — tanpa API
     let alive = true;
     api
       .getTickets()
@@ -241,7 +357,7 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [instantDemo]);
 
   /** Tombol "Coba Sambungkan Ulang" pada banner offline */
   const handleRetrySync = () => {
@@ -253,53 +369,61 @@ export default function IndoKostPage() {
   };
 
   // ── Guard onboarding + gerbang lisensi (jual putus Mayar) ───────────────────
+  // Semua panggilan ber-timeout (api.getAuthMe/getLicense/getProperty) sehingga
+  // guard tidak pernah menggantung; kegagalan ditangani try-catch per langkah.
   useEffect(() => {
+    if (instantDemo) return; // demo: banner & data mock sudah aktif — tanpa API
     let alive = true;
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => r.json())
-      .then(
-        (info:
-          | { user?: { id: string; email?: string } | null; demo?: boolean }
-          | null) => {
-          // Demo / belum masuk (middleware sudah menangani) → jangan ganggu
-          if (!alive || !info?.user || info.demo) return;
-          // Gerbang lisensi dulu: belum lunas → layar gembok (sebelum onboarding)
-          return fetch("/api/billing/license", { cache: "no-store" })
-            .then((r) => r.json())
-            .then(
-              (lic: { licensed?: boolean; checkoutUrl?: string } | null) => {
-                if (!alive) return;
-                if (lic && lic.licensed === false) {
-                  setLicenseGate({
-                    email: info.user?.email ?? "",
-                    checkoutUrl:
-                      typeof lic.checkoutUrl === "string" ? lic.checkoutUrl : "",
-                  });
-                  return;
-                }
-                // API lisensi gagal (offline) → fail-open; lanjut cek properti
-                return api
-                  .getProperty()
-                  .then((res) => {
-                    if (alive && res.property === null) {
-                      window.location.replace("/onboarding");
-                    }
-                  })
-                  .catch(() => {
-                    /* offline — biarkan mode demo/offline berjalan */
-                  });
-              },
-            );
-        },
-      )
-      .catch(() => {});
+    (async () => {
+      let info: Awaited<ReturnType<typeof api.getAuthMe>> | null = null;
+      try {
+        info = await getAuthMeOnce(); // cache bersama bootstrap — konsisten & hemat
+      } catch {
+        return; // /api/auth/me gagal — middleware sudah menangani sesi
+      }
+      if (!alive || !info?.user) return;
+      // Sesi demo (CTA landing /demo) → tampilkan banner demo interaktif;
+      // tanpa gerbang lisensi & tanpa redirect onboarding.
+      if (info.demo) {
+        setIsDemoSession(true);
+        // Bila bootstrap masih menggantung (database hang), selamatkan UI
+        // dengan data simulasi instan — demo tidak menunggu database.
+        rescueDemoIfLoading();
+        return;
+      }
+      // Gerbang lisensi dulu: belum lunas → layar gembok (sebelum onboarding)
+      try {
+        const lic = await api.getLicense();
+        if (!alive) return;
+        if (lic && lic.licensed === false) {
+          setLicenseGate({
+            email: info.user?.email ?? "",
+            checkoutUrl: typeof lic.checkoutUrl === "string" ? lic.checkoutUrl : "",
+          });
+          return;
+        }
+        // API lisensi gagal (offline) → fail-open; lanjut cek properti
+      } catch {
+        if (!alive) return;
+      }
+      // Lisensi OK → pastikan properti ada; belum → wizard onboarding
+      try {
+        const res = await api.getProperty();
+        if (alive && res.property === null) {
+          window.location.replace("/onboarding");
+        }
+      } catch {
+        /* offline — biarkan mode demo/offline berjalan */
+      }
+    })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [instantDemo]);
 
   // ── Sinkron profil properti & rekening dari database (cloud = sumber kebenaran)
   useEffect(() => {
+    if (instantDemo) return; // demo: profil simulasi lokal — tanpa API
     let alive = true;
     api
       .getProperty()
@@ -333,7 +457,47 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [instantDemo]);
+
+  // ── Anti-stuck akun baru: bila dashboard jatuh ke mode offline saat mount
+  // (getProperty sempat menggantung), verifikasi properti SEKALI database
+  // menjawab — akun yang ternyata belum onboarding langsung diarahkan ke
+  // wizard, bukan tertahan di data demo perangkat tanpa penjelasan.
+  useEffect(() => {
+    if (dbState !== "offline" || instantDemo || licenseGate) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = () => {
+      api
+        .getProperty()
+        .then(async (res) => {
+          if (!alive || res.property !== null) return; // properti ada → biarkan banner offline + retry bekerja
+          // ANTI PING-PONG: properti null + sesi demo → wizard akan memantul
+          // balik ke /dashboard?demo=1 (reload abadi). Cukup aktifkan snapshot
+          // demo instan di sini — JANGAN lempar sesi demo ke /onboarding.
+          try {
+            const me = await getAuthMeOnce();
+            if (!alive) return;
+            if (me.demo) {
+              setIsDemoSession(true);
+              rescueDemoIfLoading();
+              return;
+            }
+          } catch {
+            return; // sesi tak terkonfirmasi → jangan redirect membuta
+          }
+          if (alive) window.location.replace("/onboarding");
+        })
+        .catch(() => {
+          if (alive) timer = setTimeout(check, 8_000); // DB belum menjawab
+        });
+    };
+    check();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [dbState, instantDemo, licenseGate]);
 
   const manageRoom = useMemo(
     () => rooms.find((r) => r.id === manageRoomId) ?? null,
@@ -412,21 +576,133 @@ export default function IndoKostPage() {
     setSettingsTab("danger");
   };
 
-  /** Shared payment flip — server ditandai lunas lalu kamar+invoice diperbarui dari respons */
-  const markRoomPaid = (roomId: string) => {
-    const invoiceId = invoices.find((i) => i.roomId === roomId && i.status !== "lunas")?.id;
-    if (!invoiceId) {
-      toast.info(`Tidak ada tagihan tertunggak untuk Kamar ${roomId}.`);
+  // ── Mode data lokal: demo interaktif (?demo=1 / sesi demo) atau fallback
+  // offline (database tak terjangkau). Data di memori adalah dataset simulasi
+  // yang TIDAK ada di cloud — mutasi pembayaran wajib murni lokal; memanggil
+  // API dulu-lah yang memicu error "Tagihan tidak ditemukan" / 401.
+  const isLocalDataMode = instantDemo || isDemoSession || dbState === "offline";
+
+  /** Id unik entri kas lokal (demo/offline) — hindari tabrakan KAS-… */
+  const localCashId = () => `KAS-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+  /** Tandai lunas versi lokal (demo & offline) — instan di memori, tanpa API:
+   *  invoice lunas, kartu kamar badge hijau, pemasukan masuk Buku Kas lokal.
+   *  Bila tagihan belum ada di state (tanpa stateInv), record invoice periode
+   *  terkait langsung dibuat berstatus lunas — persis perilaku auto-create
+   *  server, jadi mode demo tidak pernah kehilangan fungsi pembayaran. */
+  const markPaidLocal = (roomId: string, stateInv?: Invoice) => {
+    const room = rooms.find((r) => r.id === roomId);
+    if (!room) {
+      toast.info(`Kamar ${roomId} tidak ada di denah saat ini.`);
       return;
     }
+    const now = new Date();
+    const todayLabel = dateToLabel(now);
+    const periodKey = stateInv?.periodKey ?? currentPeriodKey();
+    const inv: Invoice =
+      stateInv ?? {
+        id: `#INV-${periodKey.replace("-", "")}-${roomId}`,
+        roomId,
+        tenantName: room.tenant?.name ?? null,
+        tenantPhone: room.tenant?.phone ?? null,
+        roomType: room.type,
+        periodLabel: periodLabelFromKey(periodKey),
+        periodKey,
+        dueDate: todayLabel,
+        lines: [{ label: "Sewa Kamar", amount: room.price }],
+        total: room.price,
+        status: "lunas",
+        paidAt: todayLabel,
+      };
+    const paidInvoice: Invoice = { ...inv, status: "lunas", paidAt: todayLabel, dayOffset: undefined };
+    updateInvoices((prev) =>
+      prev.some((i) => i.id === inv.id)
+        ? prev.map((i) => (i.id === inv.id ? paidInvoice : i))
+        : [paidInvoice, ...prev],
+    );
+    // Kartu kamar: badge hijau "Lunas" + hilangkan tanda H+n/H-n pada tempo
+    updateRooms((prev) =>
+      prev.map((r) =>
+        r.id === roomId
+          ? {
+              ...r,
+              status: "lunas" as const,
+              invoice: r.invoice ? { ...r.invoice, dayOffset: undefined } : r.invoice,
+            }
+          : r,
+      ),
+    );
+    // Pemasukan sewa tercatat ke Buku Kas (format identik dgn catatan server)
+    const entry: CashEntry = {
+      id: localCashId(),
+      dateLabel: todayLabel,
+      dateSort: dateSortFromLabel(todayLabel),
+      type: "masuk",
+      category: "Sewa Kamar",
+      description: `Kamar ${roomId} · ${paidInvoice.tenantName ?? "Penyewa"} — Sewa ${periodShortLabel(paidInvoice.periodKey)}`,
+      amount: paidInvoice.total,
+    };
+    updateCashEntries((prev) => [entry, ...prev]);
+    toast.success("Tagihan berhasil ditandai lunas!", {
+      description: `Kamar ${roomId} · ${formatIDR(paidInvoice.total)} diterima ${todayLabel} · pemasukan dicatat ke Buku Kas${
+        dbState === "offline" && !instantDemo && !isDemoSession
+          ? " (lokal — database sedang offline)"
+          : " (mode demo)"
+      }.`,
+    });
+  };
+
+  /** Terapkan hasil server: sinkronkan invoice/kamar/Buku Kas dari respons.
+   *  Bila server menyelesaikan lewat fallback (id klien basi → tagihan aktif
+   *  lain), sisa tagihan belum-lunas kamar yang sama dibersihkan agar denah
+   *  tidak menampilkan menunggak palsu. */
+  const applyServerPayment = (
+    invoice: Invoice,
+    room: Room,
+    cashEntry: CashEntry | undefined,
+    staleInvoiceId: string | undefined,
+  ) => {
+    updateInvoices((prev) => {
+      const replaced = prev.some((i) => i.id === invoice.id)
+        ? prev.map((i) => (i.id === invoice.id ? invoice : i))
+        : [invoice, ...prev];
+      if (staleInvoiceId && staleInvoiceId !== invoice.id) {
+        return replaced.filter(
+          (i) =>
+            !(
+              i.roomId === invoice.roomId &&
+              i.id !== invoice.id &&
+              i.status !== "lunas" &&
+              i.status !== "verifikasi"
+            ),
+        );
+      }
+      return replaced;
+    });
+    updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+    if (cashEntry) updateCashEntries((prev) => [cashEntry, ...prev]);
+  };
+
+  /** Shared payment flip — server ditandai lunas lalu kamar+invoice diperbarui
+   *  dari respons. id basi / tanpa tagihan BUKAN kegagalan: server memakai
+   *  tagihan aktif kamar atau auto-create invoice periode terkait (lunas). */
+  const markRoomPaid = (roomId: string) => {
+    const stateInvoice = invoices.find((i) => i.roomId === roomId && i.status !== "lunas");
+
+    // MODE DEMO / OFFLINE: manipulasi state lokal — instan, tanpa API.
+    if (isLocalDataMode) {
+      markPaidLocal(roomId, stateInvoice);
+      return;
+    }
+
     api
-      .markInvoicePaid(invoiceId)
-      .then(({ invoice, room, cashEntry }) => {
-        updateInvoices((prev) => prev.map((i) => (i.id === invoice.id ? invoice : i)));
-        updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
-        if (cashEntry) updateCashEntries((prev) => [cashEntry, ...prev]);
+      .markInvoicePaid(stateInvoice?.id ?? null, roomId, stateInvoice?.periodKey)
+      .then(({ invoice, room, cashEntry, created }) => {
+        applyServerPayment(invoice, room, cashEntry, stateInvoice?.id);
         toast.success(`Pembayaran Kamar ${room.id} dicatat lunas`, {
-          description: `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""} · tersimpan ke cloud.`,
+          description: created
+            ? `Tagihan periode terkait dibuat otomatis · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""} · tersimpan ke cloud.`
+            : `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""} · tersimpan ke cloud.`,
         });
       })
       .catch((err: unknown) =>
@@ -436,16 +712,21 @@ export default function IndoKostPage() {
 
   const handleMarkPaid = (room: Room) => markRoomPaid(room.id);
 
-  /** Tagihan table "Tandai Lunas / Konfirmasi" — server-first, kamar & Buku Kas ikut disinkronkan */
+  /** Tagihan table "Tandai Lunas / Konfirmasi" — server-first dgn fallback
+   *  roomId, kamar & Buku Kas ikut disinkronkan; demo/offline murni lokal. */
   const handleInvoiceMarkPaid = (inv: Invoice) => {
+    if (isLocalDataMode) {
+      markPaidLocal(inv.roomId, inv);
+      return;
+    }
     api
-      .markInvoicePaid(inv.id)
-      .then(({ invoice, room, cashEntry }) => {
-        updateInvoices((prev) => prev.map((i) => (i.id === invoice.id ? invoice : i)));
-        updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
-        if (cashEntry) updateCashEntries((prev) => [cashEntry, ...prev]);
+      .markInvoicePaid(inv.id, inv.roomId, inv.periodKey)
+      .then(({ invoice, room, cashEntry, created }) => {
+        applyServerPayment(invoice, room, cashEntry, inv.id);
         toast.success(`Kamar ${inv.roomId} ditandai lunas`, {
-          description: `${invoice.id} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""}.`,
+          description: created
+            ? `${invoice.id} (dibuat otomatis) · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""}.`
+            : `${invoice.id} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""}.`,
         });
       })
       .catch((err: unknown) =>
@@ -1287,6 +1568,7 @@ export default function IndoKostPage() {
 
         <main className="flex-1 overflow-y-auto scrollbar-thin" aria-label="Konten utama">
           <div className="mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6">
+            {isDemoSession && <DemoBanner onReset={handleResetDemo} />}
             {dbState === "offline" && <OfflineBanner onRetry={handleRetrySync} />}
             {view === "tagihan" ? (
               <TagihanView
@@ -1371,6 +1653,9 @@ export default function IndoKostPage() {
                 onFactoryReset={handleFactoryReset}
                 onApplyTariff={handleApplyTariff}
                 onSyncProperty={handleSyncPropertyToDb}
+                invoices={invoices}
+                cashEntries={cashEntries}
+                onRestoreComplete={() => void refreshDashboard()}
                 staffSession={
                   staffSession ? { name: staffSession.name, role: staffSession.role } : null
                 }
@@ -1405,7 +1690,13 @@ export default function IndoKostPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <p className="hidden text-[13px] font-medium text-zinc-700 sm:block">
-                      {syncedAt ? `Tersinkron cloud · ${syncedAt}` : "Menyambungkan ke cloud…"}
+                      {syncedAt
+                        ? `Tersinkron cloud · ${syncedAt}`
+                        : isDemoSession
+                          ? "Mode Demo · data simulasi"
+                          : dbState === "offline"
+                            ? "Mode offline · data perangkat"
+                            : "Menyambungkan ke cloud…"}
                     </p>
                     {canManageRooms && (
                       <Button
@@ -1438,7 +1729,9 @@ export default function IndoKostPage() {
                   }}
                   onDeleteRoom={handleRequestDeleteRoom}
                   onCheckinRoom={(room) => openCheckin(room.id)}
+                  onAdRoom={(room) => setAdRoomId(room.id)}
                   canManage={canManageRooms}
+                  propertyType={settings.propertyProfile.tipe}
                   onAddRoom={() => setAddRoomOpen(true)}
                 />
               </>
@@ -1475,8 +1768,23 @@ export default function IndoKostPage() {
         onMarkPaid={handleMarkPaid}
         onSendInvoice={handleSendInvoice}
         onCheckIn={(room) => openCheckin(room.id)}
+        onCreateAd={(room) => setAdRoomId(room.id)}
         propertyName={property}
         canManage={canManageRooms}
+        propertyType={settings.propertyProfile.tipe}
+      />
+
+      {/* Generator Iklan Kamar Siap Copas ke Sosmed — kamar kosong */}
+      <AdGeneratorModal
+        room={adRoom}
+        open={adRoomId !== null}
+        onOpenChange={(o) => {
+          if (!o) setAdRoomId(null);
+        }}
+        propertyName={property}
+        ownerWhatsapp={settings.owner.whatsapp}
+        facilityCatalog={settings.facilities.unit}
+        propertyType={settings.propertyProfile.tipe}
       />
 
       <CheckinModal
@@ -1559,9 +1867,14 @@ function DashboardSkeleton() {
       role="status"
       aria-live="polite"
     >
-      <span className="flex size-10 items-center justify-center rounded-xl bg-zinc-900 text-white">
-        <Building2 className="size-5 animate-pulse" strokeWidth={1.75} aria-hidden="true" />
-      </span>
+      <Image
+        src="/brand/icon.png"
+        alt="Logo UnitKu"
+        width={40}
+        height={40}
+        priority
+        className="size-10 shrink-0 animate-pulse rounded-xl object-contain ring-1 ring-zinc-200"
+      />
       <p className="flex items-center gap-2 text-[13px] font-semibold text-zinc-800">
         <Loader2 className="size-4 animate-spin text-zinc-500" strokeWidth={2} aria-hidden="true" />
         Menyambungkan ke database…
@@ -1591,6 +1904,86 @@ function OfflineBanner({ onRetry }: { onRetry: () => void }) {
         <RefreshCw className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
         Coba Sambungkan Ulang
       </Button>
+    </div>
+  );
+}
+
+// ── Banner Mode Demo Interaktif (sesi demo dari CTA landing /demo) ───────────
+// Sticky di atas konten main — selalu terlihat pengunjung mencoba demo, dengan
+// CTA konversi "Beli Lisensi Rp 399rb" (modal checkout, komponen BuyCta) dan
+// tombol kecil "Reset Data Demo" untuk mengembalikan data simulasi ke awal.
+
+function DemoBanner({ onReset }: { onReset: () => void }) {
+  const [hidden, setHidden] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  if (hidden) return null;
+  return (
+    <div
+      role="status"
+      aria-label="Banner Mode Demo Interaktif"
+      className="sticky top-0 z-30 -mx-3.5 -mt-4 border-b border-emerald-200 bg-emerald-50/95 px-3.5 py-2.5 shadow-[0_1px_3px_rgba(5,150,105,0.10)] backdrop-blur lg:-mx-6 lg:px-6"
+    >
+      <div className="mx-auto flex max-w-[1440px] flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <p className="flex min-w-0 items-start gap-2 text-[12.5px] leading-snug text-emerald-900">
+          <Sparkles
+            className="mt-0.5 size-4 shrink-0 text-emerald-600"
+            strokeWidth={1.75}
+            aria-hidden="true"
+          />
+          <span>
+            <span className="font-bold">Mode Demo Interaktif</span> — Anda sedang mencoba
+            fitur UnitKu dengan data simulasi. Bebas klik denah kamar, lihat status sewa,
+            dan coba kirim tagihan WhatsApp.
+          </span>
+        </p>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:pl-3">
+          <BuyCta
+            label="Beli Lisensi Rp 399rb"
+            className="h-9 min-h-0 whitespace-nowrap rounded-lg px-3.5 py-0 text-[12.5px] font-bold sm:text-[13px]"
+          />
+          <Button
+            variant="outline"
+            onClick={() => setConfirmReset(true)}
+            className="h-9 gap-1.5 rounded-lg border-emerald-300 bg-white/70 px-2.5 text-[12px] font-semibold text-emerald-800 shadow-none hover:bg-emerald-100"
+          >
+            <RotateCcw className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+            Reset Data Demo
+          </Button>
+          <button
+            type="button"
+            onClick={() => setHidden(true)}
+            aria-label="Tutup banner demo"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
+          >
+            <X className="size-4" strokeWidth={1.75} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+
+      <AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
+        <AlertDialogContent className="max-w-md rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-left text-base font-bold text-zinc-900">
+              Reset data demo?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-left text-[13px] leading-relaxed text-zinc-600">
+              Seluruh perubahan simulasi (penghuni, tagihan, buku kas, komplain) dihapus
+              dan data kembali ke kondisi awal — 12 kamar lengkap dengan penghuni contoh.
+              Data asli Anda tidak terpengaruh.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="h-9 text-[13px]">Batal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onReset}
+              className="h-9 bg-orange-600 text-[13px] font-semibold hover:bg-orange-700"
+            >
+              <RotateCcw className="size-4" strokeWidth={1.75} aria-hidden="true" />
+              Ya, Reset Data
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

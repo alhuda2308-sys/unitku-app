@@ -45,6 +45,46 @@ function redirectToLogin(request: NextRequest): NextResponse {
 /** Tujuan bila yang sudah masuk membuka /login|/register — dashboard owner */
 const AUTHED_HOME = "/dashboard";
 
+/** Batas waktu getUser() di middleware — Supabase Auth yang lambat/hang tidak
+ *  boleh menahan navigasi halaman lebih dari ini. */
+const GET_USER_TIMEOUT_MS = 4_000;
+
+/**
+ * getUser() yang DIJAMIN selesai: error (network Supabase Auth down, race
+ * refresh token berlomba antar request paralel) ATAU timeout → user null —
+ * TIDAK pernah melempar dan TIDAK pernah menggantung.
+ *
+ * INI KUNCI ANTI LOOP: kegagalan sesaat getUser() TIDAK boleh memicu redirect
+ * membuta — pemilik sesi sah akan dipantul-pantulkan /login ⇄ /dashboard
+ * (infinite reload) karena request berikutnya justru lolos saat race selesai.
+ */
+async function getUserSafe(
+  client: ReturnType<typeof createServerClient>,
+): Promise<{ id: string } | null> {
+  // catch di sini agar race tidak pernah reject (termasuk rejection belakangan)
+  const getUser = client.auth.getUser().catch(() => ({ data: { user: null } }));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<{ data: { user: null } }>((resolve) => {
+      timer = setTimeout(() => resolve({ data: { user: null } }), GET_USER_TIMEOUT_MS);
+    });
+    const { data } = await Promise.race([getUser, timeout]);
+    return data.user ? { id: data.user.id } : null;
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** Ada cookie auth Supabase (sb-*)? — bukti sesi (valid/basi) pernah ada.
+ *  Dipakai sebagai fallback BILA getUser() gagal sesaat: JANGAN mengusir
+ *  pengguna dari halaman terproteksi — cukup route handler yang menegakkan
+ *  401 JSON (isolasi data tetap aman), tanpa pantulan redirect halaman. */
+function hasSupabaseAuthCookies(request: NextRequest): boolean {
+  return request.cookies.getAll().some((c) => c.name.startsWith("sb-"));
+}
+
 /** Klien Supabase + response terbaru (cookie refresh mungkin mengganti response)
  *  Pola resmi @supabase/ssr: setAll menulis token hasil refresh KE request
  *  (agar server component membaca token baru) DAN ke response yang DIKEMBALIKAN
@@ -80,11 +120,19 @@ export async function middleware(request: NextRequest) {
 
   if (isSupabaseConfigured()) {
     const { client, getResponse } = createSupabaseMiddlewareClient(request);
-    const { data } = await client.auth.getUser();
-    const hasSession = Boolean(data.user);
+    const user = await getUserSafe(client); // null bila tak ada sesi / gagal sesaat / timeout
+    const hasSbCookies = hasSupabaseAuthCookies(request);
+    // Cookie demo lokal (CTA /demo). Cek cookie hanya keberadaan — verifikasi
+    // HMAC + pembatasan demo dilakukan penuh di getAuthUser() (route handler),
+    // pola sama dengan mode lokal.
+    const hasDemoCookie = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
 
     if (isPublicPage(pathname)) {
-      if (hasSession && isAuthPage) {
+      // Pemilik sesi TERVERIFIKASI tidak perlu melihat /login|/register lagi.
+      // PENTING (anti infinite reload): pantulan ini HANYA saat user benar-benar
+      // terverifikasi — cookie basi/sesi kedaluwarsa TIDAK boleh dipantulkan ke
+      // /dashboard (di sana API 401 → dilempar balik ke /login → loop abadi).
+      if (isAuthPage && user) {
         const url = request.nextUrl.clone();
         url.pathname = AUTHED_HOME;
         url.search = "";
@@ -92,7 +140,13 @@ export async function middleware(request: NextRequest) {
       }
       return getResponse();
     }
-    if (!hasSession) return redirectToLogin(request);
+
+    // Halaman terproteksi — susur ke /login HANYA bila jelas tak ada keterangan
+    // sesi sama sekali. Bila cookie sb-* ada tetapi getUser() gagal sesaat
+    // (network auth / race refresh token), BIARKAN LEWAT: halaman dashboard
+    // menangani dengan anggun (fallback offline), route handler menegakkan 401
+    // JSON bila sesi memang batal — TANPA pantulan redirect halaman.
+    if (!user && !hasSbCookies && !hasDemoCookie) return redirectToLogin(request);
     return getResponse();
   }
 

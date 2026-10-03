@@ -12,10 +12,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Building2,
   KeyRound,
   LayoutDashboard,
   Loader2,
@@ -83,9 +83,14 @@ export default function StaffPortalPage() {
       <main className="w-full max-w-md">
         {/* Brand — Logo UnitKu */}
         <div className="mb-5 flex items-center justify-center gap-2.5">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-zinc-900 text-white">
-            <Building2 className="size-5" strokeWidth={1.75} aria-hidden="true" />
-          </span>
+          <Image
+            src="/brand/icon.png"
+            alt="Logo UnitKu"
+            width={36}
+            height={36}
+            priority
+            className="size-9 shrink-0 rounded-xl object-contain ring-1 ring-zinc-200"
+          />
           <span className="text-lg font-bold tracking-tight text-zinc-900">UnitKu</span>
         </div>
 

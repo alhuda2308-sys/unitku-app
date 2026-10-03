@@ -1,6 +1,6 @@
 "use client";
 
-import { MoreVertical, PencilLine, Trash2, UserPlus } from "lucide-react";
+import { Megaphone, MoreVertical, PencilLine, Trash2, UserPlus } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { formatIDRShort, OPERATIONAL_META, type Room } from "@/lib/kost-data";
+import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { StatusBadge, STATUS_SKIN } from "./status-badge";
 
 interface RoomCardProps {
@@ -19,8 +20,13 @@ interface RoomCardProps {
   /** false = peran read-only (Penjaga) — menu opsi disembunyikan */
   onDelete: (room: Room) => void;
   onCheckin?: (room: Room) => void;
+  /** Unit kosong siap huni → tombol aksen "Buat Iklan …" (Generator Iklan Sosmed) */
+  onCreateAd?: (room: Room) => void;
   /** false = sembunyikan menu kebab Opsi (Penjaga) — default true */
   canManage?: boolean;
+  /** Tipe properti aktif (kost/kontrakan/rusun) — label tombol adaptif:
+  *  "Buat Iklan Kamar" (kost) / "Buat Iklan Kontrakan" / "Buat Iklan Unit" */
+  propertyType?: string;
 }
 
 /**
@@ -28,9 +34,13 @@ interface RoomCardProps {
  * (lunas/jatuh tempo/menunggak/kosong) dan tema aktif. Tinggi seragam
  * h-[124px], tata letak 3 baris presisi (justify-between).
  */
-export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, canManage = true }: RoomCardProps) {
+export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCreateAd, canManage = true, propertyType }: RoomCardProps) {
   const isVacant = room.status === "kosong";
   const op = room.operational ?? "siap";
+  /** Kamar kosong siap huni → tampilkan tombol aksen Generator Iklan Sosmed */
+  const showAdCta = isVacant && op === "siap" && Boolean(onCreateAd);
+  /** Label tombol iklan adaptif tipe properti aktif (Kamar/Kontrakan/Unit) */
+  const adCta = adCtaLabel(adPropertyScope(propertyType));
   const skin = STATUS_SKIN[room.status];
   const vacantLabel =
     op === "siap" ? (
@@ -71,7 +81,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, canMan
           <StatusBadge room={room} solid />
         </div>
 
-        {/* Baris 2: nama penyewa / label kosong */}
+        {/* Baris 2: nama penyewa / label kosong (kamar siap huni → area tombol iklan) */}
         <div className="flex-1 overflow-hidden pt-1">
           {isVacant ? (
             vacantLabel
@@ -82,7 +92,10 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, canMan
           )}
         </div>
 
-        {/* Baris 3: chip tipe + tanggal tempo / harga */}
+        {/* Baris 3: chip tipe + tanggal tempo / harga (kamar dgn CTA iklan →
+            baris ini digantikan tombol aksen; tipe & harga tetap terbaca via
+            aria-label kartu, drawer, & modal iklan) */}
+        {showAdCta ? null : (
         <div className="flex flex-wrap items-center justify-between gap-x-1.5 gap-y-1">
           <span
             className={cn(
@@ -102,7 +115,32 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, canMan
             </span>
           )}
         </div>
+        )}
       </button>
+
+      {/* Tombol aksen Generator Iklan — khusus kamar KOSONG siap huni,
+          overlay di baris bawah kartu (info tipe/harga tetap ada di drawer).
+          Sibling (bukan child) dari kartu <button> agar HTML tetap valid dan
+          klik tengah kartu tetap membuka drawer detail. */}
+      {showAdCta && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onCreateAd?.(room);
+          }}
+          aria-label={`Buat iklan kamar ${room.id} untuk promosi sosmed`}
+          className={cn(
+            "absolute inset-x-2.5 bottom-2.5 z-10 flex h-7 items-center justify-center gap-1 whitespace-nowrap rounded-md",
+            "bg-gradient-to-r from-amber-500 to-orange-500 text-[11px] font-bold text-white shadow-sm",
+            "transition-all hover:from-amber-600 hover:to-orange-600 hover:shadow-md active:scale-[0.98]",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
+          )}
+        >
+          <Megaphone className="size-3" strokeWidth={2.25} aria-hidden="true" />
+          {adCta}
+        </button>
+      )}
 
       {/* Kebab: hover-reveal on pointer devices, always visible on touch */}
       {canManage && (
