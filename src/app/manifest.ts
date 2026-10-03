@@ -19,11 +19,16 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: "id",
     dir: "ltr",
     categories: ["business", "productivity"],
+    // Aset splash PWA: Android/Chrome merender splash screen dari ikon manifest
+    // + background_color — ikon "any" memakai LOGO LENGKAP (rumah + tulisan
+    // UnitKu) agar layar pembuka selalu menampilkan brand, bukan rumah saja.
+    // Query ?v=2 = cache-busting: URL ikon berubah → WebAPK/splash terpasang
+    // ikut memperbarui ke aset terbaru tanpa perlu lepas-pasang shortcut.
     icons: [
-      { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      { src: "/icons/maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
-      { src: "/icons/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: "/icons/icon-192.png?v=2", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icons/icon-512.png?v=2", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icons/maskable-192.png?v=2", sizes: "192x192", type: "image/png", purpose: "maskable" },
+      { src: "/icons/maskable-512.png?v=2", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
 }

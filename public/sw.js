@@ -6,12 +6,24 @@
 // dan menyediakan halaman offline ramah saat jaringan hilang.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Versi SW — naikkan setiap aset shell (ikon/manifest/splash) berubah agar
+// SW baru ter-install (byte-different) dan cache lama ikut dibersihkan.
+const SW_VERSION = "unitku-v2-splash-logo-full";
+
 self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // Bersihkan cache era versi sebelumnya (defensif — SW ini memang
+      // tidak menyimpan aset, jadi biasanya tidak ada yang terhapus)
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((key) => key !== SW_VERSION).map((key) => caches.delete(key)));
+      await self.clients.claim();
+    })(),
+  );
 });
 
 self.addEventListener("fetch", (event) => {
