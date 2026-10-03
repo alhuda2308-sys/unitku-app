@@ -536,6 +536,7 @@ export function updateStoredSettings(
   cachedSettings = { ...base, ...part };
   saveSettings(cachedSettings);
   notifySettingsListeners();
+  scheduleCloudSync(); // akun riil → antre push ke cloud (lihat bagian bawah)
 }
 
 if (typeof window !== "undefined") {
@@ -544,6 +545,146 @@ if (typeof window !== "undefined") {
       cachedSettings = null;
       notifySettingsListeners();
     }
+  });
+}
+
+/* ── Sinkron cloud (akun riil) ────────────────────────────────────────────────
+ *
+ * localStorage = cache instan; DATABASE = sumber kebenaran utk sesi owner.
+ *  - Bootstrap : dashboard memanggil GET /api/settings → applyRemoteSettings()
+ *    menimpa bagian yang tersimpan di cloud (mencegah data dummy default
+ *    tampil di perangkat baru), lalu setSettingsCloudSync(true).
+ *  - Setiap edit (updateStoredSettings) → debounce ±1,2 dtk → PUT /api/settings
+ *    (full snapshot, idempoten; server mencerminkan field properti/rekening ke
+ *    tabel properties). Demo & offline: sync nonaktif — localStorage saja.
+ *
+ * guard `applyingRemote` mencegah echo loop: penulisan hasil GET ke store
+ * TIDAK memicu push balik. */
+
+export interface SettingsCloudPatch {
+  owner?: Partial<OwnerProfile> | null;
+  propertyExtras?: Partial<Pick<PropertyProfile, "lantai" | "jamMalam" | "aturan">> | null;
+  properties?: PropertyEntry[] | null;
+  staff?: StaffMember[] | null;
+  templates?: WaTemplateConfig | null;
+  facilities?: FacilityCatalog | null;
+  theme?: ThemeKey | null;
+}
+
+const CLOUD_SYNC_DEBOUNCE_MS = 1_200;
+let cloudSyncEnabled = false; // hanya aktif utk sesi owner riil (bukan demo)
+let applyingRemote = false; // true saat menulis hasil GET / pause → jangan push
+let cloudTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Aktif/nonaktifkan push otomatis ke /api/settings (dashboard memutuskan
+ *  berdasar sesi: demo → false, owner riil → true setelah GET pertama). */
+export function setSettingsCloudSync(enabled: boolean): void {
+  cloudSyncEnabled = enabled;
+  if (!enabled && cloudTimer) {
+    clearTimeout(cloudTimer);
+    cloudTimer = null;
+  }
+}
+
+function stripNullish<T extends object>(value: T): Partial<T> {
+  const out: Partial<T> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (v !== null && v !== undefined) (out as Record<string, unknown>)[k] = v;
+  }
+  return out;
+}
+
+/** Terapkan bagian pengaturan yang tersimpan di cloud ke store lokal.
+ *  Cloud MENANG atas nilai default dummy; field yang tidak ada di cloud
+ *  tetap memakai nilai lokal (tema, dsb.). TIDAK memicu push balik. */
+export function applyRemoteSettings(remote: SettingsCloudPatch | null | undefined): void {
+  if (!remote || applyingRemote) return;
+  applyingRemote = true;
+  try {
+    updateStoredSettings((s) => {
+      const next: Partial<IndoKostSettings> = {};
+      if (remote.owner) next.owner = { ...s.owner, ...stripNullish(remote.owner) };
+      if (remote.propertyExtras) {
+        next.propertyProfile = { ...s.propertyProfile, ...stripNullish(remote.propertyExtras) };
+      }
+      if (Array.isArray(remote.properties)) next.properties = remote.properties;
+      if (Array.isArray(remote.staff)) next.staff = remote.staff;
+      if (remote.templates) next.templates = { ...s.templates, ...stripNullish(remote.templates) };
+      if (remote.facilities) {
+        next.facilities = {
+          unit: Array.isArray(remote.facilities.unit) ? remote.facilities.unit : s.facilities.unit,
+          shared: Array.isArray(remote.facilities.shared) ? remote.facilities.shared : s.facilities.shared,
+        };
+      }
+      if (remote.theme && (THEME_KEYS as readonly string[]).includes(remote.theme)) {
+        next.theme = remote.theme;
+      }
+      return next;
+    });
+  } finally {
+    applyingRemote = false;
+  }
+}
+
+/** Jalankan `fn` tanpa memicu push ke cloud — dipakai saat menulis nilai yang
+ *  bersumber dari server (sinkron property/rekening) agar tidak echo bolak-balik. */
+export function pauseCloudSync<T>(fn: () => T): T {
+  const prev = applyingRemote;
+  applyingRemote = true;
+  try {
+    return fn();
+  } finally {
+    applyingRemote = prev;
+  }
+}
+
+/** Payload penuh utk PUT /api/settings — server yang memilah kolom. */
+export function buildSettingsCloudPayload(s: IndoKostSettings): Record<string, unknown> {
+  return {
+    owner: s.owner,
+    propertyProfile: s.propertyProfile,
+    properties: s.properties,
+    staff: s.staff,
+    templates: s.templates,
+    facilities: s.facilities,
+    theme: s.theme,
+    rekening: s.rekening,
+  };
+}
+
+async function pushSettingsToCloud(): Promise<void> {
+  if (!cloudSyncEnabled || applyingRemote) return;
+  try {
+    await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildSettingsCloudPayload(getSettingsSnapshot())),
+      cache: "no-store",
+      keepalive: true, // selamat saat tab ditutup tepat setelah edit
+    });
+  } catch {
+    /* offline/timeout — localStorage tetap sumber sehari-hari; push berikutnya
+       (edit/kunjungan berikutnya) menyinkronkan ulang secara idempoten. */
+  }
+}
+
+function scheduleCloudSync(): void {
+  if (!cloudSyncEnabled || applyingRemote) return;
+  if (cloudTimer) clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => {
+    cloudTimer = null;
+    void pushSettingsToCloud();
+  }, CLOUD_SYNC_DEBOUNCE_MS);
+}
+
+if (typeof window !== "undefined") {
+  // Tab ditutup / pindah halaman setelah edit → flush sisa debounce.
+  window.addEventListener("pagehide", () => {
+    if (cloudTimer) {
+      clearTimeout(cloudTimer);
+      cloudTimer = null;
+    }
+    if (cloudSyncEnabled) void pushSettingsToCloud();
   });
 }
 

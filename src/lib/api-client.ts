@@ -15,6 +15,7 @@ import type { TechnicianContact as ClientTechnician } from "@/lib/technician-dat
 import type { StaffAccessMember } from "@/lib/staff-access";
 import type { ClientProperty } from "@/lib/server/mappers";
 import type { PortalRekening } from "./tenant-portal";
+import type { SettingsCloudPatch } from "./app-settings";
 
 // ── 401 anti ping-pong (infinite reload) ────────────────────────────────
 // 401 SEKENS bisa terjadi pada pemilik sesi sah: access token Supabase
@@ -187,6 +188,14 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
+
+  // /api/settings — pengaturan owner di cloud (Profil Saya, Staf, Template WA,
+  // Fasilitas, Tema). settings null = sesi demo / tabel cloud belum dibuat
+  // (degraded) — klien tetap memakai localStorage tanpa error.
+  getSettings: () =>
+    request<{ demo?: boolean; degraded?: boolean; settings?: SettingsCloudPatch | null }>(
+      "/api/settings",
+    ),
 
   // /api/rooms
   getRooms: () => request<{ rooms: ClientRoom[] }>("/api/rooms"),

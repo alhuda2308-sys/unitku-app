@@ -114,6 +114,9 @@ import {
   fileToPhotoDataUrl,
   nextSettingsId,
   PROPERTY_TYPE_META,
+  applyRemoteSettings,
+  pauseCloudSync,
+  setSettingsCloudSync,
   getServerSettingsSnapshot,
   getSettingsSnapshot,
   subscribeSettings,
@@ -432,27 +435,62 @@ export default function IndoKostPage() {
         const p = res.property;
         // Belum onboarding (properti null) → guard onboarding yang menangani
         if (!p) return;
-        updateStoredSettings((s) => ({
-          propertyProfile: {
-            ...s.propertyProfile,
-            nama: p.name,
-            tipe: (p.tipe in PROPERTY_TYPE_META
-              ? p.tipe
-              : s.propertyProfile.tipe) as PropertyProfile["tipe"],
-            alamat: p.alamat ?? s.propertyProfile.alamat,
-            fotoUrl: p.fotoUrl ?? s.propertyProfile.fotoUrl,
-          },
-          rekening: {
-            bank: p.bankName ?? s.rekening.bank,
-            noRek: p.bankAccountNo ?? s.rekening.noRek,
-            atasNama: p.bankAccountName ?? s.rekening.atasNama,
-            qrisImageUrl: p.qrisImageUrl ?? s.rekening.qrisImageUrl,
-            qrisNmid: p.qrisNmid ?? s.rekening.qrisNmid,
-          },
-        }));
+        // pauseCloudSync: nilai ini BERSUMBER dari server — jangan di-push balik
+        pauseCloudSync(() =>
+          updateStoredSettings((s) => ({
+            propertyProfile: {
+              ...s.propertyProfile,
+              nama: p.name,
+              tipe: (p.tipe in PROPERTY_TYPE_META
+                ? p.tipe
+                : s.propertyProfile.tipe) as PropertyProfile["tipe"],
+              alamat: p.alamat ?? s.propertyProfile.alamat,
+              fotoUrl: p.fotoUrl ?? s.propertyProfile.fotoUrl,
+            },
+            rekening: {
+              bank: p.bankName ?? s.rekening.bank,
+              noRek: p.bankAccountNo ?? s.rekening.noRek,
+              atasNama: p.bankAccountName ?? s.rekening.atasNama,
+              qrisImageUrl: p.qrisImageUrl ?? s.rekening.qrisImageUrl,
+              qrisNmid: p.qrisNmid ?? s.rekening.qrisNmid,
+            },
+          })),
+        );
       })
       .catch(() => {
         /* offline — biarkan pengaturan lokal */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [instantDemo]);
+
+  // ── Sinkron PENGATURAN owner dari cloud (Profil Saya, Staf, Template WA,
+  // Fasilitas, Tema) — perbaikan data-reset: bagian pengaturan ini dulu HANYA
+  // di localStorage, sehingga login dari perangkat lain / clear storage
+  // menampilkan data dummy. Sekarang cloud = sumber kebenaran (owner_settings);
+  // localStorage tinggal cache instan. Sesi demo tetap murni perangkat.
+  useEffect(() => {
+    if (instantDemo) {
+      setSettingsCloudSync(false); // demo: tidak pernah push ke cloud
+      return;
+    }
+    let alive = true;
+    api
+      .getSettings()
+      .then((res) => {
+        if (!alive) return;
+        // degraded = tabel owner_settings belum dibuat (SQL belum dijalankan)
+        // → tetap mode lokal, tanpa error — lihat sql/owner-settings-table.sql
+        if (res.demo || !res.settings) {
+          setSettingsCloudSync(false);
+          return;
+        }
+        applyRemoteSettings(res.settings); // cloud menang atas dummy default
+        setSettingsCloudSync(true); // edit berikutnya otomatis di-push
+      })
+      .catch(() => {
+        /* offline — pengaturan lokal tetap dipakai */
       });
     return () => {
       alive = false;

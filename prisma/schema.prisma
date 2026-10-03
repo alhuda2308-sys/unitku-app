@@ -337,3 +337,31 @@ model CashEntry {
   @@index([propertyId])
   @@map("cash_entries")
 }
+
+// ── Pengaturan Owner (sinkron lintas perangkat — akun riil) ─────────────────
+// Satu baris per owner (userId = auth.users.id / OwnerAccount.id). Menyimpan
+// bagian Pengaturan yang sebelumnya HANYA di localStorage (hilang saat ganti
+// perangkat / clear storage → tampil data dummy):
+//   • owner          — Profil Saya { nama, email, whatsapp }
+//   • propertyExtras — Profil Properti non-Property { lantai, jamMalam, aturan }
+//   • properties     — daftar multi-cabang (settings)
+//   • staff          — daftar staf versi settings
+//   • templates      — template WhatsApp
+//   • facilities     — katalog fasilitas
+//   • theme          — tema tampilan
+// Identitas properti (nama/tipe/alamat/fotoUrl) & rekening/QRIS TETAP di tabel
+// "properties" (sumber kebenaran) — PUT /api/settings mencerminkannya ke sana.
+model OwnerSetting {
+  userId         String   @id
+  owner          Json?
+  propertyExtras Json?
+  properties     Json?
+  staff          Json?
+  templates      Json?
+  facilities     Json?
+  theme          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("owner_settings")
+}
