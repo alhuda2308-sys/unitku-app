@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { MetaPixel } from "@/components/meta-pixel";
@@ -70,6 +71,9 @@ export default function RootLayout({
         <MetaPixel />
         {children}
         <Toaster position="bottom-right" theme="light" richColors />
+        {/* Vercel Web Analytics — hanya aktif di deployment Vercel (produksi/preview),
+            data terlihat di dashboard Vercel → tab Analytics */}
+        <Analytics />
       </body>
     </html>
   );
