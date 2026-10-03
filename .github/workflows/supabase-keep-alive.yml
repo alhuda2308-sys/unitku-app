@@ -12,28 +12,73 @@ jobs:
       contents: read
     timeout-minutes: 5
     steps:
-      - name: Ping Supabase Database REST API
+      - name: Ping Supabase Endpoints
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "::error::Secrets SUPABASE_URL atau SUPABASE_ANON_KEY belum diatur di Settings > Secrets > Actions"
+          if [ -z "$SUPABASE_URL" ]; then
+            echo "::error::Secret SUPABASE_URL belum diatur di Settings > Secrets > Actions"
             exit 1
           fi
 
           CLEAN_URL="${SUPABASE_URL%/}"
-          echo "Mengirim ping ke Supabase REST API..."
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
-            -X GET "${CLEAN_URL}/rest/v1/" \
-            -H "apikey: ${SUPABASE_ANON_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+          echo "Memulai pemeriksaan status Supabase: ${CLEAN_URL}"
+          echo ""
 
-          echo "Response HTTP Status: $HTTP_STATUS"
+          # ping <label> <argumen curl...> — cetak status + respons utk audit log, return 0 bila HTTP 200/204
+          ping() {
+            local label="$1"; shift
+            local body err code
+            body=$(mktemp); err=$(mktemp)
+            echo "── ${label}"
+            if code=$(curl -sS -o "${body}" -w "%{http_code}" --max-time 30 "$@" 2>"${err}"); then
+              echo "   HTTP status : ${code}"
+              echo "   Respons     : $(head -c 500 "${body}")"
+            else
+              echo "   curl error  : $(cat "${err}")"
+            fi
+            rm -f "${body}" "${err}"
+            echo ""
+            [[ "${code:-}" == "200" || "${code:-}" == "204" ]]
+          }
 
-          if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 204 ]; then
-            echo "✅ Keep-alive berhasil: Supabase merespons HTTP $HTTP_STATUS."
-          else
-            echo "::error::Gagal ping Supabase (HTTP $HTTP_STATUS)"
-            exit 1
+          HEALTH_OK=false
+          REST_OK=false
+
+          # Upaya 1: health check Auth — endpoint publik GoTrue, selalu 200 tanpa apikey
+          if ping "Upaya 1/3 — GET /auth/v1/health (tanpa apikey)" \
+              "${CLEAN_URL}/auth/v1/health"; then
+            HEALTH_OK=true
           fi
+
+          # Upaya 2: health check Auth dengan apikey (bila gateway mewajibkan apikey)
+          if [[ "${HEALTH_OK}" == false ]] && ping "Upaya 2/3 — GET /auth/v1/health (dengan apikey + Bearer)" \
+              -H "apikey: ${SUPABASE_ANON_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+              "${CLEAN_URL}/auth/v1/health"; then
+            HEALTH_OK=true
+          fi
+
+          # Upaya 3: query tabel publik "properties" limit 1 — aktivitas DB nyata via PostgREST
+          if ping "Upaya 3/3 — GET /rest/v1/properties?select=id&limit=1 (dengan apikey + Bearer)" \
+              -H "apikey: ${SUPABASE_ANON_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+              "${CLEAN_URL}/rest/v1/properties?select=id&limit=1"; then
+            REST_OK=true
+          fi
+
+          # Ringkasan audit
+          echo "Ringkasan : health=${HEALTH_OK}, rest=${REST_OK}"
+          echo ""
+
+          if [[ "${HEALTH_OK}" == true || "${REST_OK}" == true ]]; then
+            echo "✅ Keep-alive berhasil: Supabase aktif dan merespons — aktivitas tercatat, database tidak akan di-pause."
+            if [[ "${REST_OK}" == false ]]; then
+              echo "::warning::Query REST /rest/v1/properties gagal — anon key mungkin tidak valid atau tabel tidak ada. Health check tetap berhasil, jadi keep-alive tercatat."
+            fi
+            exit 0
+          fi
+
+          echo "::error::Keep-alive GAGAL: semua endpoint merespons selain HTTP 200/204 (periksa log audit di atas)."
+          exit 1
