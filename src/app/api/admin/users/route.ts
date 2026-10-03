@@ -62,12 +62,13 @@ interface AdminUserRow {
   isSuperAdmin: boolean;
 }
 
-export async function GET() {
-  const guard = await requireSuperAdminUser();
-  if (!guard.ok) {
-    return NextResponse.json({ error: "Akses ditolak — khusus Super Admin." }, { status: guard.status });
-  }
-
+/** Susun daftar pengguna dari semua sumber (auth + lisensi + lead).
+ *  Kegagalan sumber non-kritis (mis. tabel license_leads belum dibuat di
+ *  Supabase) TIDAK boleh menggagalkan seluruh daftar — fallback per sumber. */
+async function buildAdminUserList(): Promise<{
+  mode: "supabase" | "local";
+  users: AdminUserRow[];
+}> {
   const mode = getAuthMode();
   const supabaseMode = mode === "supabase";
 
@@ -131,7 +132,20 @@ export async function GET() {
   // 2.5 Lead calon pembeli (form checkout / register sebelum pembayaran) —
   // melengkapi Nama & No. WhatsApp agar kolom kontak tidak tampil kosong/strip,
   // sekaligus menampilkan calon pembeli yang BELUM membuat akun.
-  const leads = await db.licenseLead.findMany({ orderBy: { updatedAt: "desc" } });
+  //
+  // Fallback aman: tabel license_leads bisa jadi BELUM ada di database
+  // produksi (buat via SQL Editor Supabase — lihat sql/license-leads-table.sql).
+  // Bila query gagal (P2021 dsb.), panel TETAP tampil dari data auth + lisensi
+  // yang sudah ada — jangan biarkan satu tabel opsional mematikan GET (500).
+  let leads: Awaited<ReturnType<typeof db.licenseLead.findMany>> = [];
+  try {
+    leads = await db.licenseLead.findMany({ orderBy: { updatedAt: "desc" } });
+  } catch (err) {
+    console.error(
+      "[api/admin/users GET] license_leads belum tersedia (tabel belum dibuat / query gagal) — lanjut TANPA data lead:",
+      err,
+    );
+  }
   for (const lead of leads) {
     const email = lead.email.trim().toLowerCase();
     const existing = accounts.get(email);
@@ -200,7 +214,28 @@ export async function GET() {
       return tb - ta || a.email.localeCompare(b.email);
     });
 
-  return NextResponse.json({ mode, users });
+  return { mode, users };
+}
+
+export async function GET() {
+  const guard = await requireSuperAdminUser();
+  if (!guard.ok) {
+    return NextResponse.json({ error: "Akses ditolak — khusus Super Admin." }, { status: guard.status });
+  }
+
+  try {
+    return NextResponse.json(await buildAdminUserList());
+  } catch (err) {
+    // Detail penuh ke log server (Vercel Logs / terminal) utk debugging, dan
+    // ikut dikirim ke panel (endpoint terkunci Super Admin) agar pesan di
+    // layar tidak generik.
+    console.error("[api/admin/users GET] Gagal memuat daftar pengguna:", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { error: "Gagal memuat daftar pengguna.", detail },
+      { status: 500 },
+    );
+  }
 }
 
 // ── POST — tambah pengguna manual (bypass Mayar) ─────────────────────────────

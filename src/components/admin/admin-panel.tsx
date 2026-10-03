@@ -544,12 +544,16 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
         users?: AdminUserRow[];
         mode?: "supabase" | "local";
         error?: string;
+        detail?: string;
       };
       if (res.ok && Array.isArray(data.users)) {
         setRows(data.users);
         if (data.mode === "supabase" || data.mode === "local") setMode(data.mode);
       } else {
-        setLoadError(data.error ?? "Gagal memuat daftar pengguna.");
+        // detail (bila ada) = pesan error teknis dari server — mempercepat
+        // debugging Super Admin tanpa harus membuka log Vercel.
+        const base = data.error ?? "Gagal memuat daftar pengguna.";
+        setLoadError(data.detail ? `${base} — ${data.detail}` : base);
       }
     } catch {
       setLoadError("Tidak dapat terhubung ke server.");
