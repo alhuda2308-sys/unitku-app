@@ -16,7 +16,7 @@ import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
 export const dynamic = "force-dynamic";
 
 /** Kebijakan panjang password UnitKu (client & server sama) */
-export const MIN_PASSWORD = 8;
+export const MIN_PASSWORD = 6;
 /** Batas bcrypt Supabase Auth */
 const MAX_PASSWORD = 72;
 

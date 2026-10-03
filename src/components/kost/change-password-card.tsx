@@ -4,7 +4,7 @@
 // UnitKu — Kartu "Ganti Password" (Dashboard → Pengaturan → Profil Saya)
 //
 // - Password Baru + Konfirmasi, masing-masing dengan toggle intip (mata)
-// - Validasi live: minimal 8 karakter & konfirmasi harus cocok
+// - Validasi live: minimal 6 karakter & konfirmasi harus cocok
 // - Submit → POST /api/auth/update-password (Supabase Auth updateUser) via
 //   helper updatePassword() di src/lib/auth/client.ts
 // - Feedback toast: sukses "Password berhasil diperbarui!" / error spesifik
@@ -22,7 +22,7 @@ import { getAuthInfo, updatePassword, type AuthInfo } from "@/lib/auth/client";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
-const MIN_PASSWORD = 8;
+const MIN_PASSWORD = 6;
 
 const inputCls =
   "h-9 border-zinc-200 bg-white text-[13px] text-zinc-900 placeholder:text-zinc-600 focus-visible:ring-zinc-900/5";
@@ -126,7 +126,7 @@ export function ChangePasswordCard() {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
                 className={cn(inputCls, "pr-10", tooShort && "border-red-300 focus-visible:ring-red-900/10")}
-                placeholder="Minimal 8 karakter"
+                placeholder="Minimal 6 karakter"
                 aria-invalid={tooShort}
                 aria-describedby={tooShort ? "st-pw-baru-error" : undefined}
               />
