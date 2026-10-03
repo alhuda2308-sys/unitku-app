@@ -1,0 +1,39 @@
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    - cron: '0 0 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Ping Supabase Database REST API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::Secrets SUPABASE_URL atau SUPABASE_ANON_KEY belum diatur di Settings > Secrets > Actions"
+            exit 1
+          fi
+
+          CLEAN_URL="${SUPABASE_URL%/}"
+          echo "Mengirim ping ke Supabase REST API..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            -X GET "${CLEAN_URL}/rest/v1/" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+
+          echo "Response HTTP Status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 204 ]; then
+            echo "✅ Keep-alive berhasil: Supabase merespons HTTP $HTTP_STATUS."
+          else
+            echo "::error::Gagal ping Supabase (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
