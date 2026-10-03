@@ -3,9 +3,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Form autentikasi terpusat (dipakai /login dan /register)
 //
-// Satu kartu dengan tab Masuk / Daftar Akun Baru — HANYA email & kata sandi
-// agar form ringkas dan terfokus (opsi login sosial & tombol demo dihapus;
-// demo interaktif kini masuk langsung dari CTA landing via /demo, tanpa login).
+// Satu kartu dengan tab Masuk / Daftar Akun Baru. Mode Daftar meminta NAMA
+// LENGKAP + NOMOR WHATSAPP + EMAIL (input selaras dengan form checkout —
+// validasi shared di src/lib/checkout-validation.ts) sehingga data kontak akun
+// selalu lengkap untuk follow-up Admin & aktivasi lisensi.
 // Semua logika sesi diambil dari kontrak src/lib/auth/client — komponen ini
 // hanya UI + validasi klien.
 // CATATAN: memakai useSearchParams → halaman pemakai wajib membungkus dengan
@@ -27,6 +28,7 @@ import {
   signIn,
   signUp,
 } from "@/lib/auth/client";
+import { normalizeWaPhone } from "@/lib/checkout-validation";
 
 type Mode = "login" | "register";
 type Pending = null | "form";
@@ -49,6 +51,8 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
   const searchParams = useSearchParams();
 
   const [mode, setMode] = useState<Mode>(initialMode);
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState<Pending>(null);
@@ -75,6 +79,19 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
     if (busy) return;
 
     setAwaitConfirm(false);
+    if (mode === "register" && fullName.trim().length < 2) {
+      setError("Nama lengkap wajib diisi (minimal 2 karakter).");
+      return;
+    }
+    if (
+      mode === "register" &&
+      !/^62[0-9]{8,13}$/.test(normalizeWaPhone(phone))
+    ) {
+      setError(
+        "Nomor WhatsApp tidak valid — gunakan format 08… atau 62… (9–15 digit).",
+      );
+      return;
+    }
     if (!EMAIL_RE.test(email.trim())) {
       setError("Format email tidak valid.");
       return;
@@ -95,7 +112,10 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
         }
         await redirectAfterAuth();
       } else {
-        const res = await signUp(email.trim(), password);
+        const res = await signUp(email.trim(), password, {
+          name: fullName.trim(),
+          phone: normalizeWaPhone(phone),
+        });
         if (!res.ok) {
           setError(res.error);
           return;
@@ -168,6 +188,47 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
         )}
 
         <form onSubmit={onSubmit} className="mt-4 space-y-4" noValidate>
+          {mode === "register" && (
+            <>
+              <div>
+                <Label htmlFor="auth-name" className="mb-1.5 text-[12.5px] font-medium text-zinc-700">
+                  Nama Lengkap <span aria-hidden="true" className="text-red-600">*</span>
+                  <span className="sr-only">(wajib)</span>
+                </Label>
+                <Input
+                  id="auth-name"
+                  autoComplete="name"
+                  placeholder="cth. Budi Santoso"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  disabled={busy}
+                  className="h-10 text-[13px]"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="auth-phone" className="mb-1.5 text-[12.5px] font-medium text-zinc-700">
+                  Nomor WhatsApp <span aria-hidden="true" className="text-red-600">*</span>
+                  <span className="sr-only">(wajib)</span>
+                </Label>
+                <Input
+                  id="auth-phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="08xxxxxxxxxx / 62xxxxxxxxxx"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  disabled={busy}
+                  className="h-10 text-[13px]"
+                />
+                <p className="mt-1 text-[12.5px] text-zinc-500">
+                  Untuk notifikasi tagihan &amp; follow-up support.
+                </p>
+              </div>
+            </>
+          )}
+
           <div>
             <Label htmlFor="auth-email" className="mb-1.5 text-[12.5px] font-medium text-zinc-700">
               Email

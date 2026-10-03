@@ -6,14 +6,17 @@
 // Modal checkout lisensi seumur hidup:
 //   1. Form data pembeli (nama, email, No. WhatsApp) — divalidasi di client
 //      & server (validasi shared di src/lib/checkout-validation.ts), lalu
-//      POST /api/checkout membuat invoice Mayar per-pembeli.
+//      POST /api/checkout membuat invoice Mayar per-pembeli (lead tersimpan
+//      di server SEBELUM redirect ke Mayar).
 //   2. Tombol utama "Bayar Otomatis (QRIS / VA / E-Wallet)" → redirect ke
 //      paymentUrl Mayar; webhook /api/webhooks/mayar mengaktifkan lisensi.
-//   3. Tombol kedua "Pesan Manual via WhatsApp Admin" → wa.me Admin dengan
-//      pesan pemesanan terisi otomatis (fallback satu pintu).
+//   3. Tombol kedua "Pesan Manual via WhatsApp Admin" → VALIDASI form →
+//      POST /api/leads (simpan kontak — fire-and-forget, tidak memblokir
+//      navigasi) → buka wa.me Admin dengan pesan pemesanan terisi Nama/Email/
+//      No. WhatsApp (anchor native, imun pop-up blocker).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent, type MouseEvent } from "react";
 import { Loader2, MessageCircle, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   EMPTY_CHECKOUT_FORM,
+  buildManualOrderWaLink,
   validateCheckoutBuyer,
   type CheckoutFieldErrors,
   type CheckoutFormState,
@@ -63,6 +67,56 @@ export function BuyCta({
       delete next[key];
       return next;
     });
+  };
+
+  // Link WA manual mengikuti isi form (pesan pemesanan terisi otomatis);
+  // fallback ke link default selama form belum valid (tak pernah dinavigasi
+  // karena klik tetap dicegah oleh handleManualOrder).
+  const formValid = useMemo(
+    () => Object.keys(validateCheckoutBuyer(form)).length === 0,
+    [form],
+  );
+  const manualWaHref = formValid
+    ? buildManualOrderWaLink(form)
+    : SUPPORT_WA_PURCHASE_LINK;
+
+  /** Klik "Pesan Manual" — simpan lead dulu (non-blocking), lalu buka WA Admin */
+  const handleManualOrder = (event: MouseEvent<HTMLAnchorElement>) => {
+    const errors = validateCheckoutBuyer(form);
+    if (Object.keys(errors).length > 0) {
+      // Form belum lengkap — cegah navigasi & tampilkan error per field
+      event.preventDefault();
+      setFieldErrors(errors);
+      toast.error("Lengkapi data pemesan terlebih dahulu.");
+      return;
+    }
+
+    // Simpan lead SEBELUM membuka WhatsApp — fire-and-forget agar anchor
+    // native (imun pop-up blocker) tetap berjalan tanpa jeda.
+    void fetch("/api/leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone,
+        source: "PESAN_MANUAL",
+      }),
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          toast.success("Data kontak tersimpan — membuka WhatsApp Admin…");
+        } else {
+          toast.warning(
+            "Gagal menyimpan data ke server — chat WhatsApp tetap dibuka.",
+          );
+        }
+      })
+      .catch(() => {
+        toast.warning(
+          "Gagal menyimpan data ke server — chat WhatsApp tetap dibuka.",
+        );
+      });
   };
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -261,9 +315,10 @@ export function BuyCta({
                 className="h-auto min-h-11 whitespace-normal border-green-600 px-3 py-2.5 text-[13px] font-bold leading-snug text-green-700 hover:bg-green-50 hover:text-green-800"
               >
                 <a
-                  href={SUPPORT_WA_PURCHASE_LINK}
+                  href={manualWaHref}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={handleManualOrder}
                 >
                   <MessageCircle
                     className="size-4 shrink-0"

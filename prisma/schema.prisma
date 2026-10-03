@@ -87,6 +87,25 @@ model LicenseAccount {
   @@map("license_accounts")
 }
 
+// ── Lead calon pembeli lisensi (data kontak form checkout / register) ────────
+// Disimpan SEBELUM pembayaran — saat user klik "Bayar Otomatis" (sebelum
+// redirect ke Mayar) maupun "Pesan Manual" (sebelum membuka WhatsApp), dan
+// saat pendaftaran akun (/register). Satu baris per email (upsert) agar data
+// kontak terbaru selalu siap di-follow-up admin dari Panel Super Admin.
+
+model LicenseLead {
+  id        String   @id @default(cuid())
+  email     String   @unique // lowercase — kunci upsert
+  name      String // Nama Lengkap dari form
+  phone     String // Nomor WhatsApp ternormalisasi 62xxxxxxxxxx
+  // Asal lead — BAYAR_OTOMATIS | PESAN_MANUAL | REGISTER
+  source    String   @default("BAYAR_OTOMATIS")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("license_leads")
+}
+
 // Histori pembelian lisensi — transactionId unik menjadi kunci idempotensi
 // webhook (event yang dikirim ulang Mayar tidak membuat baris/provisi ganda).
 

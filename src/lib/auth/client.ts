@@ -57,10 +57,26 @@ export async function signIn(email: string, password: string): Promise<AuthResul
   }
 }
 
-/** Daftar akun owner baru — needsEmailConfirmation bila Supabase meminta verifikasi email */
-export async function signUp(email: string, password: string): Promise<SignUpResult> {
+/** Profil kontak opsional yang diminta saat pendaftaran (Nama + No. WhatsApp) */
+export interface SignUpProfile {
+  name: string;
+  /** Nomor WhatsApp TERNORMALISASI 62xxxxxxxxxx (normalizeWaPhone) */
+  phone: string;
+}
+
+/** Daftar akun owner baru — needsEmailConfirmation bila Supabase meminta verifikasi email.
+ *  Profil (Nama + No. WhatsApp) diteruskan ke server utk metadata akun & lead Admin. */
+export async function signUp(
+  email: string,
+  password: string,
+  profile?: SignUpProfile,
+): Promise<SignUpResult> {
   try {
-    const { status, data } = await postAuth("/api/auth/register", { email, password });
+    const { status, data } = await postAuth("/api/auth/register", {
+      email,
+      password,
+      ...(profile ? { name: profile.name, phone: profile.phone } : {}),
+    });
     if (status !== 200) return { ok: false, error: errorOf(data, "Gagal mendaftarkan akun.") };
     return { ok: true, needsEmailConfirmation: data.needsEmailConfirmation === true };
   } catch (cause) {

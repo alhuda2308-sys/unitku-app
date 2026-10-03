@@ -43,6 +43,7 @@ export interface SupabaseAuthUserLite {
   email: string; // lowercase, bisa "" bila aneh
   createdAt: string | null;
   fullName: string | null;
+  phone: string | null; // user_metadata.phone (diisi saat /register)
 }
 
 /**
@@ -69,6 +70,10 @@ export async function listAllSupabaseUsers(): Promise<SupabaseAuthUserLite[]> {
         fullName:
           typeof u.user_metadata?.full_name === "string"
             ? (u.user_metadata.full_name as string)
+            : null,
+        phone:
+          typeof u.user_metadata?.phone === "string"
+            ? (u.user_metadata.phone as string)
             : null,
       });
     }

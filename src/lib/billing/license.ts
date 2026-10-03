@@ -193,3 +193,64 @@ export async function getLicenseByEmail(email: string) {
     where: { email: normalizeEmail(email) },
   });
 }
+
+// ── Lead calon pembeli (license_leads) ───────────────────────────────────────
+
+export type LicenseLeadSource = "BAYAR_OTOMATIS" | "PESAN_MANUAL" | "REGISTER";
+
+let leadTableReady: Promise<void> | null = null;
+
+/**
+ * Jaminan tabel `license_leads` tersedia — self-heal untuk database produksi
+ * yang belum menjalankan `prisma db push` setelah model LicenseLead ditambahkan.
+ * Idempoten (CREATE TABLE / INDEX IF NOT EXISTS) dan hanya dieksekusi sekali
+ * per proses; cache dibatalkan saat gagal agar dicoba ulang di request berikut.
+ */
+async function ensureLicenseLeadTable(): Promise<void> {
+  if (!leadTableReady) {
+    leadTableReady = (async () => {
+      await prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS "license_leads" (
+           "id"        TEXT        NOT NULL,
+           "email"     TEXT        NOT NULL,
+           "name"      TEXT        NOT NULL,
+           "phone"     TEXT        NOT NULL,
+           "source"    TEXT        NOT NULL DEFAULT 'BAYAR_OTOMATIS',
+           "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           "updatedAt" TIMESTAMP(3) NOT NULL,
+           CONSTRAINT "license_leads_pkey" PRIMARY KEY ("id")
+         )`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "license_leads_email_key"
+           ON "license_leads"("email")`,
+      );
+    })().catch((err) => {
+      leadTableReady = null; // izinkan retry pada request berikutnya
+      throw err;
+    });
+  }
+  await leadTableReady;
+}
+
+/**
+ * Simpan/perbarui lead calon pembeli lisensi — SATU baris per email (upsert)
+ * agar admin selalu punya data kontak terbaru meski pembayaran belum selesai.
+ * Melempar error bila DB gagal — pemanggil (checkout/register/WA manual) yang
+ * memutuskan apakah kegagalan ini memblokir alur utama (umumnya tidak).
+ */
+export async function upsertLicenseLead(input: {
+  name: string;
+  email: string;
+  /** Nomor WhatsApp TERNORMALISASI 62xxxxxxxxxx (normalizeWaPhone) */
+  phone: string;
+  source: LicenseLeadSource;
+}): Promise<void> {
+  await ensureLicenseLeadTable();
+  const email = normalizeEmail(input.email);
+  await prisma.licenseLead.upsert({
+    where: { email },
+    create: { email, name: input.name, phone: input.phone, source: input.source },
+    update: { name: input.name, phone: input.phone, source: input.source },
+  });
+}

@@ -53,6 +53,7 @@ interface AdminUserRow {
   id: string | null;
   email: string;
   name: string | null;
+  phone: string | null; // No. WhatsApp ternormalisasi 62… (dari lead/license/metadata)
   registeredAt: string | null;
   properties: string[];
   licensed: boolean;
@@ -75,6 +76,7 @@ export async function GET() {
     id: string | null;
     email: string;
     name: string | null;
+    phone: string | null;
     registeredAt: string | null;
   }
   const accounts = new Map<string, AuthAccount>();
@@ -86,6 +88,7 @@ export async function GET() {
         id: u.id,
         email: u.email,
         name: u.fullName,
+        phone: u.phone,
         registeredAt: u.createdAt,
       });
     }
@@ -98,6 +101,7 @@ export async function GET() {
         id: a.id,
         email: a.email,
         name: null,
+        phone: null,
         registeredAt: a.createdAt.toISOString(),
       });
     }
@@ -110,6 +114,7 @@ export async function GET() {
     const existing = accounts.get(email);
     if (existing) {
       if (!existing.name && lic.name) existing.name = lic.name;
+      if (!existing.phone && lic.phone) existing.phone = lic.phone;
       if (!existing.registeredAt) existing.registeredAt = lic.createdAt.toISOString();
       if (!existing.id && lic.userId) existing.id = lic.userId;
     } else {
@@ -117,7 +122,29 @@ export async function GET() {
         id: lic.userId,
         email,
         name: lic.name,
+        phone: lic.phone,
         registeredAt: lic.createdAt.toISOString(),
+      });
+    }
+  }
+
+  // 2.5 Lead calon pembeli (form checkout / register sebelum pembayaran) —
+  // melengkapi Nama & No. WhatsApp agar kolom kontak tidak tampil kosong/strip,
+  // sekaligus menampilkan calon pembeli yang BELUM membuat akun.
+  const leads = await db.licenseLead.findMany({ orderBy: { updatedAt: "desc" } });
+  for (const lead of leads) {
+    const email = lead.email.trim().toLowerCase();
+    const existing = accounts.get(email);
+    if (existing) {
+      if (!existing.name && lead.name) existing.name = lead.name;
+      if (!existing.phone && lead.phone) existing.phone = lead.phone;
+    } else {
+      accounts.set(email, {
+        id: null,
+        email,
+        name: lead.name,
+        phone: lead.phone,
+        registeredAt: lead.createdAt.toISOString(),
       });
     }
   }
@@ -158,6 +185,7 @@ export async function GET() {
         id: a.id,
         email: a.email,
         name: a.name,
+        phone: a.phone,
         registeredAt: a.registeredAt,
         properties: a.id ? (propsByOwner.get(a.id) ?? []) : [],
         licensed: lic?.isLifetimeLicensed === true,

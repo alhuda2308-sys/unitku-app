@@ -23,6 +23,7 @@ import {
   KeyRound,
   Loader2,
   Lock,
+  MessageCircle,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -69,6 +70,7 @@ interface AdminUserRow {
   id: string | null;
   email: string;
   name: string | null;
+  phone: string | null; // No. WhatsApp 62… dari form checkout/register/lead
   registeredAt: string | null;
   properties: string[];
   licensed: boolean;
@@ -98,6 +100,16 @@ function formatDate(iso: string | null): string {
   const ms = Date.parse(iso);
   if (Number.isNaN(ms)) return "—";
   return dateFmt.format(new Date(ms));
+}
+
+/** Tampilan nomor rapi — "6281234567890" → "+62 812-3456-7890" */
+function formatWaDisplay(phone: string): string {
+  if (phone.startsWith("62")) {
+    const local = phone.slice(2);
+    const match = local.match(/^(\d{3})(\d{4})(\d+)$/);
+    return match ? `+62 ${match[1]}-${match[2]}-${match[3]}` : `+62 ${local}`;
+  }
+  return `+${phone}`;
 }
 
 /** Password acak url-safe 16 char (browser crypto) — setara server */
@@ -632,6 +644,7 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
       (r) =>
         r.email.includes(q) ||
         (r.name ?? "").toLowerCase().includes(q) ||
+        (r.phone ?? "").includes(q) ||
         r.properties.some((p) => p.toLowerCase().includes(q)),
     );
   }, [rows, query]);
@@ -770,11 +783,12 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
             </div>
           ) : (
             <div className="scrollbar-thin max-h-[560px] overflow-auto">
-              <Table className="min-w-[900px]">
+              <Table className="min-w-[1020px]">
                 <TableHeader className="sticky top-0 z-10 bg-zinc-50 [&_tr]:border-b">
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="h-9 pl-4 text-[12.5px] font-medium text-zinc-500">Nama</TableHead>
                     <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">Email</TableHead>
+                    <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">Nomor WhatsApp</TableHead>
                     <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">Tanggal Daftar</TableHead>
                     <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">Properti/Kost</TableHead>
                     <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">Status Lisensi</TableHead>
@@ -799,6 +813,23 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                       </TableCell>
                       <TableCell className="py-2.5">
                         <span className="block max-w-[220px] truncate text-[12.5px] text-zinc-600">{row.email}</span>
+                      </TableCell>
+                      <TableCell className="py-2.5">
+                        {row.phone ? (
+                          <a
+                            href={`https://wa.me/${row.phone}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium text-emerald-700 underline-offset-2 hover:bg-emerald-50 hover:text-emerald-800 hover:underline"
+                            aria-label={`Chat WhatsApp ${formatWaDisplay(row.phone)} (${row.email})`}
+                            title={`Follow-up via WhatsApp — ${formatWaDisplay(row.phone)}`}
+                          >
+                            <MessageCircle className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                            {formatWaDisplay(row.phone)}
+                          </a>
+                        ) : (
+                          <span className="text-[12.5px] text-zinc-400">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="py-2.5 text-[12.5px] tabular-nums text-zinc-600">
                         {formatDate(row.registeredAt)}
