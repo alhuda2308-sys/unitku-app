@@ -3,9 +3,10 @@
 //
 // GET pertama pada endpoint mana pun (rooms/invoices/cash/staff/properties)
 // memanggil ensureSeed(): bila tabel masih kosong, seluruh dataset demo
-// (12 kamar + penghuni, tagihan Sep 2026, buku kas, 2 staf contoh, properti
-// utama "Kost Griya Pratama") dimigrasikan ke Supabase. Dari titik ini data
-// tersimpan permanen di cloud & tersinkron lintas perangkat.
+// (12 kamar + penghuni, tagihan Sep 2026, buku kas dgn tanggal dinamis bulan
+// berjalan, 2 staf contoh, properti utama "Kost Griya Pratama") dimigrasikan
+// ke Supabase. Dari titik ini data tersimpan permanen di cloud & tersinkron
+// lintas perangkat.
 //
 // Memoisasi promise per proses → request paralel (rooms+cash+invoices bersamaan)
 // hanya memicu satu kali seed. Bila tabel sudah terisi, fungsi langsung kembali.
@@ -152,7 +153,7 @@ async function runSeed(): Promise<void> {
     );
   }
 
-  // ── Buku kas (Sep 2026) ───────────────────────────────────────────────────
+  // ── Buku kas (tanggal dinamis bulan berjalan — buildDemoCashEntries) ───────
   await ignoreUniqueConflict(() =>
     db.cashEntry.createMany({
     data: CASH_ENTRIES.map((e) => ({

@@ -1,11 +1,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// IndoKost — Buku Kas dataset (Cashflow & Finansial)
-// Period: Sep 2026 (bulan berjalan). Snapshot: 26 Sep 2026.
+// UnitKu — Buku Kas dataset (Cashflow & Finansial)
 //
-// Numbers reconcile exactly with the spec:
-//   Total Pemasukan  : Rp32.500.000 (23 transaksi masuk)
-//   Total Pengeluaran: Rp 6.200.000 (11 transaksi keluar)
-//   Laba Bersih      : Rp26.300.000 (margin 80,9%)
+// Dataset demo bersifat DINAMIS: tanggal transaksi selalu mengikuti bulan
+// berjalan (jam perangkat) sehingga filter periode Buku Kas — yang defaultnya
+// bulan berjalan — selalu menampilkan rekap hidup saat MODE DEMO / fallback
+// offline. Angka rekonsiliasi persis dengan spec:
+//   Total Pemasukan  : Rp 8.500.000 (8 transaksi masuk — 5 di antaranya sewa)
+//   Total Pengeluaran: Rp 1.350.000 (4 transaksi keluar)
+//   Laba Bersih      : Rp 7.150.000 (margin 84,1%)
+// Tanggal di luar hari ini dijepit ke hari ini — tidak ada transaksi "masa
+// depan" di awal bulan. Hanya dibaca klien (snapshot demo dipasang setelah
+// mount → aman hydration) & server seed demo (seed.ts); akun riil tidak
+// pernah menerima dataset ini.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { MONTH_NAMES } from "./kost-data";
@@ -67,66 +73,65 @@ export function dateSortFromLabel(label: string): number {
   return Number(`${y}${String(month).padStart(2, "0")}${String(Number(d)).padStart(2, "0")}`);
 }
 
-const entry = (
-  id: string,
-  dateLabel: string,
-  type: CashType,
-  category: string,
-  description: string,
-  amount: number,
-  attachment?: string,
-  source?: CashSource
-): CashEntry => ({
-  id,
-  dateLabel,
-  dateSort: dateSortFromLabel(dateLabel),
-  type,
-  category,
-  description,
-  amount,
-  ...(attachment ? { attachment } : {}),
-  ...(source ? { source } : {}),
-});
+interface DemoCashSpec {
+  id: string;
+  /** Tanggal dalam bulan berjalan — dijepit ≤ hari ini (tanpa transaksi masa depan) */
+  day: number;
+  type: CashType;
+  category: string;
+  description: string;
+  amount: number;
+  attachment?: string; // referensi file bukti (bukan dataURL — tampil sebagai chip "Bukti")
+  source?: CashSource;
+}
 
-export const CASH_ENTRIES: CashEntry[] = [
-  // ── Pemasukan — sewa Okt 2026 dibayar dimuka selama Sep (Rp32.500.000) ────
-  entry("KS-LN1", "01 Sep 2026", "masuk", "Lainnya", "Sewa mesin laundry — Vendor CleanUp (kwartalan Sep–Nov)", 900_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-101", "01 Sep 2026", "masuk", "Sewa Kamar", "Kamar 101 · Budi Santoso — Sewa Okt 2026", 1_500_000, "tf-bca-101.jpg", "Transfer Rekening Bank"),
-  entry("KS-102", "02 Sep 2026", "masuk", "Sewa Kamar", "Kamar 102 · Dimas Ardi — Sewa Okt 2026", 1_500_000, "tf-bca-102.jpg", "Transfer Rekening Bank"),
-  entry("KS-105", "03 Sep 2026", "masuk", "Sewa Kamar", "Kamar 105 · Rizky Pratama — Sewa Okt 2026", 1_500_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-107", "03 Sep 2026", "masuk", "Sewa Kamar", "Kamar 107 · Maya Anggraini — Sewa Okt 2026", 1_100_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-108", "04 Sep 2026", "masuk", "Sewa Kamar", "Kamar 108 · Doni Kusnadi — Sewa Okt 2026", 1_500_000, "tf-mandiri-108.jpg", "Transfer Rekening Bank"),
-  entry("KS-109", "06 Sep 2026", "masuk", "Sewa Kamar", "Kamar 109 · Putri Handayani — Sewa Okt–Des 2026 (3 bulan)", 5_250_000, "tf-bca-109.jpg", "Transfer Rekening Bank"),
-  entry("KS-110", "07 Sep 2026", "masuk", "Sewa Kamar", "Kamar 110 · Agus Setiawan — Sewa Okt 2026", 1_100_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-112", "08 Sep 2026", "masuk", "Sewa Kamar", "Kamar 112 · Fajar Nugroho — Sewa Okt 2026", 1_500_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-201", "09 Sep 2026", "masuk", "Sewa Kamar", "Kamar 201 · Rina Marlina — Sewa Okt 2026", 1_500_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-202", "10 Sep 2026", "masuk", "Sewa Kamar", "Kamar 202 · Joko Prasetyo — Sewa Okt 2026", 1_100_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-203", "11 Sep 2026", "masuk", "Sewa Kamar", "Kamar 203 · Ayu Kartika — Sewa Okt 2026", 1_500_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-204", "12 Sep 2026", "masuk", "Sewa Kamar", "Kamar 204 · Hendra Gunawan — Sewa Okt 2026", 1_750_000, "tf-bca-204.jpg", "Transfer Rekening Bank"),
-  entry("KS-207", "15 Sep 2026", "masuk", "Sewa Kamar", "Kamar 207 · Bagus Wicaksono — Sewa Okt 2026", 1_500_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-208", "16 Sep 2026", "masuk", "Sewa Kamar", "Kamar 208 · Novi Suryani — Sewa Okt 2026", 1_750_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-PM1", "15 Sep 2026", "masuk", "Parkir", "Parkir motor — 6 unit · Sep 2026", 300_000, undefined, "Kas Tunai"),
-  entry("KS-PM2", "15 Sep 2026", "masuk", "Parkir", "Parkir mobil — 2 unit · Sep 2026", 300_000, undefined, "Kas Tunai"),
-  entry("KS-209", "17 Sep 2026", "masuk", "Sewa Kamar", "Kamar 209 · Eko Purnomo — Sewa Okt 2026", 1_100_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-210", "18 Sep 2026", "masuk", "Sewa Kamar", "Kamar 210 · Lestari Ningsih — Sewa Okt 2026", 1_500_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-211", "19 Sep 2026", "masuk", "Sewa Kamar", "Kamar 211 · Rudi Hartono — Sewa Okt 2026", 1_750_000, undefined, "Transfer Rekening Bank"),
-  entry("KS-DD1", "20 Sep 2026", "masuk", "Denda", "Denda keterlambatan — 2 penyewa", 100_000, undefined, "Kas Tunai"),
-  entry("KS-106", "25 Sep 2026", "masuk", "Deposit", "Kamar 106 · Deposit penghuni baru — Sinta Rahmawati (masuk 1 Okt)", 1_000_000, "tf-bri-106.jpg", "Transfer Rekening Bank"),
-  entry("KS-106b", "25 Sep 2026", "masuk", "Sewa Kamar", "Kamar 106 · Sinta Rahmawati — Sewa Okt 2026 (dibayar dimuka)", 1_500_000, undefined, "Transfer Rekening Bank"),
+/**
+ * Dataset transaksi kas untuk MODE DEMO & fallback offline — tanggal selalu
+ * di bulan berjalan sehingga default filter periode Buku Kas langsung
+ * menampilkan rekap lengkap (kartu ringkasan terisi + tabel berisi transaksi).
+ * Dipakai ulang server saat seed/reset demo (label mengikuti jam server).
+ */
+export function buildDemoCashEntries(now: Date = new Date()): CashEntry[] {
+  const year = now.getFullYear();
+  const monthName = MONTH_NAMES[now.getMonth()];
+  const labelOf = (day: number) => `${Math.min(day, now.getDate())} ${monthName} ${year}`;
 
-  // ── Pengeluaran operasional (Rp6.200.000) ──────────────────────────────────
-  entry("KX-001", "01 Sep 2026", "keluar", "Listrik & Air (Fasilitas Umum / Pompa)", "Tagihan air PDAM — periode Agustus 2026", 850_000, "nota-pdam-agu.jpg", "Transfer Rekening Bank"),
-  entry("KX-002", "03 Sep 2026", "keluar", "Gaji / Upah Staf & Penjaga", "Gaji penjaga — Pak Slamet · Sep 2026", 1_500_000, undefined, "Transfer Rekening Bank"),
-  entry("KX-003", "05 Sep 2026", "keluar", "Listrik & Air (Fasilitas Umum / Pompa)", "Token listrik meteran utama", 1_200_000, "struk-token-pln.jpg", "Kas Tunai"),
-  entry("KX-004", "08 Sep 2026", "keluar", "Pemeliharaan / Servis (AC, Genteng, Pipa, Pompa)", "Ganti pompa air taman", 750_000, "nota-pompa.jpg", "Kas Tunai"),
-  entry("KX-005", "10 Sep 2026", "keluar", "Perlengkapan Kost (Sapu, Pel, Bohlam, Deterjen)", "Alat & bahan kebersihan (sapu, pel, deterjen)", 320_000, undefined, "Kas Tunai"),
-  entry("KX-006", "12 Sep 2026", "keluar", "Pemeliharaan / Servis (AC, Genteng, Pipa, Pompa)", "Servis AC Kamar 109 (tiket #TKT-038)", 450_000, "nota-servis-ac.jpg", "Kas Tunai"),
-  entry("KX-007", "15 Sep 2026", "keluar", "Listrik & Air (Fasilitas Umum / Pompa)", "Top-up token kedua — Sep 2026", 250_000, undefined, "Transfer Rekening Bank"),
-  entry("KX-008", "18 Sep 2026", "keluar", "Gaji / Upah Staf & Penjaga", "Upah kebersihan — Bu Yati · Sep 2026", 300_000, undefined, "Kas Tunai"),
-  entry("KX-009", "22 Sep 2026", "keluar", "Perlengkapan Kost (Sapu, Pel, Bohlam, Deterjen)", "Lampu LED & kabel koridor Lt. 2", 180_000, undefined, "Kas Tunai"),
-  entry("KX-010", "24 Sep 2026", "keluar", "Pemeliharaan / Servis (AC, Genteng, Pipa, Pompa)", "Perbaikan kran & shower Kamar 205", 100_000, undefined, "Kas Tunai"),
-  entry("KX-011", "26 Sep 2026", "keluar", "Perlengkapan Kost (Sapu, Pel, Bohlam, Deterjen)", "Dispenser galon & filter air", 300_000, "nota-dispenser.jpg", "Transfer Rekening Bank"),
-];
+  const specs: DemoCashSpec[] = [
+    // ── Pemasukan — sewa kamar bulan berjalan + kas lain (Rp8.500.000) ───────
+    { id: "KS-101", day: 1, type: "masuk", category: "Sewa Kamar", description: `Kamar 101 · Budi Santoso — Sewa ${monthName} ${year}`, amount: 1_500_000, attachment: "tf-bca-101.jpg", source: "Transfer Rekening Bank" },
+    { id: "KS-102", day: 2, type: "masuk", category: "Sewa Kamar", description: `Kamar 102 · Dimas Ardi — Sewa ${monthName} ${year}`, amount: 1_500_000, attachment: "tf-bca-102.jpg", source: "Transfer Rekening Bank" },
+    { id: "KS-105", day: 2, type: "masuk", category: "Sewa Kamar", description: `Kamar 105 · Rizky Pratama — Sewa ${monthName} ${year}`, amount: 1_500_000, source: "Transfer Rekening Bank" },
+    { id: "KS-107", day: 3, type: "masuk", category: "Sewa Kamar", description: `Kamar 107 · Maya Anggraini — Sewa ${monthName} ${year}`, amount: 1_100_000, source: "Transfer Rekening Bank" },
+    { id: "KS-109", day: 3, type: "masuk", category: "Sewa Kamar", description: `Kamar 109 · Putri Handayani — Sewa ${monthName} ${year}`, amount: 1_750_000, attachment: "tf-bca-109.jpg", source: "Transfer Rekening Bank" },
+    { id: "KS-106", day: 5, type: "masuk", category: "Deposit", description: "Kamar 106 · Deposit penghuni baru — Sinta Rahmawati", amount: 750_000, attachment: "tf-bri-106.jpg", source: "Transfer Rekening Bank" },
+    { id: "KS-PM1", day: 8, type: "masuk", category: "Parkir", description: `Parkir motor — 6 unit · ${monthName} ${year}`, amount: 300_000, source: "Kas Tunai" },
+    { id: "KS-DD1", day: 10, type: "masuk", category: "Denda", description: "Denda keterlambatan — 2 penyewa", amount: 100_000, source: "Kas Tunai" },
+
+    // ── Pengeluaran operasional (Rp1.350.000) ─────────────────────────────────
+    { id: "KX-001", day: 1, type: "keluar", category: "Listrik & Air (Fasilitas Umum / Pompa)", description: "Token listrik meteran induk", amount: 450_000, attachment: "struk-token-pln.jpg", source: "Kas Tunai" },
+    { id: "KX-002", day: 3, type: "keluar", category: "Internet / WiFi", description: `Langganan Wi-Fi kost (ISP) · ${monthName} ${year}`, amount: 300_000, source: "Transfer Rekening Bank" },
+    { id: "KX-003", day: 5, type: "keluar", category: "Gaji / Upah Staf & Penjaga", description: "Upah pembersih lantai — Bu Yati", amount: 250_000, source: "Kas Tunai" },
+    { id: "KX-004", day: 6, type: "keluar", category: "Pemeliharaan / Servis (AC, Genteng, Pipa, Pompa)", description: "Perbaikan pompa air sumur", amount: 350_000, attachment: "nota-pompa.jpg", source: "Kas Tunai" },
+  ];
+
+  return specs.map(({ id, day, type, category, description, amount, attachment, source }) => {
+    const dateLabel = labelOf(day);
+    return {
+      id,
+      dateLabel,
+      dateSort: dateSortFromLabel(dateLabel),
+      type,
+      category,
+      description,
+      amount,
+      ...(attachment ? { attachment } : {}),
+      ...(source ? { source } : {}),
+    };
+  });
+}
+
+/** Snapshot bulan berjalan saat modul dimuat — demo & fallback offline di klien */
+export const CASH_ENTRIES: CashEntry[] = buildDemoCashEntries();
 
 // ── Derived stats ────────────────────────────────────────────────────────────
 

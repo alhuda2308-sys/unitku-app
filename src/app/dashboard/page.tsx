@@ -83,11 +83,7 @@ import {
 } from "@/lib/kost-invoices";
 import { portalLink } from "@/lib/tenant-portal";
 import { openExternal } from "@/lib/open-external";
-import {
-  CASH_ENTRIES,
-  dateSortFromLabel,
-  type CashEntry,
-} from "@/lib/kost-cashflow";
+import { dateSortFromLabel, type CashEntry } from "@/lib/kost-cashflow";
 import {
   TICKETS,
   TICKET_STATUS_META,
@@ -1055,6 +1051,29 @@ export default function IndoKostPage() {
 
   const handleAddExpense = (draft: ExpenseDraft) => {
     const dateLabel = formatDateLabel(draft.tanggal);
+
+    // MODE DEMO: catat murni di state lokal — baris baru langsung tampil di
+    // Buku Kas (kartu ringkasan ikut terhitung ulang) tanpa memanggil API kas,
+    // karena sesi demo tidak pernah menyentuh database.
+    if (instantDemo || isDemoSession) {
+      const entry: CashEntry = {
+        id: localCashId(),
+        dateLabel,
+        dateSort: dateSortFromLabel(dateLabel),
+        type: "keluar",
+        category: draft.category,
+        description: draft.description,
+        amount: draft.amount,
+        source: draft.source,
+        ...(draft.attachment ? { attachment: draft.attachment } : {}),
+      };
+      updateCashEntries((prev) => [entry, ...prev]);
+      toast.success(`Pengeluaran ${formatIDR(draft.amount)} tercatat`, {
+        description: `${draft.category} · ${draft.description} · ${dateLabel} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+      });
+      return;
+    }
+
     api
       .addCash({
         type: "keluar",
@@ -1079,6 +1098,26 @@ export default function IndoKostPage() {
   /** Pemasukan manual (modal "+ Tambah Pemasukan") — type masuk langsung ke Buku Kas */
   const handleAddIncome = (draft: IncomeDraft) => {
     const dateLabel = formatDateLabel(draft.tanggal);
+
+    // MODE DEMO: catat murni di state lokal — instan, tanpa API database.
+    if (instantDemo || isDemoSession) {
+      const entry: CashEntry = {
+        id: localCashId(),
+        dateLabel,
+        dateSort: dateSortFromLabel(dateLabel),
+        type: "masuk",
+        category: draft.category,
+        description: draft.description,
+        amount: draft.amount,
+        source: draft.source,
+      };
+      updateCashEntries((prev) => [entry, ...prev]);
+      toast.success(`Pemasukan ${formatIDR(draft.amount)} tercatat`, {
+        description: `${draft.category} · ${draft.description} · ${dateLabel} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+      });
+      return;
+    }
+
     api
       .addCash({
         type: "masuk",
@@ -1099,9 +1138,29 @@ export default function IndoKostPage() {
       );
   };
 
-  /** Edit pengeluaran manual — perubahan langsung tersinkron ke database */
+  /** Edit pengeluaran manual — perubahan langsung tersinkron ke database.
+   *  MODE DEMO: perbarui lokal tanpa API — catatan demo hidup di sesi ini. */
   const handleUpdateExpense = (entry: CashEntry, draft: ExpenseDraft) => {
     const dateLabel = formatDateLabel(draft.tanggal);
+
+    if (instantDemo || isDemoSession) {
+      const updated: CashEntry = {
+        ...entry,
+        category: draft.category,
+        description: draft.description,
+        amount: draft.amount,
+        dateLabel,
+        dateSort: dateSortFromLabel(dateLabel),
+        source: draft.source,
+        attachment: draft.attachment, // undefined = nota dihapus
+      };
+      updateCashEntries((prev) => prev.map((e) => (e.id === entry.id ? updated : e)));
+      toast.success(`Pengeluaran ${formatIDR(draft.amount)} diperbarui`, {
+        description: `${draft.category} · ${dateLabel} · tersimpan di sesi demo.`,
+      });
+      return;
+    }
+
     api
       .updateCash(entry.id, {
         category: draft.category,
@@ -1127,6 +1186,8 @@ export default function IndoKostPage() {
     toast.success(`Transaksi ${entry.id} dihapus`, {
       description: `${entry.description} · ${formatIDR(entry.amount)} dikeluarkan dari rekap.`,
     });
+    // MODE DEMO: tanpa API — catatan demo hidup hanya di sesi ini.
+    if (instantDemo || isDemoSession) return;
     api.deleteCash(entry.id).catch((err: unknown) => {
       toast.error("Gagal menghapus transaksi di database", { description: errMsg(err) });
       void refreshDashboard();
