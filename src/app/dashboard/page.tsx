@@ -1130,11 +1130,19 @@ export default function IndoKostPage() {
     }
   };
 
-  /** Ganti foto fasad langsung dari banner Denah — tersimpan ke database */
+  /** Ganti foto fasad langsung dari banner Denah — tersimpan ke database.
+   *  MODE DEMO: foto cukup tampil lokal (sesi demo tidak menyentuh database) */
   const handleGantiFotoProperti = (file: File) => {
     fileToPhotoDataUrl(file)
       .then((url) => {
         updateSettings({ propertyProfile: { ...settings.propertyProfile, fotoUrl: url } });
+        if (instantDemo || isDemoSession) {
+          toast.success("Foto properti diperbarui", {
+            description:
+              "Tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar tersimpan permanen di cloud.",
+          });
+          return;
+        }
         api
           .updateProperty({ fotoUrl: url })
           .then(() => {
@@ -1153,9 +1161,19 @@ export default function IndoKostPage() {
       });
   };
 
-  /** Sinkronkan profil properti & rekening (Pengaturan) ke database via PUT /api/properties */
+  /** Sinkronkan profil properti & rekening (Pengaturan) ke database via PUT /api/properties
+   *  MODE DEMO (?demo=1 / sesi demo): pengunjung belum punya properti riil di database —
+   *  JANGAN panggil API Supabase (dulu memunculkan toast merah "Properti belum terdaftar").
+   *  updateSettings di settings-view sudah menyimpan perubahan ke state lokal +
+   *  localStorage, jadi cukup konfirmasi ramah + arahan ke upgrade lisensi. */
   const handleSyncPropertyToDb = useCallback(
     (patch: { propertyProfile?: PropertyProfile; rekening?: RekeningConfig }) => {
+      if (instantDemo || isDemoSession) {
+        toast.success("Perubahan tersimpan di sesi demo!", {
+          description: "Dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.",
+        });
+        return;
+      }
       const payload: Record<string, string | null> = {};
       if (patch.propertyProfile) {
         payload.name = patch.propertyProfile.nama;
@@ -1182,7 +1200,7 @@ export default function IndoKostPage() {
           toast.error("Gagal sinkron profil ke database", { description: errMsg(err) }),
         );
     },
-    [],
+    [instantDemo, isDemoSession],
   );
 
   const handleApplyTariff = (changes: { type: string; price: number }[]) => {
@@ -1198,7 +1216,10 @@ export default function IndoKostPage() {
         .join(" · ")
         .concat(" — berlaku untuk tagihan periode berikutnya."),
     });
-    // Bulk patch ke database (tarif massal per tipe kamar)
+    // Bulk patch ke database (tarif massal per tipe kamar) — dilewati di mode
+    // demo: dataset simulasi lokal tidak punya padanan baris di database, dan
+    // dulu memunculkan toast merah "Gagal menyimpan tarif ke database".
+    if (instantDemo || isDemoSession) return;
     const targets = rooms.filter((r) => changes.some((c) => c.type === r.type));
     if (targets.length === 0) return;
     api
@@ -1627,7 +1648,16 @@ export default function IndoKostPage() {
           aria-label="Konten utama"
           aria-busy={isDataLoading}
         >
-          <div className="mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6">
+          {/* MODE DEMO (mobile): DemoConvertBar fixed menjorok ±144px ke atas
+              area <main> — trailing space diperbesar agar tombol aksi terbawah
+              (cth. "Simpan Perubahan" Pengaturan) tetap bisa diklik. */}
+          <div
+            className={
+              isDemoVisitor
+                ? "mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-48 sm:pb-4 lg:p-6"
+                : "mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6"
+            }
+          >
             {isDemoSession && <DemoBanner onReset={handleResetDemo} />}
             {dbState === "offline" && <OfflineBanner onRetry={handleRetrySync} />}
             {view === "tagihan" ? (
