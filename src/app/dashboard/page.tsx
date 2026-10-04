@@ -63,8 +63,11 @@ import type { ExpenseDraft } from "@/components/kost/expense-modal";
 import type { IncomeDraft } from "@/components/kost/income-modal";
 import type { IssueDraft } from "@/components/kost/report-issue-drawer";
 import {
+  addMonths,
   formatDateLabel,
   formatIDR,
+  MONTH_NAMES,
+  newPortalToken,
   ROOMS,
   waLink,
   dateToLabel,
@@ -164,6 +167,14 @@ function formatPhone(digits: string): string {
   const groups = rest.match(/.{1,4}/g) ?? [];
   return [head, ...groups].join("-");
 }
+
+/** Harga add-on check-in (demo) — cermin daftar ADDONS di checkin-modal agar
+ *  rincian invoice lokal selalu sama dengan total yang dijanjikan modal. */
+const DEMO_ADDON_PRICE: Record<string, number> = {
+  "Parkir Motor": 50_000,
+  "Parkir Mobil": 150_000,
+  "Orang Kedua": 200_000,
+};
 
 export default function IndoKostPage() {
   // ── Data dari Supabase via Route Handlers (external store — kamar/tagihan/kas)
@@ -965,6 +976,84 @@ export default function IndoKostPage() {
 
   const handleCheckinSubmit = (p: CheckinPayload) => {
     const moveInLabel = formatDateLabel(p.tanggalMasuk);
+
+    // MODE DEMO: check-in murni di state lokal — replika persis logika server
+    // (penghuni + token portal, kontrak & deposit terkunci, invoice pertama
+    // berstatus lunas) tanpa menyentuh database, karena sesi demo tidak punya
+    // properti terdaftar; POST /api/tenants hanya memicu toast merah 401/403.
+    if (instantDemo || isDemoSession) {
+      const room = rooms.find((r) => r.id === p.roomId);
+      if (!room) {
+        toast.info(`Kamar ${p.roomId} tidak ada di denah saat ini.`);
+        return;
+      }
+      const [yy, mm, dd] = p.tanggalMasuk.split("-").map(Number);
+      const moveIn = new Date(yy, (mm ?? 1) - 1, dd ?? 1);
+      const months = p.siklus === "Per 3 Bulan" ? 3 : p.siklus === "Tahunan" ? 12 : 1;
+      const contractEnd = addMonths(moveIn, months);
+      const monthName = MONTH_NAMES[moveIn.getMonth()];
+      const lastDay = new Date(moveIn.getFullYear(), moveIn.getMonth() + 1, 0).getDate();
+      const periodKey = `${moveIn.getFullYear()}-${String(moveIn.getMonth() + 1).padStart(2, "0")}`;
+      const phoneDisplay = `+62 ${formatPhone(p.phone.replace(/\D/g, ""))}`;
+      const todayLabel = dateToLabel(new Date());
+
+      const updatedRoom: Room = {
+        ...room,
+        status: "lunas",
+        price: Math.round(p.totalPerBulan),
+        tenant: {
+          name: p.nama,
+          phone: phoneDisplay,
+          moveInDate: moveInLabel,
+          emergencyContact: {
+            name: p.emergencyName.trim() || "—",
+            phone: p.emergencyPhone.trim() || "—",
+          },
+          portalToken: newPortalToken(p.roomId),
+        },
+        invoice: {
+          amount: Math.round(p.totalPerBulan),
+          periodLabel: `Sewa ${monthName} ${moveIn.getFullYear()}`,
+          dueLabel: `Tempo: ${moveInLabel.replace(/\s\d{4}$/, "")}`,
+        },
+        contract: {
+          duration: p.siklus,
+          startDate: moveInLabel,
+          endDate: dateToLabel(contractEnd),
+          deposit: p.deposit,
+          depositHeld: true,
+        },
+      };
+      const invoice: Invoice = {
+        id: `#INV-${periodKey.replace("-", "")}-${p.roomId}`,
+        roomId: p.roomId,
+        tenantName: p.nama,
+        tenantPhone: phoneDisplay,
+        roomType: room.type,
+        periodLabel: `1 ${monthName} – ${lastDay} ${monthName} ${moveIn.getFullYear()}`,
+        periodKey,
+        dueDate: moveInLabel,
+        lines: [
+          { label: "Sewa Kamar", amount: Math.round(p.hargaSewa) },
+          ...p.addons.map((a) => ({ label: a, amount: DEMO_ADDON_PRICE[a] ?? 0 })),
+        ],
+        total: Math.round(p.totalPerBulan),
+        status: "lunas",
+        paidAt: todayLabel,
+      };
+      updateRooms((prev) => prev.map((r) => (r.id === p.roomId ? updatedRoom : r)));
+      updateInvoices((prev) =>
+        prev.some((i) => i.id === invoice.id)
+          ? prev.map((i) => (i.id === invoice.id ? invoice : i))
+          : [invoice, ...prev],
+      );
+      const addons = p.addons.length > 0 ? ` · Add-on: ${p.addons.join(", ")}` : "";
+      toast.success(`${p.nama} check-in ke Kamar ${p.roomId}`, {
+        description: `${formatIDR(p.totalPerBulan)}/bln · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${dateToLabel(contractEnd)}${addons} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+      });
+      return;
+    }
+
     api
       .checkinTenant({
         roomId: p.roomId,
@@ -997,6 +1086,21 @@ export default function IndoKostPage() {
   // ── Data Penghuni: perpanjang & check-out ──────────────────────────────────
 
   const handleRenew = (room: Room, newEndDate: string, months: number) => {
+    // MODE DEMO: perpanjangan kontrak cukup di state lokal — dataset simulasi
+    // tidak ada di database; PATCH /api/tenants hanya memicu toast merah.
+    if (instantDemo || isDemoSession) {
+      updateRooms((prev) =>
+        prev.map((r) =>
+          r.id === room.id && r.contract
+            ? { ...r, contract: { ...r.contract, endDate: newEndDate } }
+            : r,
+        ),
+      );
+      toast.success(`Kontrak Kamar ${room.id} diperpanjang +${months} bulan`, {
+        description: `${room.tenant?.name} · kontrak berakhir ${newEndDate} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+      });
+      return;
+    }
     api
       .renewTenant(room.id, newEndDate)
       .then(({ room: updated }) => {
@@ -1014,6 +1118,38 @@ export default function IndoKostPage() {
     if (!room.tenant) return;
     const dateLabel = formatDateLabel(payload.tanggal);
     const tenantName = room.tenant.name;
+
+    // MODE DEMO: check-out murni di state lokal — kamar kembali kosong,
+    // penghuni & kontrak dilepas persis perilaku server; refund deposit
+    // (bila ada) masuk Buku Kas lokal. Tanpa database di sesi demo.
+    if (instantDemo || isDemoSession) {
+      updateRooms((prev) =>
+        prev.map((r) =>
+          r.id === room.id
+            ? { ...r, status: "kosong", tenant: undefined, invoice: undefined, contract: undefined }
+            : r,
+        ),
+      );
+      if (payload.refund > 0) {
+        const entry: CashEntry = {
+          id: localCashId(),
+          dateLabel,
+          dateSort: dateSortFromLabel(dateLabel),
+          type: "keluar",
+          category: "Refund Deposit",
+          description: `Refund deposit — ${tenantName} (Kamar ${room.id}) · ${payload.alasan}`,
+          amount: payload.refund,
+        };
+        updateCashEntries((prev) => [entry, ...prev]);
+      }
+      toast.success(`Check-out Kamar ${room.id} diproses`, {
+        description:
+          payload.refund > 0
+            ? `${tenantName} keluar (${payload.alasan}) · refund ${formatIDR(payload.refund)} tercatat di Buku Kas · tersimpan di sesi demo.`
+            : `${tenantName} keluar (${payload.alasan}) · tanpa refund deposit · tersimpan di sesi demo.`,
+      });
+      return;
+    }
 
     api
       .checkoutTenant(room.id)
@@ -1325,6 +1461,22 @@ export default function IndoKostPage() {
   // ── Manajemen Kamar (CRUD) ────────────────────────────────────────────
 
   const handleAddRooms = (newRooms: Room[]) => {
+    // MODE DEMO: kamar baru murni di state lokal — dataset simulasi tidak ada
+    // di database, POST /api/rooms hanya memicu toast merah "Properti belum
+    // terdaftar". Kotak kamar langsung tampil di denah lantai terpilih dengan
+    // status kosong; total kamar & okupansi ikut terhitung ulang otomatis.
+    if (instantDemo || isDemoSession) {
+      updateRooms((prev) => [...prev, ...newRooms]);
+      toast.success(
+        newRooms.length === 1
+          ? "Kamar baru berhasil ditambahkan ke simulasi denah!"
+          : `${newRooms.length} kamar baru berhasil ditambahkan ke simulasi denah!`,
+        {
+          description: `${newRooms.map((r) => r.id).join(", ")} · ${newRooms[0]?.type ?? "Kamar"} · ${formatIDR(newRooms[0]?.price ?? 0)}/bln · status Kosong — tersimpan di sesi demo; dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+        },
+      );
+      return;
+    }
     api
       .addRooms(
         newRooms.map((r) => ({
@@ -1404,11 +1556,15 @@ export default function IndoKostPage() {
         prev.map((t) => (t.roomId === room.id ? { ...t, roomId: patch.id } : t))
       );
     }
+    const inDemo = instantDemo || isDemoSession;
     toast.success(`Kamar ${room.id} diperbarui`, {
       description: idChanged
-        ? `Nomor kamar berubah menjadi "${patch.id}" — tagihan & tiket ikut diperbarui.`
-        : `${patch.type} · ${formatIDR(patch.price)}/bln · Lantai ${patch.floor}.`,
+        ? `Nomor kamar berubah menjadi "${patch.id}" — tagihan & tiket ikut diperbarui${inDemo ? " (sesi demo)." : "."}`
+        : `${patch.type} · ${formatIDR(patch.price)}/bln · Lantai ${patch.floor}${inDemo ? " · tersimpan di sesi demo." : "."}`,
     });
+    // MODE DEMO: perubahan kamar cukup di state lokal — dataset simulasi tidak
+    // ada di database; PATCH /api/rooms hanya memicu toast merah.
+    if (inDemo) return;
     api
       .patchRoom(room.id, {
         id: patch.id,
@@ -1436,9 +1592,13 @@ export default function IndoKostPage() {
     updateInvoices((prev) => prev.filter((i) => i.roomId !== room.id));
     if (selectedRoomId === room.id) setSelectedRoomId(null);
     if (manageRoomId === room.id) setManageRoomId(null);
+    const inDemo = instantDemo || isDemoSession;
     toast.success(`Kamar ${room.id} dihapus`, {
-      description: `${room.type} (${formatIDR(room.price)}/bln) dikeluarkan dari denah & daftar tagihan di database.`,
+      description: `${room.type} (${formatIDR(room.price)}/bln) dikeluarkan dari denah & daftar tagihan${inDemo ? " di sesi demo." : " di database."}`,
     });
+    // MODE DEMO: penghapusan kamar cukup di state lokal — dataset simulasi
+    // tidak ada di database; DELETE /api/rooms hanya memicu toast merah.
+    if (inDemo) return;
     api.deleteRoom(room.id).catch((err: unknown) => {
       toast.error("Gagal menghapus kamar di database", { description: errMsg(err) });
       void refreshDashboard();
