@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import Image from "next/image";
 import { toast } from "@/lib/toast";
 import { api, getAuthMeOnce } from "@/lib/api-client";
 import {
@@ -109,6 +108,14 @@ import {
 } from "@/lib/announcement-data";
 import { savePortalMirror } from "@/lib/portal-mirror";
 import { PropertyBanner } from "@/components/kost/property-banner";
+import {
+  KasSkeleton,
+  MetricStripSkeleton,
+  PortalSkeleton,
+  RoomMatrixSkeleton,
+  RowsSkeleton,
+  TagihanSkeleton,
+} from "@/components/kost/dashboard-skeletons";
 import {
   DEFAULT_SETTINGS,
   fileToPhotoDataUrl,
@@ -271,10 +278,11 @@ export default function IndoKostPage() {
   // tidak pernah "0 Kamar", tidak pernah skeleton menunggu database.
   //
   // AKUN ASLI: cek properti dulu (belum onboarding → langsung wizard
-  // /onboarding, bukan error), lalu muat kamar/tagihan/kas. Seluruh alur
-  // memakai try-catch-finally + fetch ber-timeout + watchdog 5 dtk — apa pun
-  // yang terjadi (sukses, data kosong, error, database menggantung), loading
-  // SELALU selesai dan pengguna tidak pernah menatap skeleton abadi.
+  // /onboarding, bukan error), lalu muat kamar/tagihan/kas DI LATAR BELAKANG —
+  // shell dashboard tampil instan, hanya kartu data memakai skeleton shimmer.
+  // Seluruh alur memakai try-catch-finally + fetch ber-timeout + watchdog 5 dtk
+  // — apa pun yang terjadi (sukses, data kosong, error, database menggantung),
+  // skeleton SELALU selesai dan pengguna tidak pernah menatap placeholder abadi.
   useEffect(() => {
     if (instantDemo) {
       applyDemoSnapshot();
@@ -613,6 +621,12 @@ export default function IndoKostPage() {
     setView("pengaturan");
     setSettingsTab("danger");
   };
+
+  // ── Skeleton in-place: selama sinkron awal berjalan, shell dashboard tetap
+  // tampil penuh (sidebar, topbar, banner properti, tab) — hanya kartu data
+  // (metrik, denah, tabel) yang memakai placeholder shimmer. Layar penuh tidak
+  // pernah diblokir halaman kosong/spinner saat data disinkronkan.
+  const isDataLoading = dbState === "loading";
 
   // ── Mode data lokal: demo interaktif (?demo=1 / sesi demo) atau fallback
   // offline (database tak terjangkau). Data di memori adalah dataset simulasi
@@ -1534,13 +1548,10 @@ export default function IndoKostPage() {
     );
   }
 
-  // ── Loading gate: data belum tiba dari database → skeleton layar penuh ──
-  if (dbState === "loading") {
-    return <DashboardSkeleton />;
-  }
-
   // ── Portal Penyewa renders standalone (public page, no owner chrome) ──────
+  // Skeleton in-place selama sinkron awal — tidak ada layar kosong penuh.
   if (view === "portal") {
+    if (isDataLoading) return <PortalSkeleton />;
     return (
       <TenantPortal
         token={portalPreviewToken ?? ""}
@@ -1587,6 +1598,8 @@ export default function IndoKostPage() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* TopBar + Sidebar tampil instan — sinkronisasi Supabase berjalan di
+            latar belakang tanpa memblokir navigasi */}
         <TopBar
           property={property}
           current={VIEW_LABELS[view]}
@@ -1604,11 +1617,18 @@ export default function IndoKostPage() {
           onThemeChange={(t) => updateSettings({ theme: t })}
         />
 
-        <main className="flex-1 overflow-y-auto scrollbar-thin" aria-label="Konten utama">
+        <main
+          className="flex-1 overflow-y-auto scrollbar-thin"
+          aria-label="Konten utama"
+          aria-busy={isDataLoading}
+        >
           <div className="mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6">
             {isDemoSession && <DemoBanner onReset={handleResetDemo} />}
             {dbState === "offline" && <OfflineBanner onRetry={handleRetrySync} />}
             {view === "tagihan" ? (
+              isDataLoading ? (
+                <TagihanSkeleton />
+              ) : (
               <TagihanView
                 invoices={invoices}
                 rooms={rooms}
@@ -1629,7 +1649,11 @@ export default function IndoKostPage() {
                 onReceiptWa={handleReceiptWa}
                 onCancelInvoice={handleInvoiceCancel}
               />
+              )
             ) : view === "komplain" ? (
+              isDataLoading ? (
+                <RowsSkeleton rows={5} />
+              ) : (
               <MaintenancePanel
                 tickets={tickets}
                 rooms={rooms}
@@ -1640,7 +1664,11 @@ export default function IndoKostPage() {
                 onDeleteTicket={handleDeleteTicket}
                 onCreateTicket={handleCreateTicket}
               />
+              )
             ) : view === "pengumuman" ? (
+              isDataLoading ? (
+                <RowsSkeleton rows={4} />
+              ) : (
               <AnnouncementPanel
                 announcements={announcements}
                 rooms={rooms}
@@ -1652,7 +1680,11 @@ export default function IndoKostPage() {
                 onToggleActive={handleToggleAnnouncement}
                 onDelete={handleDeleteAnnouncement}
               />
+              )
             ) : view === "penghuni" ? (
+              isDataLoading ? (
+                <RowsSkeleton rows={6} />
+              ) : (
               <PenghuniView
                 rooms={rooms}
                 invoices={invoices}
@@ -1662,7 +1694,11 @@ export default function IndoKostPage() {
                 onCheckout={handleCheckout}
                 propertyName={property}
               />
+              )
             ) : view === "kas" ? (
+              isDataLoading ? (
+                <KasSkeleton />
+              ) : (
               <KasView
                 entries={cashEntries}
                 onAddExpense={handleAddExpense}
@@ -1672,7 +1708,9 @@ export default function IndoKostPage() {
                 propertyName={property}
                 staffRole={staffSession?.role ?? null}
               />
+              )
             ) : view === "pengaturan" ? (
+              // Pengaturan: data profil tersimpan lokal + cloud — tampil instan
               <SettingsView
                 propertyName={property}
                 rooms={rooms}
@@ -1701,10 +1739,12 @@ export default function IndoKostPage() {
               />
             ) : (
               <>
-                {/* [1] Banner identitas properti — paling atas */}
+                {/* [1] Banner identitas properti — paling atas, tampil INSTAN
+                    (profil dari settings lokal + cloud). Jumlah unit memakai
+                    placeholder "···" selama sinkron awal agar tidak flashes 0. */}
                 <PropertyBanner
                   profile={settings.propertyProfile}
-                  unitCount={rooms.length}
+                  unitCount={isDataLoading ? -1 : rooms.length}
                   onGantiFoto={handleGantiFotoProperti}
                   ownerName={staffSession?.name ?? settings.owner.nama}
                   ownerRole={staffSession ? staffRoleLabel(staffSession.role) : "Owner"}
@@ -1728,13 +1768,22 @@ export default function IndoKostPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <p className="hidden text-[13px] font-medium text-zinc-700 sm:block">
-                      {syncedAt
-                        ? `Tersinkron cloud · ${syncedAt}`
-                        : isDemoSession
-                          ? "Mode Demo · data simulasi"
-                          : dbState === "offline"
-                            ? "Mode offline · data perangkat"
-                            : "Menyambungkan ke cloud…"}
+                      {syncedAt ? (
+                        `Tersinkron cloud · ${syncedAt}`
+                      ) : isDemoSession ? (
+                        "Mode Demo · data simulasi"
+                      ) : dbState === "offline" ? (
+                        "Mode offline · data perangkat"
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2
+                            className="size-3.5 animate-spin text-zinc-400"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                          />
+                          Menyambungkan ke cloud…
+                        </span>
+                      )}
                     </p>
                     {canManageRooms && (
                       <Button
@@ -1749,29 +1798,39 @@ export default function IndoKostPage() {
                   </div>
                 </div>
 
-                {/* [3] Kartu metrik ringkasan */}
-                <MetricStrip
-                  rooms={rooms}
-                  unit={PROPERTY_TYPE_META[settings.propertyProfile.tipe].unit}
-                />
+                {/* [3] Kartu metrik ringkasan — skeleton shimmer saat sinkron awal */}
+                {isDataLoading ? (
+                  <MetricStripSkeleton />
+                ) : (
+                  <MetricStrip
+                    rooms={rooms}
+                    unit={PROPERTY_TYPE_META[settings.propertyProfile.tipe].unit}
+                  />
+                )}
 
-                <RoomMatrix
-                  rooms={searchedRooms}
-                  totalRooms={rooms.length}
-                  activeTab={activeTab}
-                  onTabChange={setActiveTab}
-                  onSelectRoom={(room) => setSelectedRoomId(room.id)}
-                  onManageRoom={(room) => {
-                    setManageRoomId(room.id);
-                    setManageOpen(true);
-                  }}
-                  onDeleteRoom={handleRequestDeleteRoom}
-                  onCheckinRoom={(room) => openCheckin(room.id)}
-                  onAdRoom={(room) => setAdRoomId(room.id)}
-                  canManage={canManageRooms}
-                  propertyType={settings.propertyProfile.tipe}
-                  onAddRoom={() => setAddRoomOpen(true)}
-                />
+                {/* [4] Denah kamar — shell & tab tetap interaktif; kartu data
+                    menyusul otomatis saat fetch Supabase selesai (tanpa blocker) */}
+                {isDataLoading ? (
+                  <RoomMatrixSkeleton />
+                ) : (
+                  <RoomMatrix
+                    rooms={searchedRooms}
+                    totalRooms={rooms.length}
+                    activeTab={activeTab}
+                    onTabChange={setActiveTab}
+                    onSelectRoom={(room) => setSelectedRoomId(room.id)}
+                    onManageRoom={(room) => {
+                      setManageRoomId(room.id);
+                      setManageOpen(true);
+                    }}
+                    onDeleteRoom={handleRequestDeleteRoom}
+                    onCheckinRoom={(room) => openCheckin(room.id)}
+                    onAdRoom={(room) => setAdRoomId(room.id)}
+                    canManage={canManageRooms}
+                    propertyType={settings.propertyProfile.tipe}
+                    onAddRoom={() => setAddRoomOpen(true)}
+                  />
+                )}
               </>
             )}
           </div>
@@ -1892,34 +1951,6 @@ export default function IndoKostPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
-  );
-}
-
-// ── Skeleton layar penuh saat data dimuat dari Supabase ─────────────────────
-
-function DashboardSkeleton() {
-  return (
-    <div
-      className="flex h-screen flex-col items-center justify-center gap-3 bg-background px-4"
-      role="status"
-      aria-live="polite"
-    >
-      <Image
-        src="/brand/icon.png"
-        alt="Logo UnitKu"
-        width={40}
-        height={40}
-        priority
-        className="size-10 shrink-0 animate-pulse rounded-xl object-contain ring-1 ring-zinc-200"
-      />
-      <p className="flex items-center gap-2 text-[13px] font-semibold text-zinc-800">
-        <Loader2 className="size-4 animate-spin text-zinc-500" strokeWidth={2} aria-hidden="true" />
-        Menyambungkan ke database…
-      </p>
-      <p className="text-center text-[12.5px] leading-4 text-zinc-500">
-        Memuat kamar, tagihan &amp; buku kas dari Supabase via API.
-      </p>
     </div>
   );
 }

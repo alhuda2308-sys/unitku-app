@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 
 interface PropertyBannerProps {
   profile: PropertyProfile;
-  /** Jumlah unit live dari dataset kamar */
+  /** Jumlah unit live dari dataset kamar. -1 = masih sinkron awal → tampil "···"
+   *  (bukan 0) agar pill tidak berkedip nilai salah sebelum data tiba. */
   unitCount: number;
   onGantiFoto: (file: File) => void;
   /** Kelola properti — owner only; undefined = sembunyikan (sesi staf) */
@@ -95,7 +96,7 @@ export function PropertyBanner({
               {meta.label}
               <span aria-hidden="true">·</span>
               <span className="tabular-nums">
-                {unitCount} {meta.unit}
+                {unitCount < 0 ? "···" : `${unitCount} ${meta.unit}`}
               </span>
             </span>
           </div>

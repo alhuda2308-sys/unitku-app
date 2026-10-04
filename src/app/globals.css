@@ -1364,6 +1364,47 @@
   }
 }
 
+/* ── UnitKu — skeleton shimmer (kartu data dimuat di latar belakang) ─────────
+   Blok abu tipis dgn sapuan cahaya horizontal. Dipakai placeholder in-place
+   dashboard — UI shell tetap tampil instan, kartu data menyusul saat sinkron
+   Supabase selesai. Tidak pernah memblokir seluruh layar. */
+@keyframes unitku-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--accent);
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.65),
+    transparent
+  );
+  animation: unitku-shimmer 1.6s infinite;
+}
+.dark .shimmer::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.07),
+    transparent
+  );
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer::after {
+    animation: none;
+  }
+}
+
 /* ── UnitKu — Cetak Laporan Buku Kas & Kuitansi (@media print) ────────────────
    #kas-print-portal & #kwitansi-print-portal dirender via React portal ke
    <body>, tersembunyi di layar dan hanya tampil saat mencetak; seluruh anak

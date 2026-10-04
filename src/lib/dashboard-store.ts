@@ -210,7 +210,7 @@ export function applyDemoSnapshot(): void {
 export function markStalled(): void {
   if (state.status !== "loading") return;
   console.warn(
-    "[UnitKu] Database tidak merespons tepat waktu — skeleton dilepas, mode offline diaktifkan (watchdog).",
+    "[UnitKu] Database tidak merespons tepat waktu — fallback mode offline diaktifkan (watchdog).",
   );
   setState({
     rooms: ROOMS,
@@ -234,7 +234,8 @@ export function rescueDemoIfLoading(): void {
 
 /**
  * Muat data dari cloud (kamar + tagihan + kas). Status "loading" → skeleton
- * layar penuh; kegagalan sementara di-retry otomatis (warm-up server,
+ * in-place per kartu data (UI shell dashboard tetap tampil, layar penuh tidak
+ * pernah diblokir); kegagalan sementara di-retry otomatis (warm-up server,
  * SQLITE_BUSY, dsb. tidak langsung menjatuhkan mode offline). Setelah 3
  * percobaan gagal → status "offline" + fallback dataset demo + polling
  * /api/health utk pemulihan otomatis. Melempar error agar pemanggil
