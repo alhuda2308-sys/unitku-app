@@ -79,17 +79,17 @@ const ROOM_TONE: Record<string, { card: string; badge: string }> = {
 };
 
 const PAIN_POINTS = [
-  "Nggak enakan tiap mau nagih sewa yang telat ke anak kost/penyewa.",
-  "Catatan manual di buku sering keselip, kotor, atau rawan hilang.",
-  "Harus bolak-balik cek mutasi m-banking nyocokin struk transferan.",
-  "Uang sewa tahu-tahu habis karena biaya perbaikan kecil-kecil nggak tercatat.",
+  "Sering lupa siapa yang nunggak dan sudah dibayar sampai mana.",
+  "Sungkan merangkai kata saat mau nagih lewat WhatsApp.",
+  "Catatan di buku/Excel rawan hilang, terhapus, atau salah rekap.",
+  "Potongan komisi kalau pakai aplikasi sewa lain.",
 ] as const;
 
 const SOLUTION_POINTS = [
-  "Pengingat WA sopan terkirim otomatis, nggak perlu drama tagih-menagih.",
-  "Denah visual live: sekali buka HP langsung tahu mana kamar yang kosong/terisi.",
-  "Penyewa dapat bukti invoice & kuitansi resmi otomatis, minim komplain.",
-  "Catatan kas masuk dan keluar tercatat rapi per properti, laba bersih langsung kelihatan.",
+  "Status warna kamar real-time: lunas, jatuh tempo, kosong — sekali lirik langsung tahu.",
+  "1 klik, template tagihan WhatsApp sopan tersusun otomatis — tinggal kirim.",
+  "Data aman tersimpan di cloud — bisa dibuka dari HP maupun laptop.",
+  "Sekali bayar seumur hidup, tanpa komisi & tanpa langganan bulanan.",
 ] as const;
 
 const OFFER_BENEFITS = [
@@ -314,29 +314,30 @@ export default async function LandingPage() {
             </p>
 
             <h1 className="mx-auto mt-5 max-w-3xl text-balance text-3xl font-extrabold leading-[1.15] tracking-tight sm:text-4xl lg:text-5xl">
-              Stop Gak Enakan Nagih Sewa.{" "}
+              Kelola Puluhan Kamar Kost{" "}
               <span className="text-emerald-700">
-                Tagihan WA Terkirim Otomatis, Uang Masuk Tepat Waktu.
+                Tanpa Pusing Buku Catatan &amp; Sungkan Menagih.
               </span>
             </h1>
 
             <p className="mx-auto mt-4 max-w-3xl text-pretty text-lg leading-relaxed text-slate-600 sm:text-xl lg:text-2xl">
-              Pantau denah kamar, lacak jatuh tempo sewa, dan kirim tagihan
-              serta kwitansi resmi langsung via WhatsApp tanpa biaya langganan
-              bulanan.
+              Pantau status sewa visual, otomatiskan arus kas, dan kirim tagihan
+              ramah lewat WhatsApp dalam 1 klik. Lisensi seumur hidup tanpa
+              biaya langganan bulanan.
             </p>
 
             <div className="mt-7 flex flex-col items-center justify-center gap-2.5 sm:flex-row">
-              <DemoCta />
               <BuyCta
-                className="w-full border border-zinc-300 bg-white text-zinc-900 shadow-none hover:bg-zinc-50 sm:w-auto"
-                label="Amankan Lisensi Rp 399rb"
+                className="w-full sm:w-auto"
+                label={`Beli Lisensi Seumur Hidup (${LICENSE_PRICE_LABEL})`}
               />
+              <DemoCta variant="outline" className="w-full sm:w-auto" />
             </div>
 
-            <p className="mt-3.5 text-sm font-semibold text-orange-600 sm:text-base">
-              <span aria-hidden="true">⚡</span> Hemat Rp 400.000 — Kuota Early
-              Adopter tersisa 23 lisensi lagi.
+            <p className="mx-auto mt-3.5 inline-flex max-w-full flex-wrap items-center justify-center gap-x-1.5 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-[13px] font-semibold leading-snug text-zinc-700 sm:text-sm">
+              <span aria-hidden="true">⚡</span> Akses di HP, Tablet &amp; Laptop
+              <span aria-hidden="true" className="text-zinc-300">•</span>
+              Garansi 7 Hari Uang Kembali 100%
             </p>
 
             <ul className="mx-auto mt-7 flex max-w-3xl flex-col items-center justify-center gap-x-6 gap-y-2 sm:flex-row sm:flex-wrap">
@@ -357,28 +358,29 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        {/* ── 2. Masalah nyata vs solusi ───────────────────────────────────── */}
+        {/* ── 2. Pain-point relatable: Cara Lama vs Cara UnitKu ───────────── */}
         <section id="masalah" className="scroll-mt-16">
           <div className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 sm:py-18">
             <div className="mx-auto max-w-2xl text-center">
               <h2 className="text-2xl font-bold tracking-tight sm:text-4xl">
-                Kalau Ibaratnya Begini…
+                Cara Lama vs Cara UnitKu
               </h2>
               <p className="mt-3 text-base leading-relaxed text-slate-600 sm:text-lg">
-                Mana yang paling sering Anda alami? Kalau kolom kiri bikin
-                mengangguk, berarti UnitKu memang diciptakan untuk Anda.
+                Kalau kolom kiri bikin mengangguk, Anda tidak sendirian — dan
+                justru di situ UnitKu paling banyak membantu.
               </p>
             </div>
 
             <div className="mt-8 grid gap-4 md:grid-cols-2">
-              {/* Cara lama */}
+              {/* Cara lama — buku / Excel */}
               <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                 <div className="flex items-center gap-2.5">
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
-                    <XCircle className="size-5 text-zinc-500" strokeWidth={1.75} aria-hidden="true" />
+                    <Notebook className="size-5 text-zinc-500" strokeWidth={1.75} aria-hidden="true" />
                   </span>
                   <h3 className="text-xl font-bold leading-snug sm:text-2xl">
-                    Cara Lama <span className="font-medium text-zinc-500">(Bikin Puyeng)</span>
+                    Cara Lama{" "}
+                    <span className="font-medium text-zinc-500">(Buku/Excel)</span>
                   </h3>
                 </div>
                 <ul className="mt-4 space-y-3">
@@ -391,14 +393,15 @@ export default async function LandingPage() {
                 </ul>
               </article>
 
-              {/* Pakai UnitKu */}
+              {/* Cara UnitKu */}
               <article className="rounded-xl border-2 border-emerald-600 bg-white p-5 shadow-[0_8px_24px_rgba(5,150,105,0.10)]">
                 <div className="flex items-center gap-2.5">
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600">
                     <CheckCircle2 className="size-5 text-white" strokeWidth={1.75} aria-hidden="true" />
                   </span>
                   <h3 className="text-xl font-bold leading-snug sm:text-2xl">
-                    Pakai UnitKu <span className="font-medium text-emerald-700">(Serba Rapi &amp; Santai)</span>
+                    Cara UnitKu{" "}
+                    <span className="font-medium text-emerald-700">(Semua Rapi Otomatis)</span>
                   </h3>
                 </div>
                 <ul className="mt-4 space-y-3">
@@ -505,30 +508,70 @@ export default async function LandingPage() {
                 </p>
               </article>
 
-              {/* Bento 2 — Tagihan WhatsApp Otomatis */}
-              <article className="flex flex-col rounded-xl border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+              {/* Bento 2 — Tagihan WhatsApp Otomatis (mockup chat, 2 kolom) */}
+              <article className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] lg:col-span-2">
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
                   <MessageCircle className="size-5 text-zinc-800" strokeWidth={1.75} aria-hidden="true" />
                 </span>
                 <h3 className="mt-3.5 text-xl font-bold leading-snug sm:text-2xl">
                   Tagihan WhatsApp Otomatis — Nagih Sopan Tanpa Bikin Canggung
                 </h3>
-                <p className="mt-2 text-base leading-relaxed text-slate-600 sm:text-lg">
-                  Template pesan tagihan rapi &amp; profesional langsung ke nomor
-                  WhatsApp penyewa.
+                <p className="mt-2 max-w-lg text-base leading-relaxed text-slate-600 sm:text-lg">
+                  Klik satu tombol, template pesan tagihan tersusun rapi
+                  otomatis — lengkap nama penyewa, kamar, nominal, dan rekening
+                  tujuan. Tinggal tekan kirim.
                 </p>
-                <div className="mt-4 rounded-xl rounded-tl-sm border border-emerald-100 bg-emerald-50 p-3">
-                  <p className="text-[12.5px] leading-relaxed text-zinc-700">
-                    Halo Budi, kami dari Kost Griya Pratama mengingatkan tagihan
-                    Kamar 101 sebesar{" "}
-                    <span className="font-semibold tabular-nums">Rp1.500.000</span>{" "}
-                    jatuh tempo 28 Sep (H-3). Mohon dibayar sebelum tanggal
-                    tersebut ya 🙏
-                  </p>
-                  <p className="mt-2 text-[12.5px] font-medium text-emerald-700">
-                    ✓✓ Terkirim otomatis · 09.00
-                  </p>
+
+                {/* Mockup chat WhatsApp UnitKu — preview pesan otomatis */}
+                <div className="mt-5 overflow-hidden rounded-xl border border-emerald-100 shadow-[0_2px_10px_rgba(15,23,42,0.06)]" role="img" aria-label="Preview pesan tagihan WhatsApp otomatis dari UnitKu">
+                  <div className="flex items-center gap-2.5 bg-emerald-700 px-3.5 py-2.5 text-white">
+                    <Image
+                      src="/brand/icon.png"
+                      alt=""
+                      width={30}
+                      height={30}
+                      className="size-[30px] shrink-0 rounded-full object-contain"
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-bold leading-tight">
+                        UnitKu · Kost Alhuda
+                      </span>
+                      <span className="block text-[10.5px] leading-tight text-emerald-100">online</span>
+                    </span>
+                    <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-50">
+                      Preview Pesan Otomatis
+                    </span>
+                  </div>
+
+                  <div className="bg-[#eef6f1] p-3.5 sm:p-4">
+                    <div className="max-w-[92%] rounded-2xl rounded-tl-sm bg-white p-3.5 shadow-sm sm:max-w-[80%]">
+                      <p className="text-[13px] leading-relaxed text-zinc-700 sm:text-sm">
+                        Halo Mas Budi, sekadar mengingatkan sewa{" "}
+                        <span className="font-semibold">Kamar A-02</span> di
+                        Kost Alhuda akan jatuh tempo pada{" "}
+                        <span className="font-semibold">5 Oktober 2026</span>{" "}
+                        sebesar{" "}
+                        <span className="font-bold tabular-nums text-zinc-900">
+                          Rp 1.200.000
+                        </span>
+                        . Pembayaran dapat ditransfer via rekening{" "}
+                        <span className="font-semibold">BCA xxxx</span>.
+                        Terima kasih banyak ya!
+                      </p>
+                      <p className="mt-2 text-right text-[10.5px] font-medium text-emerald-600">
+                        09.00 <span aria-hidden="true">✓✓</span>
+                        <span className="sr-only">Terkirim</span>
+                      </p>
+                    </div>
+                  </div>
                 </div>
+
+                <p className="mt-3.5 text-[13.5px] font-medium leading-relaxed text-zinc-600 sm:text-[15px]">
+                  <span aria-hidden="true">💬</span> Kirim tagihan tanpa rasa
+                  sungkan, pesan otomatis tersusun rapi langsung ke WhatsApp
+                  penyewa.
+                </p>
               </article>
 
               {/* Bento 3 — Satu Akun Multi-Cabang */}
@@ -1003,6 +1046,21 @@ export default async function LandingPage() {
                     </span>
                   </p>
 
+                  {/* Highlight isi paket Lifetime Access */}
+                  <ul className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {["Semua fitur terbuka", "Unlimited kamar & properti", "Update gratis selamanya"].map(
+                      (item) => (
+                        <li
+                          key={item}
+                          className="flex items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-bold leading-snug text-emerald-800"
+                        >
+                          <CheckCircle2 className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                          {item}
+                        </li>
+                      ),
+                    )}
+                  </ul>
+
                   <p className="mx-auto mt-4 max-w-lg rounded-lg border border-amber-200 bg-amber-50 p-4 text-base leading-relaxed text-amber-900 sm:text-lg">
                     Cuma 399 ribu sekali bayar. Nilainya bahkan lebih murah dari
                     harga sewa 1 kamar sebulan, tapi bikin tenang ngurus properti
@@ -1028,16 +1086,22 @@ export default async function LandingPage() {
                     Pembayaran aman via Mayar · Aktivasi otomatis setelah
                     pembayaran terverifikasi · Garansi uang kembali 7 hari
                   </p>
-                  <ul className="mt-4 flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                    <li className="inline-flex items-center justify-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-1.5 text-center text-[12.5px] font-semibold leading-snug text-emerald-800">
+                  {/* Kotak garansi tebal — penghapus keraguan utama */}
+                  <div className="mt-4 rounded-xl border-2 border-emerald-600 bg-emerald-50 p-4 text-center sm:p-5">
+                    <p className="text-base font-black leading-snug text-emerald-900 sm:text-lg">
                       <span aria-hidden="true">🛡️</span> Garansi 7 Hari Uang
-                      Kembali Tanpa Ribet
-                    </li>
-                    <li className="inline-flex items-center justify-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-center text-[12.5px] font-semibold leading-snug text-zinc-700">
-                      <span aria-hidden="true">💬</span> Support WhatsApp Siap
-                      Bantu — Fast response langsung dari tim pengembang
-                    </li>
-                  </ul>
+                      Kembali 100% Tanpa Ribet
+                    </p>
+                    <p className="mt-1.5 text-[13.5px] leading-relaxed text-emerald-800 sm:text-[15px]">
+                      Cukup chat admin jika merasa aplikasi ini tidak membantu
+                      operasional kost Anda — uang kembali penuh, tanpa
+                      pertanyaan berbelit.
+                    </p>
+                  </div>
+                  <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-[12.5px] font-semibold text-zinc-600">
+                    <span aria-hidden="true">💬</span> Support WhatsApp Siap
+                    Bantu — Fast response langsung dari tim pengembang
+                  </p>
                 </div>
               </div>
             </div>

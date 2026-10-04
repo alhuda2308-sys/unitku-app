@@ -37,6 +37,7 @@ import {
   type CheckoutFormState,
 } from "@/lib/checkout-validation";
 import {
+  LICENSE_AMOUNT_IDR,
   LICENSE_PRICE_LABEL,
   SUPPORT_WA_PURCHASE_LINK,
 } from "@/lib/landing-config";
@@ -46,17 +47,34 @@ interface BuyCtaProps {
   className?: string;
   label?: string;
   inverted?: boolean; // dipakai di kartu gelap (bg-zinc-900) — tombol putih
+  /** Bar sempit (sticky demo bar): tombol ramping satu baris */
+  compact?: boolean;
 }
 
 export function BuyCta({
   className = "",
   label = "Beli Akses Seumur Hidup",
   inverted = false,
+  compact = false,
 }: BuyCtaProps) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<CheckoutFormState>(EMPTY_CHECKOUT_FORM);
   const [fieldErrors, setFieldErrors] = useState<CheckoutFieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
+
+  /** Buka modal checkout + tembakkan event Meta Pixel InitiateCheckout.
+   *  Ini konversi utama kampanye Meta Ads — semua tombol beli (hero, bento,
+   *  testimoni, penawaran, final CTA, sticky demo bar) lewat pintu ini. */
+  const openCheckout = () => {
+    setOpen(true);
+    window.fbq?.("track", "InitiateCheckout", {
+      content_name: "Lisensi Seumur Hidup UnitKu",
+      content_ids: ["unitku-lifetime"],
+      content_type: "product",
+      value: LICENSE_AMOUNT_IDR,
+      currency: "IDR",
+    });
+  };
 
   const setField = (key: keyof CheckoutFormState) => (value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -167,10 +185,12 @@ export function BuyCta({
     <>
       <Button
         size="lg"
-        onClick={() => setOpen(true)}
-        className={`h-auto min-h-14 whitespace-normal px-5 py-3 text-base font-bold leading-snug sm:px-8 sm:py-4 sm:text-lg ${
-          inverted ? "bg-white text-zinc-900 hover:bg-zinc-100" : ""
-        } ${className}`}
+        onClick={openCheckout}
+        className={`${
+          compact
+            ? "h-10 min-h-10 whitespace-nowrap px-4 py-2 text-[13px] font-bold leading-none sm:h-11 sm:min-h-11 sm:px-5 sm:text-sm"
+            : "h-auto min-h-14 whitespace-normal px-5 py-3 text-base font-bold leading-snug sm:px-8 sm:py-4 sm:text-lg"
+        } ${inverted ? "bg-white text-zinc-900 hover:bg-zinc-100" : ""} ${className}`}
       >
         {label}
       </Button>

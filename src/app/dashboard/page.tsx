@@ -41,6 +41,7 @@ import { Sidebar } from "@/components/kost/sidebar";
 import { TopBar } from "@/components/kost/topbar";
 import { MobileBottomBar } from "@/components/kost/mobile-bottombar";
 import { PwaInstallBanner } from "@/components/kost/pwa-install";
+import { DemoConvertBar } from "@/components/landing/demo-convert-bar";
 import { MetricStrip } from "@/components/kost/metric-strip";
 import { RoomMatrix, type TabValue } from "@/components/kost/room-matrix";
 import { RoomDrawer } from "@/components/kost/room-drawer";
@@ -633,6 +634,10 @@ export default function IndoKostPage() {
   // yang TIDAK ada di cloud — mutasi pembayaran wajib murni lokal; memanggil
   // API dulu-lah yang memicu error "Tagihan tidak ditemukan" / 401.
   const isLocalDataMode = instantDemo || isDemoSession || dbState === "offline";
+
+  // ── Pengunjung mode demo (?demo=1 / sesi demo cookie) → target konversi
+  // Meta Ads: sticky bottom bar "Beli Lisensi Sekarang" (DemoConvertBar).
+  const isDemoVisitor = instantDemo || isDemoSession;
 
   /** Id unik entri kas lokal (demo/offline) — hindari tabrakan KAS-… */
   const localCashId = () => `KAS-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1852,8 +1857,15 @@ export default function IndoKostPage() {
           onThemeChange={(t) => updateSettings({ theme: t })}
         />
 
-        {/* Banner PWA "Pasang Aplikasi" — bottom sheet ramah jempol, bisa ditutup */}
-        <PwaInstallBanner />
+        {/* Banner PWA "Pasang Aplikasi" — bottom sheet ramah jempol, bisa ditutup
+            ( disembunyikan di mode demo — tak relevan sebelum membeli & mencegah
+            tumpang-tindih dengan DemoConvertBar ) */}
+        {!isDemoVisitor && <PwaInstallBanner />}
+
+        {/* Sticky conversion bar mode demo — tombol memicu modal checkout +
+            event Meta Pixel InitiateCheckout (konversi kampanye Meta Ads) */}
+        {isDemoVisitor && <DemoConvertBar />}
+        {isDemoVisitor && <div aria-hidden="true" className="h-16" />}
       </div>
 
       <RoomDrawer
