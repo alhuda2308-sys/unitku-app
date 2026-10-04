@@ -97,9 +97,17 @@ import { getAuthInfo, signOut } from "@/lib/auth/client";
 const inputCls =
   "h-9 border-zinc-200 bg-white text-[13px] text-zinc-900 placeholder:text-zinc-600 focus-visible:ring-zinc-900/5";
 
-const SAMPLE = { nama: "Dimas Ardi", kamar: "102", nominal: "Rp1.750.000", tempo: "28 Sep 2026", kos: "Kost Griya Pratama" };
+const SAMPLE = {
+  nama: "Dimas Ardi",
+  kamar: "102",
+  nominal: "Rp1.750.000",
+  tempo: "28 Sep 2026",
+  kos: "Kost Griya Pratama",
+  // Blok rekening contoh — tampil di pratinjau Template Hari H (Task 99)
+  rekening: "Pembayaran dapat ditransfer melalui:\n🏦 BCA: 1234567890 (a.n. Hendra Wijaya)",
+};
 
-const TOKENS = ["{nama}", "{kamar}", "{nominal}", "{tempo}"] as const;
+const TOKENS = ["{nama}", "{kamar}", "{nominal}", "{tempo}", "{rekening}"] as const;
 
 /** Static facility map per room type (fallback bila kamar belum punya fasilitas) */
 const TYPE_FACILITIES: Record<string, string[]> = {
@@ -1464,7 +1472,9 @@ function renderPreview(text: string): string {
     .replaceAll("{kamar}", SAMPLE.kamar)
     .replaceAll("{nominal}", SAMPLE.nominal)
     .replaceAll("{tempo}", SAMPLE.tempo)
-    .replaceAll("{kos}", SAMPLE.kos);
+    .replaceAll("{kos}", SAMPLE.kos)
+    .replaceAll("{rekening}", SAMPLE.rekening)
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 function TemplateTab({

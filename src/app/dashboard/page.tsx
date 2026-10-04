@@ -885,18 +885,32 @@ export default function IndoKostPage() {
     });
   };
 
-  /** Isi placeholder Template WhatsApp: {nama} {kos} {kamar} {nominal} {tempo} */
+  /** Isi placeholder Template WhatsApp: {nama} {kos} {kamar} {nominal} {tempo} {rekening} */
   const fillWaTemplate = (tpl: string, v: Record<string, string>) =>
     tpl
       .replaceAll("{nama}", v.nama)
       .replaceAll("{kos}", v.kos)
       .replaceAll("{kamar}", v.kamar)
       .replaceAll("{nominal}", v.nominal)
-      .replaceAll("{tempo}", v.tempo);
+      .replaceAll("{tempo}", v.tempo)
+      .replaceAll("{rekening}", v.rekening ?? "");
+
+  /** Blok instruksi transfer utk pesan tagihan WA (spec Task 99) — dari
+   *  rekening aktif (database properti pada akun riil, dummy state di demo —
+   *  keduanya mengalir lewat settings.rekening). Null bila belum lengkap. */
+  const rekeningWaBlock = (): string | null => {
+    const bank = settings.rekening.bank.trim();
+    const noRek = settings.rekening.noRek.trim();
+    const atasNama = settings.rekening.atasNama.trim();
+    if (!bank || !noRek || !atasNama) return null;
+    return `Pembayaran dapat ditransfer melalui:\n🏦 ${bank}: ${noRek} (a.n. ${atasNama})`;
+  };
 
   /** "Kirim Tagihan WA" (panel tagihan RoomDrawer) — BUKA WhatsApp asli:
    *  nomor dibersihkan → wa.me/<digits>?text=<encodeURIComponent(pesan)>;
-   *  pesan dari Template WhatsApp (Pengaturan) sesuai status tagihan.
+   *  pesan dari Template WhatsApp (Pengaturan) sesuai status tagihan + blok
+   *  rekening pemilik selalu tersisip (template lama tanpa {rekening} pun
+   *  tetap mendapatkannya — disisipkan sebelum paragraf penutup).
    *  Dibuka via anchor sinkron (open-external.ts) — imun pop-up blocker. */
   const handleSendInvoice = (room: Room) => {
     const phone = room.tenant?.phone ?? "";
@@ -908,18 +922,30 @@ export default function IndoKostPage() {
       });
       return;
     }
-    const tpl =
-      room.status === "lunas" ? settings.templates.lunas : settings.templates.hariH;
-    const message = [
-      fillWaTemplate(tpl, {
-        nama: room.tenant?.name ?? "Penyewa",
-        kos: settings.propertyProfile.nama,
-        kamar: room.id,
-        nominal: formatIDR(amount),
-        tempo: (room.invoice?.dueLabel ?? "").replace("Tempo: ", ""),
-      }),
-      BRAND_WA_FOOTER,
-    ].join("\n\n");
+    const isReceipt = room.status === "lunas";
+    const tpl = isReceipt ? settings.templates.lunas : settings.templates.hariH;
+    // Kwitansi lunas tidak menyertakan instruksi transfer; tagihan menyertakan.
+    const block = isReceipt ? "" : (rekeningWaBlock() ?? "");
+    let body = fillWaTemplate(tpl, {
+      nama: room.tenant?.name ?? "Penyewa",
+      kos: settings.propertyProfile.nama,
+      kamar: room.id,
+      nominal: formatIDR(amount),
+      tempo: (room.invoice?.dueLabel ?? "").replace("Tempo: ", ""),
+      rekening: block,
+    })
+      .replace(/\n{3,}/g, "\n\n") // placeholder kosong tak menyisakan baris kosong beruntun
+      .trim();
+    // Kompatibilitas template lama/kustom tanpa {rekening}: sisipkan blok
+    // sebelum paragraf penutup agar urutan pesan selaras spec (sapaan →
+    // rincian → rekening → konfirmasi).
+    if (block && !body.includes("Pembayaran dapat ditransfer")) {
+      const parts = body.split("\n\n");
+      if (parts.length >= 2) parts.splice(parts.length - 1, 0, block);
+      else parts.push(block);
+      body = parts.join("\n\n");
+    }
+    const message = [body, BRAND_WA_FOOTER].join("\n\n");
     const waUrl = `${waLink(digits)}?text=${encodeURIComponent(message)}`;
     openExternal(waUrl);
     toast.success(`Draf WhatsApp dibuka — Kamar ${room.id}`, {

@@ -131,17 +131,26 @@ export interface WaTemplateConfig {
   lunas: string;
 }
 
+/** Template "Tagihan Hari H" default SEBELUM placeholder {rekening} ada (Task 99).
+ *  Dipakai utk mendeteksi pemilik yang tidak pernah mengubah template —
+ *  otomatis dinaikkan ke default baru agar pesan tagihan menyertakan blok rekening. */
+export const LEGACY_DEFAULT_HARI_H = `Halo {nama},
+
+Hari ini {tempo} adalah jatuh tempo tagihan Kamar {kamar} sebesar {nominal}.
+
+Segera lakukan pembayaran agar layanan kamar tetap berjalan normal. Terima kasih.`;
+
 export const DEFAULT_TEMPLATES: WaTemplateConfig = {
   h3: `Halo {nama},
 
 Kami dari {kos} mengingatkan bahwa tagihan sewa Kamar {kamar} sebesar {nominal} akan jatuh tempo pada {tempo} (H-3).
 
 Mohon lakukan pembayaran sebelum tanggal tersebut agar terhindar dari denda keterlambatan. Terima kasih.`,
-  hariH: `Halo {nama},
+  hariH: `Halo {nama}, hari ini {tempo} adalah jatuh tempo tagihan Kamar {kamar} sebesar {nominal}.
 
-Hari ini {tempo} adalah jatuh tempo tagihan Kamar {kamar} sebesar {nominal}.
+{rekening}
 
-Segera lakukan pembayaran agar layanan kamar tetap berjalan normal. Terima kasih.`,
+Mohon konfirmasi dan kirim bukti transfer jika sudah melakukan pembayaran ya Kak. Terima kasih! 🙏`,
   lunas: `Terima kasih {nama}!
 
 Pembayaran sewa Kamar {kamar} sebesar {nominal} telah kami terima dan LUNAS.
@@ -444,6 +453,14 @@ function writeActiveThemeKey(theme: ThemeKey): void {
   }
 }
 
+/** Naikkan template bawaan lama ke default terkini — HANYA bila pemilik tidak
+ *  pernah menyunting template tersebut (byte-identik dgn default lama).
+ *  Template yang sudah dikustomisasi tidak pernah disentuh. Idempoten. */
+function upgradeLegacyTemplates(templates: WaTemplateConfig): WaTemplateConfig {
+  if (templates.hariH !== LEGACY_DEFAULT_HARI_H) return templates;
+  return { ...templates, hariH: DEFAULT_TEMPLATES.hariH };
+}
+
 function mergeSettings(saved: Partial<IndoKostSettings>): IndoKostSettings {
   return {
     owner: { ...DEFAULT_SETTINGS.owner, ...(saved.owner ?? {}) },
@@ -457,7 +474,7 @@ function mergeSettings(saved: Partial<IndoKostSettings>): IndoKostSettings {
         : DEFAULT_SETTINGS.properties,
     staff: Array.isArray(saved.staff) ? saved.staff : DEFAULT_SETTINGS.staff,
     rekening: { ...DEFAULT_SETTINGS.rekening, ...(saved.rekening ?? {}) },
-    templates: { ...DEFAULT_SETTINGS.templates, ...(saved.templates ?? {}) },
+    templates: upgradeLegacyTemplates({ ...DEFAULT_SETTINGS.templates, ...(saved.templates ?? {}) }),
     facilities: {
       unit: Array.isArray(saved.facilities?.unit)
         ? saved.facilities.unit
@@ -609,7 +626,9 @@ export function applyRemoteSettings(remote: SettingsCloudPatch | null | undefine
       }
       if (Array.isArray(remote.properties)) next.properties = remote.properties;
       if (Array.isArray(remote.staff)) next.staff = remote.staff;
-      if (remote.templates) next.templates = { ...s.templates, ...stripNullish(remote.templates) };
+      if (remote.templates) {
+        next.templates = upgradeLegacyTemplates({ ...s.templates, ...stripNullish(remote.templates) });
+      }
       if (remote.facilities) {
         next.facilities = {
           unit: Array.isArray(remote.facilities.unit) ? remote.facilities.unit : s.facilities.unit,
