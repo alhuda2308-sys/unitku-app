@@ -415,7 +415,47 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-// ── DELETE — hapus akun (auth + lisensi; data properti dipertahankan) ────────
+// ── DELETE — hapus pengguna/lead lintas sumber (best-effort per sumber) ──────
+//
+// Menghapus SEMUA jejak email target di panel:
+//   1. Akun auth          — Supabase Auth (admin.deleteUser) / OwnerAccount lokal
+//   2. Lisensi level akun — tabel licenses (by email)
+//   3. Lead calon pembeli — tabel license_leads (by email) ← sering satu-satunya
+//                           data utk "calon user/simulasi" dari form checkout
+//   4. Profil owner       — OwnerSetting (by userId) + tabel opsional profiles
+//                           (bila admin membuatnya sendiri di Supabase)
+//   5. Properti           — TIDAK dihapus; ownerId dikosongkan utk audit
+//
+// Safe handling: satu sumber yang tidak menemukan record (atau gagal) TIDAK
+// menggagalkan sumber lain — proses lanjut & tetap 200 selama minimal satu
+// langkah berhasil / dilewati dengan aman. 500 hanya bila semua langkah gagal
+// keras (indikasi DB down / konfigurasi rusak).
+
+interface DeleteStepResult {
+  source: "auth" | "license" | "lead" | "profile" | "property";
+  ok: boolean;
+  skipped: boolean; // true = tidak ada record / tidak berlaku (bukan error)
+  detail: string;
+}
+
+/** Kode error Prisma (P2025 record not found, P2021 table missing, …) */
+function prismaErrorCode(err: unknown): string | null {
+  if (
+    err &&
+    typeof err === "object" &&
+    "code" in err &&
+    typeof (err as { code: unknown }).code === "string"
+  ) {
+    return (err as { code: string }).code;
+  }
+  return null;
+}
+
+/** Tidak ada record / tabel yang bisa dihapus — bukan error, cukup dilewati */
+function isNothingToDelete(err: unknown): boolean {
+  const code = prismaErrorCode(err);
+  return code === "P2025" || code === "P2021";
+}
 
 export async function DELETE(request: NextRequest) {
   const guard = await requireSuperAdminUser();
@@ -435,45 +475,201 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const license = await db.licenseAccount.findUnique({ where: { email } });
-    let userId = license?.userId ?? null;
+    const results: DeleteStepResult[] = [];
+    const push = (r: DeleteStepResult) => results.push(r);
 
+    // ── Identitas: userId & profil lisensi (jika ada) — best-effort ──────────
+    type LicenseRow = Awaited<ReturnType<typeof db.licenseAccount.findUnique>>;
+    let license: LicenseRow = null;
+    let userId: string | null = null;
+    try {
+      license = await db.licenseAccount.findUnique({ where: { email } });
+      userId = license?.userId ?? null;
+    } catch (err) {
+      console.error("[api/admin/users DELETE] lookup lisensi gagal — lanjut tanpa userId:", err);
+    }
+
+    // ── 1. Akun auth (Supabase / lokal) — gagal TIDAK membatalkan sumber lain
+    let authDeleted = false;
     if (getAuthMode() === "supabase") {
       const admin = getSupabaseAdmin();
       if (!admin) {
-        return NextResponse.json(
-          { error: "SUPABASE_SERVICE_ROLE_KEY belum dikonfigurasi — hapus akun tidak tersedia." },
-          { status: 503 },
-        );
-      }
-      if (!userId) userId = await findSupabaseUserIdByEmail(email);
-      if (userId) {
-        const { error } = await admin.auth.admin.deleteUser(userId);
-        if (error) {
-          console.error("[api/admin/users DELETE] deleteUser gagal:", error.message);
-          return NextResponse.json({ error: `Gagal menghapus akun Supabase: ${error.message}` }, { status: 502 });
+        push({ source: "auth", ok: false, skipped: true, detail: "SUPABASE_SERVICE_ROLE_KEY belum dikonfigurasi — penghapusan auth dilewati." });
+      } else {
+        try {
+          if (!userId) userId = await findSupabaseUserIdByEmail(email);
+          if (userId) {
+            const { error } = await admin.auth.admin.deleteUser(userId);
+            if (error) {
+              // Record auth tidak ditemukan / sudah terhapus → aman dilewati;
+              // error lain juga TIDAK membatalkan penghapusan data database.
+              console.error("[api/admin/users DELETE] deleteUser gagal (dilewati):", error.message);
+              push({ source: "auth", ok: false, skipped: true, detail: `Auth tidak terhapus: ${error.message}` });
+            } else {
+              authDeleted = true;
+              push({ source: "auth", ok: true, skipped: false, detail: `Akun auth ${userId} dihapus.` });
+            }
+          } else {
+            push({ source: "auth", ok: true, skipped: true, detail: "Tidak ada akun auth untuk email ini." });
+          }
+        } catch (err) {
+          console.error("[api/admin/users DELETE] langkah auth error (dilewati):", err);
+          push({ source: "auth", ok: false, skipped: true, detail: "Langkah auth gagal — dilewati." });
         }
       }
     } else {
-      const account = await db.ownerAccount.findUnique({ where: { email }, select: { id: true } });
-      if (account) {
-        userId = account.id;
-        await db.ownerAccount.delete({ where: { id: account.id } });
+      // Mode lokal — OwnerAccount scrypt
+      try {
+        const account = await db.ownerAccount.findUnique({ where: { email }, select: { id: true } });
+        if (account) {
+          userId = account.id;
+          await db.ownerAccount.delete({ where: { id: account.id } });
+          authDeleted = true;
+          push({ source: "auth", ok: true, skipped: false, detail: `Akun lokal ${account.id} dihapus.` });
+        } else {
+          push({ source: "auth", ok: true, skipped: true, detail: "Tidak ada akun lokal untuk email ini." });
+        }
+      } catch (err) {
+        console.error("[api/admin/users DELETE] langkah auth lokal error (dilewati):", err);
+        push({ source: "auth", ok: false, skipped: true, detail: "Langkah auth lokal gagal — dilewati." });
       }
     }
 
-    // Data lisensi level akun dihapus; histori pembelian tetap (FK SetNull) utk audit
-    if (license) {
-      await db.licenseAccount.delete({ where: { id: license.id } });
-    }
-    // Data properti dipertahankan — kepemilikan dikosongkan
-    if (userId) {
-      await db.property.updateMany({ where: { ownerId: userId }, data: { ownerId: null } });
+    // ── 2. Lisensi level akun (licenses, by email) ───────────────────────────
+    // Histori pembelian (license_purchases) tetap disimpan (FK SetNull) utk audit.
+    try {
+      if (license) {
+        await db.licenseAccount.delete({ where: { email } });
+        push({ source: "license", ok: true, skipped: false, detail: "Profil lisensi dihapus." });
+      } else {
+        push({ source: "license", ok: true, skipped: true, detail: "Tidak ada profil lisensi." });
+      }
+    } catch (err) {
+      if (isNothingToDelete(err)) {
+        push({ source: "license", ok: true, skipped: true, detail: "Tidak ada profil lisensi." });
+      } else {
+        console.error("[api/admin/users DELETE] hapus lisensi gagal:", err);
+        push({ source: "license", ok: false, skipped: false, detail: "Gagal menghapus profil lisensi." });
+      }
     }
 
-    return NextResponse.json({ success: true, email, authDeleted: Boolean(userId) });
+    // ── 3. Lead calon pembeli (license_leads, by email) — INTI PERBAIKAN ─────
+    // "Calon user / akun dummy dari lead" hanya tersimpan di tabel ini; tanpa
+    // langkah ini barisnya tetap muncul di panel setelah refresh.
+    try {
+      const lead = await db.licenseLead.findUnique({ where: { email } });
+      if (lead) {
+        await db.licenseLead.delete({ where: { email } });
+        push({ source: "lead", ok: true, skipped: false, detail: "Lead calon pembeli dihapus." });
+      } else {
+        push({ source: "lead", ok: true, skipped: true, detail: "Tidak ada lead untuk email ini." });
+      }
+    } catch (err) {
+      if (isNothingToDelete(err)) {
+        push({ source: "lead", ok: true, skipped: true, detail: "Tidak ada lead untuk email ini." });
+      } else {
+        // Tabel license_leads mungkin belum dibuat di database produksi —
+        // jangan biarkan tabel opsional menggagalkan penghapusan sumber lain.
+        console.error("[api/admin/users DELETE] hapus lead gagal:", err);
+        push({ source: "lead", ok: false, skipped: true, detail: "Gagal menghapus lead (tabel mungkin belum tersedia)." });
+      }
+    }
+
+    // ── 4. Profil owner — OwnerSetting (by userId) ───────────────────────────
+    if (userId) {
+      try {
+        const setting = await db.ownerSetting.findUnique({ where: { userId } });
+        if (setting) {
+          await db.ownerSetting.delete({ where: { userId } });
+          push({ source: "profile", ok: true, skipped: false, detail: "Profil/pengaturan owner dihapus." });
+        } else {
+          push({ source: "profile", ok: true, skipped: true, detail: "Tidak ada profil/pengaturan owner." });
+        }
+      } catch (err) {
+        if (isNothingToDelete(err)) {
+          push({ source: "profile", ok: true, skipped: true, detail: "Tidak ada profil/pengaturan owner." });
+        } else {
+          console.error("[api/admin/users DELETE] hapus owner_setting gagal:", err);
+          push({ source: "profile", ok: false, skipped: true, detail: "Gagal menghapus profil owner." });
+        }
+      }
+
+      // Tabel opsional `profiles` (bila pernah dibuat manual di Supabase —
+      // UnitKu bawaan TIDAK memakainya). Keberadaan tabel & kolom dicek dulu
+      // via information_schema agar tidak ada noise error Prisma di log.
+      try {
+        const meta = await db.$queryRaw<
+          Array<{ has_table: boolean; has_user_id: boolean; has_email: boolean }>
+        >`SELECT
+             EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'profiles') AS has_table,
+             EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'user_id') AS has_user_id,
+             EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'email') AS has_email`;
+        const info = meta[0];
+        if (info?.has_table) {
+          let rows = 0;
+          let skippedDetail: string | null = null;
+          // $executeRaw (tagged template) mem-parameterisasi otomatis — aman.
+          if (info.has_user_id && userId && info.has_email) {
+            rows = await db.$executeRaw`DELETE FROM "profiles" WHERE user_id = ${userId} OR lower(email) = ${email}`;
+          } else if (info.has_user_id && userId) {
+            rows = await db.$executeRaw`DELETE FROM "profiles" WHERE user_id = ${userId}`;
+          } else if (info.has_email) {
+            rows = await db.$executeRaw`DELETE FROM "profiles" WHERE lower(email) = ${email}`;
+          } else {
+            skippedDetail = "Tabel profiles tidak punya kolom user_id/email — dilewati.";
+          }
+          if (skippedDetail) {
+            push({ source: "profile", ok: true, skipped: true, detail: skippedDetail });
+          } else {
+            push({
+              source: "profile",
+              ok: true,
+              skipped: rows === 0,
+              detail: rows > 0 ? `${rows} baris profiles dihapus.` : "Tidak ada baris profiles.",
+            });
+          }
+        } else {
+          push({ source: "profile", ok: true, skipped: true, detail: "Tabel profiles tidak tersedia — dilewati." });
+        }
+      } catch (err) {
+        console.error("[api/admin/users DELETE] hapus profiles (opsional) gagal — dilewati:", err);
+        push({ source: "profile", ok: true, skipped: true, detail: "Tabel profiles tidak tersedia — dilewati." });
+      }
+    }
+
+    // ── 5. Properti dipertahankan — kepemilikan dikosongkan utk audit ────────
+    if (userId) {
+      try {
+        await db.property.updateMany({ where: { ownerId: userId }, data: { ownerId: null } });
+        push({ source: "property", ok: true, skipped: false, detail: "Kepemilikan properti dilepas (data dipertahankan)." });
+      } catch (err) {
+        console.error("[api/admin/users DELETE] lepas kepemilikan properti gagal:", err);
+        push({ source: "property", ok: false, skipped: false, detail: "Gagal melepas kepemilikan properti." });
+      }
+    }
+
+    // ── Ringkasan: 200 selama ada langkah yang berhasil/aman dilewati; 500
+    //    hanya bila SEMUA langkah gagal keras (indikasi sistemik). ────────────
+    const attempted = results.filter((r) => !r.skipped);
+    const hardFailures = attempted.filter((r) => !r.ok);
+    if (attempted.length > 0 && hardFailures.length === attempted.length) {
+      return NextResponse.json(
+        { error: "Gagal menghapus data pengguna/lead.", detail: results.map((r) => `${r.source}: ${r.detail}`).join(" | ") },
+        { status: 500 },
+      );
+    }
+
+    const leadDeleted = results.some((r) => r.source === "lead" && r.ok && !r.skipped);
+    return NextResponse.json({
+      success: true,
+      email,
+      authDeleted,
+      leadDeleted,
+      results,
+    });
   } catch (err) {
     console.error("[api/admin/users DELETE]", err);
-    return NextResponse.json({ error: "Gagal menghapus akun." }, { status: 500 });
+    const detail = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: "Gagal menghapus data pengguna/lead.", detail }, { status: 500 });
   }
 }

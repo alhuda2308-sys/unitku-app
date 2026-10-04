@@ -618,23 +618,37 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
 
   const confirmDelete = async () => {
     if (!deleteTarget || deleteBusy) return;
+    const target = deleteTarget;
     setDeleteBusy(true);
     try {
-      const res = await fetch(`/api/admin/users?email=${encodeURIComponent(deleteTarget.email)}`, {
+      const res = await fetch(`/api/admin/users?email=${encodeURIComponent(target.email)}`, {
         method: "DELETE",
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+        leadDeleted?: boolean;
+        authDeleted?: boolean;
+      };
       if (res.ok) {
-        toast.success("Akun dihapus", {
-          description: `${deleteTarget.email} — akun auth & lisensi dihapus; data properti dipertahankan.`,
-        });
+        // Optimistic update — baris hilang instan dari tabel & statistik,
+        // lalu re-fetch sebagai sumber kebenaran (konsistensi akhir server).
+        setRows((prev) => (prev ? prev.filter((r) => r.email !== target.email) : prev));
         setDeleteTarget(null);
+        const hasAuth = Boolean(target.id);
+        toast.success("Data pengguna/lead berhasil dihapus.", {
+          description: hasAuth
+            ? `${target.email} — akun & lisensi dihapus; data properti dipertahankan.`
+            : `${target.email} — data lead calon pembeli dihapus dari database.`,
+        });
         await load(true);
       } else {
-        toast.error("Gagal menghapus akun", { description: data.error ?? "Coba lagi sebentar." });
+        toast.error("Gagal menghapus data", {
+          description: [data.error, data.detail].filter(Boolean).join(" — ") ?? "Coba lagi sebentar.",
+        });
       }
     } catch {
-      toast.error("Gagal menghapus akun", { description: "Tidak dapat terhubung ke server." });
+      toast.error("Gagal menghapus data", { description: "Tidak dapat terhubung ke server." });
     } finally {
       setDeleteBusy(false);
     }
@@ -922,8 +936,8 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
 
         <p className="mt-3 flex items-start gap-1.5 text-[12.5px] text-zinc-500">
           <ShieldOff className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-          Menghapus akun menghapus data auth &amp; lisensi; data properti (kamar, tagihan, kas) dipertahankan
-          tanpa pemilik. Sesi admin aktif: <span className="font-medium text-zinc-700">{adminEmail}</span>.
+          Menghapus pengguna membersihkan data auth, lisensi, profil, dan lead calon pembeli; data properti
+          (kamar, tagihan, kas) dipertahankan tanpa pemilik. Sesi admin aktif: <span className="font-medium text-zinc-700">{adminEmail}</span>.
         </p>
       </div>
 
@@ -937,11 +951,23 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(v) => !v && setDeleteTarget(null)}>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-[15px]">Hapus Akun Pengguna?</AlertDialogTitle>
+            <AlertDialogTitle className="text-[15px]">
+              {deleteTarget?.id ? "Hapus Akun Pengguna?" : "Hapus Data Calon Pengguna?"}
+            </AlertDialogTitle>
             <AlertDialogDescription className="text-[12.5px]">
-              Akun auth <span className="font-medium text-zinc-700">{deleteTarget?.email}</span> dan data
-              lisensinya akan dihapus permanen. Data properti (kamar, tagihan, kas) tetap tersimpan tanpa
-              pemilik. Tindakan ini tidak dapat dibatalkan.
+              {deleteTarget?.id ? (
+                <>
+                  Akun auth <span className="font-medium text-zinc-700">{deleteTarget?.email}</span> dan data
+                  lisensinya akan dihapus permanen. Data properti (kamar, tagihan, kas) tetap tersimpan tanpa
+                  pemilik. Tindakan ini tidak dapat dibatalkan.
+                </>
+              ) : (
+                <>
+                  Data lead calon pembeli{" "}
+                  <span className="font-medium text-zinc-700">{deleteTarget?.email}</span> akan dihapus permanen
+                  dari database (license_leads). Tindakan ini tidak dapat dibatalkan.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -955,7 +981,7 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
               className="h-9 bg-red-600 text-[12.5px] text-white hover:bg-red-700"
             >
               {deleteBusy && <Loader2 className="size-3.5 animate-spin" strokeWidth={1.75} aria-hidden="true" />}
-              Ya, Hapus Akun
+              {deleteTarget?.id ? "Ya, Hapus Akun" : "Ya, Hapus Data Lead"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
