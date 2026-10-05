@@ -372,9 +372,21 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
         </div>
       ) : (
         <>
-          {/* Desktop: tabel */}
+          {/* Desktop: tabel — table-fixed + colgroup proporsional agar SEMUA
+              kolom (termasuk tombol "Cabut Akses") muat tanpa terpotong di
+              lebar normal; overflow-x-auto menjaga layar sempit tetap rapi */}
         <div className="hidden overflow-hidden rounded-lg border border-border bg-white md:block">
-          <table className="w-full text-left">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[840px] table-fixed text-left">
+            <colgroup>
+              <col className="w-[16%]" />
+              <col className="w-[18%]" />
+              <col className="w-[12%]" />
+              <col className="w-[9%]" />
+              <col className="w-[8%]" />
+              <col className="w-[16%]" />
+              <col className="w-[21%]" />
+            </colgroup>
             <thead>
               <tr className="border-b border-border bg-zinc-50 text-[11px] font-bold uppercase tracking-wider text-zinc-500">
                 <th className="px-3.5 py-2.5 font-bold">Staf</th>
@@ -417,7 +429,7 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
                   <td className="px-3 py-3">
                     <span
                       className={cn(
-                        "inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold leading-none",
+                        "inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none",
                         STAFF_ROLE_META[m.role].pill,
                       )}
                     >
@@ -444,14 +456,14 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
                   <td className="max-w-[240px] px-3 py-3">
                     <LinkBox link={linkOf(m)} onCopy={() => copyLink(m)} highlight={m.id === freshId} />
                   </td>
-                  <td className="px-3.5 py-3">
-                    <div className="flex items-center justify-end gap-1.5">
+                  <td className="whitespace-nowrap px-3 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
                       {m.isActive ? (
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => toggleActive(m)}
-                          className="h-7 gap-1 border-zinc-200 bg-white px-2 text-[12px] font-semibold text-red-600 shadow-none hover:bg-red-50 hover:text-red-700"
+                          className="h-7 shrink-0 gap-1 whitespace-nowrap border-zinc-200 bg-white px-1.5 text-[12px] font-semibold text-red-600 shadow-none hover:bg-red-50 hover:text-red-700"
                         >
                           <ShieldOff className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
                           Cabut Akses
@@ -461,7 +473,7 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
                           variant="outline"
                           size="sm"
                           onClick={() => toggleActive(m)}
-                          className="h-7 gap-1 border-zinc-200 bg-white px-2 text-[12px] font-semibold text-emerald-700 shadow-none hover:bg-emerald-50"
+                          className="h-7 shrink-0 gap-1 whitespace-nowrap border-zinc-200 bg-white px-1.5 text-[12px] font-semibold text-emerald-700 shadow-none hover:bg-emerald-50"
                         >
                           <ShieldCheck className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
                           Aktifkan Lagi
@@ -499,6 +511,7 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
               ))}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Mobile: kartu */}
@@ -544,7 +557,7 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <span
                   className={cn(
-                    "inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold leading-none",
+                    "inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none",
                     STAFF_ROLE_META[m.role].pill,
                   )}
                 >
@@ -661,7 +674,7 @@ function LinkBox({
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 rounded-md border bg-zinc-50 py-1 pl-2 pr-1",
+        "flex w-44 max-w-full items-center gap-1.5 rounded-md border bg-zinc-50 py-1 pl-2 pr-1",
         highlight ? "border-[var(--ik-accent)]" : "border-border",
       )}
       title={link}

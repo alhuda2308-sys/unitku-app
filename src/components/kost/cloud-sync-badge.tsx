@@ -1,6 +1,6 @@
 "use client";
 
-import { Cloud, CloudOff } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import {
@@ -18,52 +18,47 @@ interface CloudSyncBadgeProps {
   className?: string;
 }
 
-/** Meta tampilan per status — ikon, kelas warna, dan label sesuai spec:
- *  🟢 hijau "Tersinkron ke Cloud • jam" · 🔄 berputar "Menyinkronkan..." ·
- *  🔴 merah "Belum tersinkron (Offline)". Status "idle" (belum ada aktivitas)
- *  ditampilkan sebagai menyinkronkan agar tidak pernah berbohong. */
-const SYNC_META: Record<
-  SyncStatus,
-  { Icon: typeof Cloud; spin: boolean; pill: string; text: string; label: string }
-> = {
-  synced: {
-    Icon: Cloud,
-    spin: false,
-    pill: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    text: "text-emerald-700",
-    label: "Tersinkron ke Cloud",
-  },
-  syncing: {
-    Icon: Cloud,
-    spin: true,
-    pill: "border-amber-200 bg-amber-50 text-amber-700",
-    text: "text-amber-600",
-    label: "Menyinkronkan...",
-  },
-  error: {
-    Icon: CloudOff,
-    spin: false,
-    pill: "border-red-200 bg-red-50 text-red-700",
-    text: "text-red-600",
-    label: "Belum tersinkron (Offline)",
-  },
-  idle: {
-    Icon: Cloud,
-    spin: true,
-    pill: "border-zinc-200 bg-zinc-50 text-zinc-600",
-    text: "text-zinc-600",
-    label: "Menyinkronkan...",
-  },
+/** Teks & warna teks per status. Ikon diganti DOT lingkaran minimalis
+ *  (gaya status ping/live): hijau solid + pulse halus, spinner kecil saat
+ *  menyinkronkan, merah solid saat offline/gagal. "idle" (belum ada
+ *  aktivitas) ditampilkan sebagai menyinkronkan agar tidak pernah bohong. */
+const SYNC_META: Record<SyncStatus, { label: string; text: string }> = {
+  synced: { label: "Tersinkron ke Cloud", text: "text-zinc-600" },
+  syncing: { label: "Menyinkronkan...", text: "text-zinc-600" },
+  error: { label: "Belum tersinkron (Offline)", text: "text-rose-600" },
+  idle: { label: "Menyinkronkan...", text: "text-zinc-600" },
 };
+
+/** Dot status minimalis — satu elemen kecil pembawa warna status:
+ *  🟢 emerald solid (pulse halus) · 🔄 spinner kecil amber · 🔴 rose solid. */
+function StatusDot({ status }: { status: SyncStatus }) {
+  if (status === "syncing" || status === "idle") {
+    return (
+      <Loader2
+        className="size-3 shrink-0 animate-spin text-amber-500"
+        strokeWidth={2.25}
+        aria-hidden="true"
+      />
+    );
+  }
+  if (status === "error") {
+    return <span className="size-2 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />;
+  }
+  return (
+    <span
+      className="size-2 shrink-0 animate-pulse rounded-full bg-emerald-500"
+      aria-hidden="true"
+    />
+  );
+}
 
 /**
  * CloudSyncBadge — indikator status sinkronisasi cloud UnitKu.
  *
  * Sumber kebenaran: store sync-status (semua permintaan API route handler +
- * push pengaturan dilaporkan ke sana). Hijau = operasi cloud terakhir sukses
- * (dengan jam sinkron), awan berputar = ada permintaan berjalan, merah =
- * operasi terakhir gagal (offline/DB tak terjangkau) — TANPA mengganggu
- * navigasi: satu baris mungil di kaki sidebar & header halaman.
+ * push pengaturan dilaporkan ke sana). Dot hijau = operasi cloud terakhir
+ * sukses (dengan jam sinkron), spinner kecil = ada permintaan berjalan, dot
+ * merah = operasi terakhir gagal — ringkas, proporsional, tidak mendominasi.
  */
 export function CloudSyncBadge({
   variant = "sidebar",
@@ -76,12 +71,11 @@ export function CloudSyncBadge({
     getServerSyncStatusSnapshot,
   );
   const meta = SYNC_META[status];
-  const { Icon, spin } = meta;
 
   /** Label lengkap — juga dipakai title/aria agar mode ciut tetap terbaca */
   const fullLabel =
     status === "synced" && syncedAt
-      ? `${meta.label} · ${syncedAt}`
+      ? `${meta.label} • ${syncedAt}`
       : meta.label;
 
   if (variant === "inline") {
@@ -96,24 +90,16 @@ export function CloudSyncBadge({
             : fullLabel
         }
         className={cn(
-          "inline-flex items-center gap-1.5 text-[13px] font-medium",
+          "inline-flex items-center gap-2 whitespace-nowrap text-[12.5px] font-medium",
           meta.text,
           className,
         )}
       >
-        <Icon
-          className={cn("size-3.5 shrink-0", spin && "animate-spin")}
-          strokeWidth={2}
-          aria-hidden="true"
-        />
-        <span className="whitespace-nowrap">
-          {status === "synced" ? (
-            <>
-              {meta.label}
-              <span className="tabular-nums text-zinc-500"> · {syncedAt}</span>
-            </>
-          ) : (
-            meta.label
+        <StatusDot status={status} />
+        <span>
+          {meta.label}
+          {status === "synced" && syncedAt && (
+            <span className="tabular-nums text-zinc-500"> • {syncedAt}</span>
           )}
         </span>
       </span>
@@ -129,16 +115,9 @@ export function CloudSyncBadge({
           aria-live="polite"
           aria-label={`Status sinkronisasi cloud: ${fullLabel}`}
           title={fullLabel}
-          className={cn(
-            "flex size-7 items-center justify-center rounded-md border",
-            meta.pill,
-          )}
+          className="flex size-7 items-center justify-center rounded-md border border-zinc-200 bg-zinc-50"
         >
-          <Icon
-            className={cn("size-3.5", spin && "animate-spin")}
-            strokeWidth={2}
-            aria-hidden="true"
-          />
+          <StatusDot status={status} />
         </span>
       </div>
     );
@@ -155,24 +134,15 @@ export function CloudSyncBadge({
           : fullLabel
       }
       className={cn(
-        "flex items-center gap-1.5 rounded-md border px-2 py-1.5",
-        meta.pill,
+        "flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1.5",
         className,
       )}
     >
-      <Icon
-        className={cn("size-3.5 shrink-0", spin && "animate-spin")}
-        strokeWidth={2}
-        aria-hidden="true"
-      />
-      <span className="min-w-0 truncate text-[11px] font-medium leading-4">
-        {status === "synced" ? (
-          <>
-            {meta.label}
-            <span className="tabular-nums opacity-80"> · {syncedAt}</span>
-          </>
-        ) : (
-          meta.label
+      <StatusDot status={status} />
+      <span className="min-w-0 truncate text-[11px] font-medium leading-4 text-zinc-600">
+        {meta.label}
+        {status === "synced" && syncedAt && (
+          <span className="tabular-nums text-zinc-500"> • {syncedAt}</span>
         )}
       </span>
     </div>
