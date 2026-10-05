@@ -147,6 +147,9 @@ interface SettingsViewProps {
   onTabChange: (tab: string) => void;
   settings: IndoKostSettings;
   onUpdateSettings: (patch: Partial<IndoKostSettings>) => void;
+  /** Ganti tema — server-first utk akun riil (Task 109 sinkron lintas
+   *  perangkat); bila tidak diberikan, jatuh ke onUpdateSettings lokal. */
+  onThemeChange?: (t: ThemeKey) => void;
   /** Sesi staf aktif (dari /staff?token=…) — membatasi tab & menyembunyikan zona sensitif */
   staffSession: { name: string; role: StaffAccessRole } | null;
   onStaffLogout: () => void;
@@ -176,6 +179,7 @@ export function SettingsView({
   onTabChange,
   settings,
   onUpdateSettings,
+  onThemeChange,
   staffSession,
   onStaffLogout,
   dangerCounts,
@@ -389,7 +393,12 @@ export function SettingsView({
           onChange={(facilities) => commitSettings({ facilities })}
           isDemoMode={isDemoMode}
         />
-        <TemaTab theme={settings.theme} onSelect={(theme) => onUpdateSettings({ theme })} />
+        <TemaTab
+          theme={settings.theme}
+          onSelect={(theme) =>
+            onThemeChange ? onThemeChange(theme) : onUpdateSettings({ theme })
+          }
+        />
         <Pane value="backup">
           <BackupView
             propertyName={propertyName}

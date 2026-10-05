@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Menu, Palette, Plus, Search, SlidersHorizontal, X } from "lucide-react";
+import { Check, ChevronDown, Menu, Palette, Plus, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +27,10 @@ interface MobileBottomBarProps {
   /** Tema aktif (sinkron TopBar & Pengaturan → Tema & Tampilan) */
   theme: ThemeKey;
   onThemeChange: (t: ThemeKey) => void;
+  /** Refresh manual data cloud — undefined = sembunyikan (mode demo) */
+  onRefresh?: () => void;
+  /** true selama re-fetch berlangsung — ikon berputar & tombol disabled */
+  refreshing?: boolean;
 }
 
 /**
@@ -45,6 +49,8 @@ export function MobileBottomBar({
   onOpenMobileNav,
   theme,
   onThemeChange,
+  onRefresh,
+  refreshing = false,
 }: MobileBottomBarProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -157,7 +163,25 @@ export function MobileBottomBar({
           <span className="size-14 shrink-0" aria-hidden="true" />
           )}
 
-          {/* 4. Palet tema (Theme Switcher 12 tema) */}
+          {/* 4. Refresh manual data cloud — tarik ulang semua dataset Supabase
+              tanpa reload tab; ikon berputar & disabled selama proses fetch. */}
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              aria-label="Segarkan Data Cloud"
+              title="Segarkan Data Cloud"
+              className="barbtn flex size-11 items-center justify-center rounded-full text-zinc-700 transition-colors hover:bg-zinc-100 active:bg-zinc-200 disabled:opacity-50"
+            >
+              <RefreshCw
+                className={cn("size-5", refreshing && "animate-spin")}
+                strokeWidth={1.75}
+              />
+            </button>
+          )}
+
+          {/* 5. Palet tema (Theme Switcher 12 tema) */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -199,7 +223,7 @@ export function MobileBottomBar({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* 5. Filter status */}
+          {/* 6. Filter status */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button

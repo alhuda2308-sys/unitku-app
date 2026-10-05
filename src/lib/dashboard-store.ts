@@ -306,3 +306,17 @@ export async function refreshDashboard(): Promise<void> {
     );
   }
 }
+
+/**
+ * Tarik ulang PENUH data dashboard (kamar + tagihan + kas) dari cloud untuk
+ * tombol refresh manual "Segarkan Data Cloud" — TANPA memicu skeleton (data
+ * lama tetap tampil sampai data baru tiba) dan sekaligus berfungsi sebagai
+ * retry manual saat mode offline (polling pemulihan dihentikan saat sukses).
+ * BERBEDA dari refreshDashboard: fungsi ini MELEMPAR error bila fetch gagal
+ * agar pemanggil menampilkan toast — tidak pernah gagal senyap.
+ */
+export async function reloadDashboardData(): Promise<void> {
+  const data = await fetchDashboardData(); // melempar bila semua percobaan fetch gagal
+  stopRecoveryPolling();
+  setState({ ...data, status: "ready", syncedAt: nowLabel() });
+}

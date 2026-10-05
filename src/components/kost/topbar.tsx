@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Check, ChevronDown, ChevronRight, Menu, Palette, Plus, Search, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Menu, Palette, Plus, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,6 +29,10 @@ interface TopBarProps {
   /** Tema aktif (sinkron Pengaturan → Tema & Tampilan) */
   theme: ThemeKey;
   onThemeChange: (t: ThemeKey) => void;
+  /** Refresh manual data cloud — undefined = sembunyikan (mode demo) */
+  onRefresh?: () => void;
+  /** true selama re-fetch berlangsung — ikon berputar & tombol disabled */
+  refreshing?: boolean;
 }
 
 /** Opsi filter status tagihan — dipakai TopBar (desktop) & MobileBottomBar (ponsel) */
@@ -52,6 +56,8 @@ export function TopBar({
   onOpenMobileNav,
   theme,
   onThemeChange,
+  onRefresh,
+  refreshing = false,
 }: TopBarProps) {
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -91,6 +97,24 @@ export function TopBar({
       </nav>
 
       <div className="ml-auto flex items-center gap-2">
+        {/* Refresh manual data cloud — tarik ulang semua dataset dari Supabase
+            tanpa reload tab; ikon berputar & disabled selama proses fetch. */}
+        {onRefresh && (
+          <Button
+            variant="outline"
+            onClick={onRefresh}
+            disabled={refreshing}
+            aria-label="Segarkan Data Cloud"
+            title="Segarkan Data Cloud"
+            className="size-9 border-zinc-200 bg-white p-0 text-zinc-700 shadow-none hover:bg-zinc-50"
+          >
+            <RefreshCw
+              className={cn("size-3.5", refreshing && "animate-spin")}
+              strokeWidth={1.75}
+            />
+          </Button>
+        )}
+
         {/* Theme switcher cepat — sinkron dengan Pengaturan → Tema & Tampilan */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

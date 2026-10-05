@@ -610,6 +610,15 @@ export function setSettingsCloudSync(enabled: boolean): void {
   }
 }
 
+/** Apakah sinkron cloud pengaturan sudah SIAP (bootstrap GET /api/settings
+ *  sukses utk akun riil)? Dipakai mutasi kecil server-first (mis. ganti tema
+ *  dari dropdown header): sebelum bootstrap selesai, snapshot lokal bisa masih
+ *  dataset default — commit full-snapshot saat itu justru berisiko menimpa
+ *  data cloud dgn data dummy. Bila false, mutasi tema cukup lokal instan. */
+export function isSettingsCloudSyncEnabled(): boolean {
+  return cloudSyncEnabled;
+}
+
 function stripNullish<T extends object>(value: T): Partial<T> {
   const out: Partial<T> = {};
   for (const [k, v] of Object.entries(value)) {

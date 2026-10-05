@@ -10,6 +10,7 @@ import {
   loadDashboard,
   markStalled,
   refreshDashboard,
+  reloadDashboardData,
   rescueDemoIfLoading,
   subscribeDashboard,
   updateCashEntries,
@@ -121,6 +122,7 @@ import {
   commitSettingsToCloud,
   DEFAULT_SETTINGS,
   fileToPhotoDataUrl,
+  isSettingsCloudSyncEnabled,
   nextSettingsId,
   PROPERTY_TYPE_META,
   applyRemoteSettings,
@@ -132,6 +134,7 @@ import {
   updateStoredSettings,
   type IndoKostSettings,
   type PropertyProfile,
+  type ThemeKey,
 } from "@/lib/app-settings";
 
 type ViewKey =
@@ -301,6 +304,7 @@ export default function IndoKostPage() {
   useEffect(() => {
     document.documentElement.dataset.ikTheme = settings.theme;
   }, [settings.theme]);
+
 
   // ── Bootstrap data dashboard ────────────────────────────────────────────────
   // MODE DEMO (?demo=1 dari GET /demo): pasang dataset simulasi 12 kamar
@@ -784,6 +788,99 @@ export default function IndoKostPage() {
   // ── Pengunjung mode demo (?demo=1 / sesi demo cookie) → target konversi
   // Meta Ads: sticky bottom bar "Beli Lisensi Sekarang" (DemoConvertBar).
   const isDemoVisitor = instantDemo || isDemoSession;
+
+  // ── Ganti tema — SERVER-FIRST utk akun riil (sinkron lintas perangkat) ────
+  // Dulu: hanya localStorage + push debounce (1,2 dtk) — tema bisa tertinggal
+  // di perangkat saat tab ditutup cepat & tak ada jaminan sampai ke cloud.
+  // Kini: PUT /api/settings (commitSettingsToCloud) dikirim DULU; tema baru
+  // diterapkan ke seluruh aplikasi hanya setelah server mengonfirmasi. Gagal
+  // → tema lama tetap dipakai + toast merah (doktrin cloud-first, tanpa
+  // pura-pura sukses). Demo & sesi sebelum bootstrap cloud → lokal instan.
+  const handleThemeChange = useCallback(
+    (t: ThemeKey) => {
+      if (isDemoVisitor || !isSettingsCloudSyncEnabled()) {
+        updateSettings({ theme: t }); // demo / staf / bootstrap belum siap → lokal saja
+        return;
+      }
+      void (async () => {
+        const ok = await commitSettingsToCloud({ theme: t });
+        if (!ok) {
+          toast.error("Gagal mengganti tema", {
+            description:
+              "Tema belum tersimpan ke cloud — periksa koneksi internet lalu coba lagi.",
+          });
+        }
+      })();
+    },
+    [isDemoVisitor, updateSettings],
+  );
+
+  // ── Refresh manual data cloud (tombol ikon di header) ────────────────
+  // Tarik ulang SEMUA dataset dari Supabase tanpa reload tab: kamar, tagihan,
+  // kas (reloadDashboardData), profil properti & rekening, pengaturan owner
+  // (termasuk TEMA — overwrite lintas perangkat), tiket komplain & pengumuman.
+  // Feedback: ikon berputar + tombol disabled selama fetch, toast ringkas saat
+  // selesai. Demo disembunyikan (sesi demo tidak pernah menyentuh cloud).
+  const [refreshingCloud, setRefreshingCloud] = useState(false);
+
+  const handleRefreshCloud = useCallback(async () => {
+    if (refreshingCloud || isDemoVisitor) return;
+    setRefreshingCloud(true);
+    try {
+      const [propertyRes, settingsRes, ticketsRes, announcementsRes] = await Promise.all([
+        api.getProperty(),
+        api.getSettings(),
+        api.getTickets(),
+        api.getAnnouncements(),
+      ]);
+      await Promise.all([
+        reloadDashboardData(), // kamar + tagihan + kas (melempar bila gagal)
+        (async () => {
+          // Profil properti & rekening — cloud menang atas cache lokal
+          const p = propertyRes.property;
+          if (p) {
+            pauseCloudSync(() =>
+              updateStoredSettings((s) => ({
+                propertyProfile: {
+                  ...s.propertyProfile,
+                  nama: p.name,
+                  tipe: (p.tipe in PROPERTY_TYPE_META
+                    ? p.tipe
+                    : s.propertyProfile.tipe) as PropertyProfile["tipe"],
+                  alamat: p.alamat ?? s.propertyProfile.alamat,
+                  fotoUrl: p.fotoUrl ?? s.propertyProfile.fotoUrl,
+                },
+                rekening: {
+                  bank: p.bankName ?? s.rekening.bank,
+                  noRek: p.bankAccountNo ?? s.rekening.noRek,
+                  atasNama: p.bankAccountName ?? s.rekening.atasNama,
+                  qrisImageUrl: p.qrisImageUrl ?? s.rekening.qrisImageUrl,
+                  qrisNmid: p.qrisNmid ?? s.rekening.qrisNmid,
+                },
+              })),
+            );
+          }
+          // Pengaturan owner (profil, staf, template, fasilitas & TEMA) —
+          // applyRemoteSettings menimpa cache localStorage dgn nilai cloud.
+          if (!settingsRes.demo && settingsRes.settings) {
+            applyRemoteSettings(settingsRes.settings);
+          }
+        })(),
+      ]);
+      setTickets(ticketsRes.tickets);
+      setAnnouncements(announcementsRes.announcements);
+      toast.success("Data cloud berhasil diperbarui!", {
+        description:
+          "Kamar, tagihan, kas, penghuni, pengumuman & tema ditarik ulang dari Supabase.",
+      });
+    } catch (err: unknown) {
+      toast.error("Gagal memperbarui data cloud", {
+        description: errMsg(err),
+      });
+    } finally {
+      setRefreshingCloud(false);
+    }
+  }, [refreshingCloud, isDemoVisitor]);
 
   /** Id unik entri kas lokal (demo/offline) — hindari tabrakan KAS-… */
   const localCashId = () => `KAS-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -2213,7 +2310,9 @@ export default function IndoKostPage() {
           canCheckIn={!isPenjaga}
           onOpenMobileNav={() => setMobileOpen(true)}
           theme={settings.theme}
-          onThemeChange={(t) => updateSettings({ theme: t })}
+          onThemeChange={handleThemeChange}
+          onRefresh={isDemoVisitor ? undefined : () => void handleRefreshCloud()}
+          refreshing={refreshingCloud}
         />
 
         <main
@@ -2327,6 +2426,7 @@ export default function IndoKostPage() {
                 onTabChange={setSettingsTab}
                 settings={settings}
                 onUpdateSettings={updateSettings}
+                onThemeChange={handleThemeChange}
                 dangerCounts={{
                   rooms: rooms.length,
                   tenants: rooms.filter((r) => r.tenant && r.status !== "kosong").length,
@@ -2452,7 +2552,9 @@ export default function IndoKostPage() {
           canCheckIn={!isPenjaga}
           onOpenMobileNav={() => setMobileOpen(true)}
           theme={settings.theme}
-          onThemeChange={(t) => updateSettings({ theme: t })}
+          onThemeChange={handleThemeChange}
+          onRefresh={isDemoVisitor ? undefined : () => void handleRefreshCloud()}
+          refreshing={refreshingCloud}
         />
 
         {/* Banner PWA "Pasang Aplikasi" — bottom sheet ramah jempol, bisa ditutup
