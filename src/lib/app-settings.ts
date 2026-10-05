@@ -13,6 +13,8 @@
  *                             data-ik-theme di <html>)
  */
 
+import { toast } from "@/lib/toast";
+
 export const SETTINGS_KEY = "indokost:settings:v1";
 
 /** Kunci localStorage khusus tema aktif (Task 34) — cerminan settings.theme
@@ -671,19 +673,38 @@ export function buildSettingsCloudPayload(s: IndoKostSettings): Record<string, u
   };
 }
 
+/**
+ * Push full-snapshot pengaturan ke cloud (debounce ±1,2 dtk setelah edit).
+ * TRANSPARANSI: kegagalan TIDAK ditelan senyap — user wajib tahu datanya
+ * belum tersimpan ke server → toast merah (dengan anti-spam: toast hanya
+ * saat transisi sukses→gagal, tidak diulang tiap percobaan beruntun).
+ */
+let lastPushFailed = false;
+
 async function pushSettingsToCloud(): Promise<void> {
   if (!cloudSyncEnabled || applyingRemote) return;
   try {
-    await fetch("/api/settings", {
+    const res = await fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(buildSettingsCloudPayload(getSettingsSnapshot())),
       cache: "no-store",
       keepalive: true, // selamat saat tab ditutup tepat setelah edit
     });
-  } catch {
-    /* offline/timeout — localStorage tetap sumber sehari-hari; push berikutnya
-       (edit/kunjungan berikutnya) menyinkronkan ulang secara idempoten. */
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    lastPushFailed = false;
+  } catch (err) {
+    // offline/timeout/HTTP error — localStorage tetap sumber sehari-hari;
+    // push berikutnya (edit/kunjungan berikutnya) menyinkronkan ulang secara
+    // idempoten. User dinotifikasikan agar tahu data belum sampai ke server.
+    console.error("[UnitKu Settings] Push pengaturan ke cloud gagal:", err);
+    if (!lastPushFailed) {
+      lastPushFailed = true;
+      toast.error("Pengaturan belum tersimpan ke server", {
+        description:
+          "Koneksi ke database gagal — perubahan baru tersimpan di perangkat ini saja. Periksa koneksi internet lalu coba simpan ulang.",
+      });
+    }
   }
 }
 

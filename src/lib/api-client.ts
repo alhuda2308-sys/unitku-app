@@ -13,6 +13,7 @@ import type { CashEntry as ClientCashEntry, CashType } from "@/lib/kost-cashflow
 import type { Ticket as ClientTicket } from "@/lib/ticket-data";
 import type { TechnicianContact as ClientTechnician } from "@/lib/technician-data";
 import type { StaffAccessMember } from "@/lib/staff-access";
+import type { Announcement as ClientAnnouncement, AnnouncementDraft } from "@/lib/announcement-data";
 import type { ClientProperty } from "@/lib/server/mappers";
 import type { PortalRekening } from "./tenant-portal";
 import type { SettingsCloudPatch } from "./app-settings";
@@ -413,6 +414,28 @@ export const api = {
       method: "DELETE",
     }),
 
+  // /api/announcements — Pengumuman & Broadcast (tersimpan permanen di cloud)
+  getAnnouncements: () =>
+    request<{ announcements: ClientAnnouncement[] }>("/api/announcements"),
+  createAnnouncement: (draft: AnnouncementDraft) =>
+    request<{ announcement: ClientAnnouncement }>("/api/announcements", {
+      method: "POST",
+      body: JSON.stringify(draft),
+    }),
+  updateAnnouncement: (
+    id: string,
+    patch: Partial<AnnouncementDraft> & { aktif?: boolean },
+  ) =>
+    request<{ announcement: ClientAnnouncement }>("/api/announcements", {
+      method: "PATCH",
+      body: JSON.stringify({ id, ...patch }),
+    }),
+  deleteAnnouncement: (id: string) =>
+    request<{ ok: true }>(
+      `/api/announcements?id=${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
+
   // /api/reset — Zona Berbahaya
   resetData: (mode: "demo" | "factory") =>
     request<{ ok: true; mode: string }>("/api/reset", {
@@ -479,6 +502,8 @@ export interface PortalData {
   room: ClientRoom;
   invoices: ClientInvoice[];
   propertyName: string;
+  /** Pengumuman properti (banner portal) — cloud-first lintas perangkat */
+  announcements?: ClientAnnouncement[];
   /** Rekening + QRIS statis owner (cloud) — kartu pembayaran portal */
   rekening?: PortalRekening;
 }
@@ -489,4 +514,4 @@ export const portalApi = {
 };
 
 // re-export tipe ringan untuk konsumen
-export type { ClientRoom, ClientInvoice, ClientCashEntry, RoomStatus };
+export type { ClientRoom, ClientInvoice, ClientCashEntry, RoomStatus, ClientAnnouncement };

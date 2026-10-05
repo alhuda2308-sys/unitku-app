@@ -8,7 +8,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/prisma";
-import { toClientInvoice, toClientRoom } from "@/lib/server/mappers";
+import { toClientAnnouncement, toClientInvoice, toClientRoom } from "@/lib/server/mappers";
 
 export const dynamic = "force-dynamic";
 
@@ -30,13 +30,19 @@ export async function GET(request: NextRequest) {
 
     // Isolasi: properti diambil dari properti kamar penyewa (bukan properti
     // global pertama) agar rekening/QRIS yang tampil selalu milik owner kamar tsb.
-    const [invoices, property] = await Promise.all([
+    const [invoices, property, announcements] = await Promise.all([
       db.invoice.findMany({
         where: { roomId: tenant.roomId },
         include: { lines: { orderBy: { id: "asc" } } },
         orderBy: [{ periodKey: "desc" }, { id: "asc" }],
       }),
       Promise.resolve(tenant.room.property),
+      // Banner pengumuman properti — dulu hanya mirror localStorage owner
+      // (tak pernah tampil di perangkat penyewa), kini cloud-first
+      db.announcement.findMany({
+        where: { propertyId: tenant.room.propertyId },
+        orderBy: [{ createdAtSort: "desc" }, { id: "desc" }],
+      }),
     ]);
     if (!property) {
       return NextResponse.json(
@@ -50,6 +56,8 @@ export async function GET(request: NextRequest) {
       room: toClientRoom(roomWithTenant),
       invoices: invoices.map(toClientInvoice),
       propertyName: property.name,
+      // Banner pengumuman aktif — penyewa melihat yang sama di perangkat mana pun
+      announcements: announcements.map(toClientAnnouncement),
       // Rekening & QRIS statis owner — kartu pembayaran portal (Transfer Bank /
       // Scan QRIS). Null-aman: field opsional di model Property.
       rekening: {

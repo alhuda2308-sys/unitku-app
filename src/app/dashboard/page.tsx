@@ -177,6 +177,17 @@ const DEMO_ADDON_PRICE: Record<string, number> = {
 };
 
 export default function IndoKostPage() {
+  // ── Sesi demo interaktif (CTA landing "Coba Denah Kost Saya — Gratis") ─────
+  // instantDemo: datang dari GET /demo (redirect /dashboard?demo=1) → dataset
+  // simulasi 12 kamar dipasang SEKALI di render pertama TANPA panggilan
+  // API/Supabase — mode demo tampil < 1 detik dan tidak pernah menunggu DB.
+  // DIDEKLARASIKAN PALING AWAL — dipakai initializer mock tiket/pengumuman.
+  const [instantDemo] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("demo") === "1",
+  );
+
   // ── Data dari Supabase via Route Handlers (external store — kamar/tagihan/kas)
   const dash = useSyncExternalStore(
     subscribeDashboard,
@@ -184,8 +195,14 @@ export default function IndoKostPage() {
     getServerDashboardSnapshot,
   );
   const { rooms, invoices, cashEntries, status: dbState, syncedAt } = dash;
-  const [tickets, setTickets] = useState<Ticket[]>(TICKETS); // lokal (demo)
-  const [announcements, setAnnouncements] = useState<Announcement[]>(ANNOUNCEMENTS); // lokal (demo)
+  const [tickets, setTickets] = useState<Ticket[]>(() =>
+    // Mock TIDAK PERNAH tampil utk akun riil — hanya sesi demo (?demo=1);
+    // akun riil mulai kosong lalu diisi dari database (empty state bila 0).
+    instantDemo ? TICKETS : [],
+  );
+  const [announcements, setAnnouncements] = useState<Announcement[]>(() =>
+    instantDemo ? ANNOUNCEMENTS : [],
+  );
   const [view, setView] = useState<ViewKey>("denah");
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<TabValue>("all");
@@ -205,16 +222,20 @@ export default function IndoKostPage() {
     checkoutUrl: string;
   } | null>(null);
 
-  // ── Sesi demo interaktif (CTA landing "Coba Denah Kost Saya — Gratis") ─────
-  // instantDemo: datang dari GET /demo (redirect /dashboard?demo=1) → dataset
-  // simulasi 12 kamar dipasang SEKALI di render pertama TANPA panggilan
-  // API/Supabase — mode demo tampil < 1 detik dan tidak pernah menunggu DB.
-  const [instantDemo] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).get("demo") === "1",
-  );
   const [isDemoSession, setIsDemoSession] = useState(false);
+
+  /** Aktifkan dataset simulasi utk sesi demo — dipanggil saat sesi demo
+   *  terkonfirmasi (?demo=1 atau /api/auth/me → demo:true). Mock HANYA
+   *  boleh tampil di mode demo; akun riil tidak pernah melewati ini.
+   *  rescue=true → snapshot hanya dipasang bila bootstrap masih loading
+   *  (tidak menimpa data yang sudah hidup). */
+  const activateDemoDataset = useCallback((rescue = false) => {
+    setIsDemoSession(true);
+    if (rescue) rescueDemoIfLoading();
+    else applyDemoSnapshot();
+    setTickets(TICKETS);
+    setAnnouncements(ANNOUNCEMENTS);
+  }, []);
 
   /** Reset Data Demo — dataset simulasi kembali persis ke kondisi awal.
    *  Murni in-memory (instan, tanpa API): data demo tidak pernah bergantung DB. */
@@ -293,8 +314,8 @@ export default function IndoKostPage() {
   // skeleton SELALU selesai dan pengguna tidak pernah menatap placeholder abadi.
   useEffect(() => {
     if (instantDemo) {
-      applyDemoSnapshot();
-      setIsDemoSession(true);
+      // Sesi demo via URL — dataset simulasi instan (0 panggilan API/DB)
+      activateDemoDataset();
       return;
     }
 
@@ -302,7 +323,8 @@ export default function IndoKostPage() {
     let navigating = false;
 
     // Watchdog: database tak pernah menjawab dalam 5 detik → lepas ke mode
-    // offline (data demo perangkat + banner) — TIDAK ada loader tak berujung.
+    // offline (data kosong + banner retry, TANPA dummy utk akun riil) — TIDAK
+    // ada loader tak berujung.
     const watchdog = setTimeout(() => {
       if (alive) markStalled();
     }, 5_000);
@@ -310,7 +332,10 @@ export default function IndoKostPage() {
     const sync = () =>
       loadDashboard().catch((err: unknown) => {
         toast.error("Gagal terhubung database", {
-          description: err instanceof Error ? err.message : "Menampilkan data demo perangkat ini.",
+          description:
+            err instanceof Error
+              ? err.message
+              : "Data tidak dimuat dari server — periksa koneksi lalu coba sambungkan ulang.",
         });
       });
 
@@ -329,8 +354,7 @@ export default function IndoKostPage() {
             const me = await getAuthMeOnce();
             if (!alive) return;
             if (me.demo) {
-              setIsDemoSession(true);
-              rescueDemoIfLoading();
+              activateDemoDataset(true);
               return;
             }
           } catch {
@@ -371,18 +395,58 @@ export default function IndoKostPage() {
         if (alive) setTickets(res.tickets);
       })
       .catch(() => {
-        /* offline — dataset demo lokal tetap dipakai */
+        /* offline — tetap kosong (bukan mock); banner offline + retry aktif */
       });
     return () => {
       alive = false;
     };
   }, [instantDemo]);
 
+  // ── Bootstrap PENGUMUMAN dari database (akun riil) ─────────────────────────
+  // Dulu pengumuman hanya state lokal perangkat — tidak pernah ikut pindah
+  // perangkat dan tak terlihat penyewa di /portal perangkat lain. Kini
+  // cloud-first: akun riil memuat dari tabel announcements (milik propertinya);
+  // sesi demo tetap memakai dataset simulasi lokal.
+  useEffect(() => {
+    if (instantDemo) return; // demo: pengumuman simulasi lokal — tanpa API
+    let alive = true;
+    api
+      .getAnnouncements()
+      .then((res) => {
+        if (alive) setAnnouncements(res.announcements);
+      })
+      .catch((err: unknown) => {
+        // Tetap kosong (BUKAN mock) — konsisten dgn prinsip "akun riil tidak
+        // pernah melihat data dummy". Kegagalan dimuat dicatat di console;
+        // banner offline dashboard sudah menandai koneksi bermasalah.
+        console.warn(
+          "[UnitKu] Pengumuman gagal dimuat dari database:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+    return () => {
+      alive = false;
+    };
+  }, [instantDemo]);
+
+  /** "Hari ini" versi ISO (yyyy-mm-dd) — status tayang pengumuman akun riil
+   *  memakai tanggal nyata; sesi demo memakai snapshot dataset (ISO demo). */
+  const realTodayISO = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate(),
+    ).padStart(2, "0")}`;
+  }, []);
+  const announcementTodayISO = instantDemo || isDemoSession ? ANNOUNCEMENT_TODAY_ISO : realTodayISO;
+
   /** Tombol "Coba Sambungkan Ulang" pada banner offline */
   const handleRetrySync = () => {
     loadDashboard().catch((err: unknown) => {
       toast.error("Gagal terhubung database", {
-        description: err instanceof Error ? err.message : "Menampilkan data demo perangkat ini.",
+        description:
+          err instanceof Error
+            ? err.message
+            : "Data tidak dimuat dari server — periksa koneksi lalu coba sambungkan ulang.",
       });
     });
   };
@@ -404,10 +468,9 @@ export default function IndoKostPage() {
       // Sesi demo (CTA landing /demo) → tampilkan banner demo interaktif;
       // tanpa gerbang lisensi & tanpa redirect onboarding.
       if (info.demo) {
-        setIsDemoSession(true);
         // Bila bootstrap masih menggantung (database hang), selamatkan UI
         // dengan data simulasi instan — demo tidak menunggu database.
-        rescueDemoIfLoading();
+        activateDemoDataset(true);
         return;
       }
       // Gerbang lisensi dulu: belum lunas → layar gembok (sebelum onboarding)
@@ -492,9 +555,50 @@ export default function IndoKostPage() {
       return;
     }
     let alive = true;
-    api
-      .getSettings()
-      .then((res) => {
+    (async () => {
+      // Bedakan sesi demo (cookie) vs akun riil SEBELUM menyentuh cache lokal —
+      // sesi demo pada perangkat baru memang berbasis dataset default.
+      let isDemo = false;
+      try {
+        isDemo = (await getAuthMeOnce()).demo === true;
+      } catch {
+        /* tak terkonfirmasi — perlakukan sebagai akun riil (aman) */
+      }
+      if (!alive) return;
+      if (isDemo) {
+        setSettingsCloudSync(false);
+        return;
+      }
+
+      // ARSITEKTUR DATA (akun riil): bila cache lokal masih persis dataset
+      // default (perangkat baru / clear storage), NETRALKAN identitas agar
+      // dashboard tidak pernah memamerkan "Kost Griya Pratama · 12 Kamar"
+      // seolah-olah itu data owner. Perangkat yang sudah punya data owner asli
+      // (cache ≠ default) tidak disentuh. Cloud yang menjawab akan mengisi
+      // identitas sebenarnya via applyRemoteSettings.
+      pauseCloudSync(() =>
+        updateStoredSettings((s) => {
+          const untouchedDefaults =
+            s.propertyProfile.nama === DEFAULT_SETTINGS.propertyProfile.nama &&
+            s.owner.nama === DEFAULT_SETTINGS.owner.nama &&
+            s.rekening.noRek === DEFAULT_SETTINGS.rekening.noRek &&
+            s.properties.length === DEFAULT_SETTINGS.properties.length &&
+            s.properties[0]?.name === DEFAULT_SETTINGS.properties[0]?.name;
+          if (!untouchedDefaults) return {};
+          return {
+            propertyProfile: {
+              ...s.propertyProfile,
+              nama: "Properti Saya",
+              alamat: "",
+            },
+            owner: { ...s.owner, nama: "Owner" },
+            properties: [],
+          };
+        }),
+      );
+
+      try {
+        const res = await api.getSettings();
         if (!alive) return;
         // degraded = tabel owner_settings belum dibuat (SQL belum dijalankan)
         // → tetap mode lokal, tanpa error — lihat sql/owner-settings-table.sql
@@ -504,10 +608,16 @@ export default function IndoKostPage() {
         }
         applyRemoteSettings(res.settings); // cloud menang atas dummy default
         setSettingsCloudSync(true); // edit berikutnya otomatis di-push
-      })
-      .catch(() => {
-        /* offline — pengaturan lokal tetap dipakai */
-      });
+      } catch (err: unknown) {
+        // offline — pengaturan lokal (netral/owner asli) tetap dipakai;
+        // banner offline dashboard sudah menandai koneksi bermasalah.
+        if (alive) setSettingsCloudSync(false);
+        console.warn(
+          "[UnitKu] Pengaturan gagal dimuat dari server:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    })();
     return () => {
       alive = false;
     };
@@ -533,8 +643,7 @@ export default function IndoKostPage() {
             const me = await getAuthMeOnce();
             if (!alive) return;
             if (me.demo) {
-              setIsDemoSession(true);
-              rescueDemoIfLoading();
+              activateDemoDataset(true);
               return;
             }
           } catch {
@@ -636,10 +745,13 @@ export default function IndoKostPage() {
   // pernah diblokir halaman kosong/spinner saat data disinkronkan.
   const isDataLoading = dbState === "loading";
 
-  // ── Mode data lokal: demo interaktif (?demo=1 / sesi demo) atau fallback
-  // offline (database tak terjangkau). Data di memori adalah dataset simulasi
-  // yang TIDAK ada di cloud — mutasi pembayaran wajib murni lokal; memanggil
-  // API dulu-lah yang memicu error "Tagihan tidak ditemukan" / 401.
+  // ── Mode data lokal: sesi demo (?demo=1 / sesi demo cookie) atau akun riil
+  // yang sedang offline (database tak terjangkau → data kosong + banner).
+  // Di sesi demo, data di memori adalah dataset simulasi yang TIDAK ada di
+  // cloud — mutasi pembayaran wajib murni lokal; memanggil API dulu-lah yang
+  // memicu error "Tagihan tidak ditemukan" / 401. Di mode offline akun riil
+  // datanya kosong sehingga cabang ini praktis no-op (tidak ada yang bisa
+  // dimutasi) — simpan ulang hanya bisa setelah koneksi pulih.
   const isLocalDataMode = instantDemo || isDemoSession || dbState === "offline";
 
   // ── Pengunjung mode demo (?demo=1 / sesi demo cookie) → target konversi
@@ -1771,26 +1883,74 @@ export default function IndoKostPage() {
   };
 
   // ── Pengumuman & Broadcast ─────────────────────────────────────────
+  // Sesi demo  : murni lokal (dataset simulasi, 0 panggilan API).
+  // Akun riil  : optimistic update + POST/PATCH/DELETE ke database
+  //              (tersimpan permanen, ikut tampil di Portal Penyewa perangkat
+  //              penyewa mana pun); gagal → revert + toast merah agar user
+  //              tahu data belum tersimpan ke server.
 
   /** "+ Buat Pengumuman Baru" → tayang di portal sesuai periode & lantai */
   const handleCreateAnnouncement = (draft: AnnouncementDraft) => {
-    const a = announcementFromDraft(draft, announcements, ANNOUNCEMENT_TODAY_ISO);
+    const a = announcementFromDraft(draft, announcements, announcementTodayISO);
     setAnnouncements((prev) => [a, ...prev]);
+
+    // Sesi demo → cukup state lokal (dataset simulasi tidak ada di database)
+    if (instantDemo || isDemoSession) {
+      toast.success(`Pengumuman ${a.id} dipasang di Portal Penyewa`, {
+        description: `${a.judul} · ${targetLabel(a.targetFloor)} · tayang ${periodeLabel(a)}.`,
+      });
+      return;
+    }
+
     toast.success(`Pengumuman ${a.id} dipasang di Portal Penyewa`, {
-      description: `${a.judul} · ${targetLabel(a.targetFloor)} · tayang ${periodeLabel(a)}.`,
+      description: `${a.judul} · ${targetLabel(a.targetFloor)} · tayang ${periodeLabel(a)} · tersimpan ke cloud.`,
     });
+    api
+      .createAnnouncement(draft)
+      .then((res) => {
+        // Ganti baris optimis dgn versi kanonik server (id #PGM-xxx resmi)
+        setAnnouncements((prev) =>
+          prev.map((row) => (row.id === a.id ? res.announcement : row)),
+        );
+      })
+      .catch((err: unknown) => {
+        // Revert — hilangkan baris optimis agar tidak seolah tersimpan
+        setAnnouncements((prev) => prev.filter((row) => row.id !== a.id));
+        toast.error("Pengumuman gagal tersimpan ke database", {
+          description: `${errMsg(err)} — pengumuman hanya tampil di perangkat ini.`,
+        });
+      });
   };
 
   const handleUpdateAnnouncement = (a: Announcement, draft: AnnouncementDraft) => {
+    const previous = a; // snapshot utk revert bila server gagal
     setAnnouncements((prev) =>
       prev.map((row) => (row.id === a.id ? { ...row, ...draft } : row))
     );
     toast.success(`Pengumuman ${a.id} diperbarui`, {
       description: `${draft.judul} · tayang ${periodeLabel({ ...a, ...draft })}.`,
     });
+    if (instantDemo || isDemoSession) return; // demo: murni lokal
+
+    api
+      .updateAnnouncement(a.id, draft)
+      .then((res) => {
+        setAnnouncements((prev) =>
+          prev.map((row) => (row.id === a.id ? res.announcement : row)),
+        );
+      })
+      .catch((err: unknown) => {
+        setAnnouncements((prev) =>
+          prev.map((row) => (row.id === a.id ? previous : row)),
+        );
+        toast.error("Perubahan pengumuman gagal tersimpan", {
+          description: `${errMsg(err)} — data dikembalikan ke versi sebelumnya.`,
+        });
+      });
   };
 
   const handleToggleAnnouncement = (a: Announcement) => {
+    const previous = a;
     setAnnouncements((prev) =>
       prev.map((row) => (row.id === a.id ? { ...row, aktif: !row.aktif } : row))
     );
@@ -1802,12 +1962,43 @@ export default function IndoKostPage() {
           : `"${a.judul}" kembali tayang sesuai periode & target lantai.`,
       }
     );
+    if (instantDemo || isDemoSession) return; // demo: murni lokal
+
+    api
+      .updateAnnouncement(a.id, { aktif: !a.aktif })
+      .then((res) => {
+        setAnnouncements((prev) =>
+          prev.map((row) => (row.id === a.id ? res.announcement : row)),
+        );
+      })
+      .catch((err: unknown) => {
+        setAnnouncements((prev) =>
+          prev.map((row) => (row.id === a.id ? previous : row)),
+        );
+        toast.error("Status pengumuman gagal tersimpan", {
+          description: `${errMsg(err)} — status dikembalikan seperti semula.`,
+        });
+      });
   };
 
   const handleDeleteAnnouncement = (a: Announcement) => {
     setAnnouncements((prev) => prev.filter((row) => row.id !== a.id));
     toast.success(`Pengumuman ${a.id} dihapus`, {
-      description: `"${a.judul}" dikeluarkan dari riwayat & Portal Penyewa.`,
+      description: `"${a.judul}" dikeluarkan dari riwayat & Portal Penyewa${
+        instantDemo || isDemoSession ? "." : " — dihapus permanen dari database."
+      }`,
+    });
+    if (instantDemo || isDemoSession) return; // demo: murni lokal
+
+    api.deleteAnnouncement(a.id).catch((err: unknown) => {
+      toast.error("Gagal menghapus pengumuman di database", {
+        description: errMsg(err),
+      });
+      // Sinkronkan ulang dari server — baris asli tetap tampil bila gagal hapus
+      api
+        .getAnnouncements()
+        .then((res) => setAnnouncements(res.announcements))
+        .catch(() => {});
     });
   };
 
@@ -1831,6 +2022,7 @@ export default function IndoKostPage() {
         rooms={rooms}
         invoices={invoices}
         announcements={announcements}
+        todayISO={announcementTodayISO}
         propertyName={property}
         sharedFacilities={settings.facilities.shared.map((f) => f.label)}
         rekening={{
@@ -1957,6 +2149,7 @@ export default function IndoKostPage() {
                 query={query}
                 onQueryChange={setQuery}
                 propertyName={property}
+                todayISO={announcementTodayISO}
                 onCreate={handleCreateAnnouncement}
                 onUpdate={handleUpdateAnnouncement}
                 onToggleActive={handleToggleAnnouncement}
@@ -2246,15 +2439,18 @@ export default function IndoKostPage() {
   );
 }
 
-// ── Banner fallback offline (database tak terjangkau → data demo perangkat) ──
+// ── Banner fallback offline (database tak terjangkau → data kosong, tanpa dummy)
 
 function OfflineBanner({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5">
-      <p className="flex min-w-0 items-center gap-2 text-[12.5px] font-medium leading-4 text-amber-800">
-        <CloudOff className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-        Mode offline — database tidak terjangkau. Menampilkan data demo perangkat; perubahan
-        tidak tersimpan ke cloud.
+      <p className="flex min-w-0 items-start gap-2 text-[12.5px] font-medium leading-4 text-amber-800">
+        <CloudOff className="mt-0.5 size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+        <span>
+          Mode offline — database tidak terjangkau, data TIDAK dimuat dari server.
+          Perangkat ini menampilkan data kosong (bukan data Anda); perubahan apapun
+          belum tersimpan ke cloud.
+        </span>
       </p>
       <Button
         variant="outline"

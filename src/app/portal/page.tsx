@@ -77,7 +77,7 @@ function PortalByToken() {
       token={token}
       rooms={cloud ? [cloud.room] : mirror.rooms}
       invoices={cloud ? cloud.invoices : mirror.invoices}
-      announcements={mirror.announcements}
+      announcements={cloud?.announcements ?? mirror.announcements}
       propertyName={cloud?.propertyName ?? mirror.propertyName}
       sharedFacilities={settings.facilities.shared.map((f) => f.label)}
       rekening={rekening}

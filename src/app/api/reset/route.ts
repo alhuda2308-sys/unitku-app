@@ -34,6 +34,8 @@ export async function POST(request: NextRequest) {
     });
     await db.invoice.deleteMany({ where: { room: roomScope } }); // invoice_lines ikut ter-cascade
     await db.cashEntry.deleteMany({ where: { propertyId: { in: propertyIds } } });
+    // Pengumuman ikut dibersihkan (dulu state lokal — kini tersimpan di cloud)
+    await db.announcement.deleteMany({ where: { propertyId: { in: propertyIds } } });
     if (factory) {
       await db.room.deleteMany({ where: roomScope });
     } else {

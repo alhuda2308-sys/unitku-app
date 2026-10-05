@@ -12,7 +12,8 @@ import type { Invoice as ClientInvoice, InvoiceStatus, InvoiceLine as ClientInvo
 import type { CashEntry as ClientCashEntry } from "@/lib/kost-cashflow";
 import type { Ticket as ClientTicket, TicketContact } from "@/lib/ticket-data";
 import type { StaffAccessMember, StaffAccessRole } from "@/lib/staff-access";
-import type { CashEntry, Invoice, InvoiceLine, Property, Room, StaffMember, Tenant, Ticket } from "@prisma/client";
+import type { Announcement as ClientAnnouncement, AnnouncementKategori } from "@/lib/announcement-data";
+import type { Announcement, CashEntry, Invoice, InvoiceLine, Property, Room, StaffMember, Tenant, Ticket } from "@prisma/client";
 
 // ── Invoice ──────────────────────────────────────────────────────────────────
 
@@ -151,6 +152,23 @@ export function toClientTicket(t: Ticket): ClientTicket {
     reportedSort: Number(t.reportedSort),
     ...(teknisi ? { teknisi } : {}),
     ...(t.selesaiLabel ? { selesaiLabel: t.selesaiLabel } : {}),
+  };
+}
+
+// ── Pengumuman (Pengumuman & Broadcast — Portal Penyewa) ────────────────────
+
+export function toClientAnnouncement(a: Announcement): ClientAnnouncement {
+  return {
+    id: a.id,
+    judul: a.judul,
+    kategori: a.kategori as AnnouncementKategori,
+    targetFloor: a.targetFloor,
+    isi: a.isi,
+    tanggalMulai: a.tanggalMulai,
+    tanggalBerakhir: a.tanggalBerakhir,
+    aktif: a.aktif,
+    createdAtLabel: a.createdAtLabel,
+    createdAtSort: a.createdAtSort,
   };
 }
 

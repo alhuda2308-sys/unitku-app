@@ -48,6 +48,7 @@ model Property {
   tickets      Ticket[]
   cashEntries  CashEntry[]
   technicianContacts TechnicianContact[]
+  announcements Announcement[]
 
   @@index([ownerId])
   @@map("properties")
@@ -340,6 +341,33 @@ model CashEntry {
   @@index([dateSort])
   @@index([propertyId])
   @@map("cash_entries")
+}
+
+// ── Pengumuman & Broadcast (Portal Penyewa + grup WhatsApp) ──────────────────
+// Dulu HANYA state lokal dashboard (hilang saat ganti perangkat / tidak pernah
+// terlihat penyewa di perangkat lain) — kini tersimpan permanen per properti
+// dan tersaji via /api/announcements (owner) + /api/portal (penyewa).
+
+model Announcement {
+  id             String   @id // "#PGM-006"
+  propertyId     String
+  judul          String
+  kategori       String   @default("info") // info | penting | darurat
+  targetFloor    Int? // null = Semua Kamar; selain itu = nomor lantai
+  isi            String   @default("")
+  tanggalMulai   String // ISO yyyy-mm-dd (periode tayang)
+  tanggalBerakhir String // ISO yyyy-mm-dd
+  aktif          Boolean  @default(true) // toggle manual pengelola
+  createdAtLabel String // "26 Sep 2026"
+  createdAtSort  Int      @default(0) // yyyymmddHHmm — urut terbaru dulu
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([createdAtSort])
+  @@map("announcements")
 }
 
 // ── Pengaturan Owner (sinkron lintas perangkat — akun riil) ─────────────────

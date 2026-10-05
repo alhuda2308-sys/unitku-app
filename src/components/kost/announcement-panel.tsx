@@ -66,6 +66,9 @@ interface AnnouncementPanelProps {
   query: string;
   onQueryChange: (q: string) => void;
   propertyName: string;
+  /** "Hari ini" utk status tayang — akun riil memakai tanggal nyata;
+   *  default = ISO snapshot demo (ANNOUNCEMENT_TODAY_ISO). */
+  todayISO?: string;
   onCreate: (draft: AnnouncementDraft) => void;
   onUpdate: (a: Announcement, draft: AnnouncementDraft) => void;
   onToggleActive: (a: Announcement) => void;
@@ -221,6 +224,7 @@ export function AnnouncementPanel({
   query,
   onQueryChange,
   propertyName,
+  todayISO = ANNOUNCEMENT_TODAY_ISO,
   onCreate,
   onUpdate,
   onToggleActive,
@@ -244,14 +248,14 @@ export function AnnouncementPanel({
   const stats = useMemo(() => {
     const withStatus = sorted.map((a) => ({
       a,
-      status: announcementStatus(a, ANNOUNCEMENT_TODAY_ISO),
+      status: announcementStatus(a, todayISO),
     }));
     return {
       aktif: withStatus.filter((r) => r.status === "aktif").length,
       arsip: withStatus.filter((r) => r.status !== "aktif").length,
       total: withStatus.length,
     };
-  }, [sorted]);
+  }, [sorted, todayISO]);
 
   const counts = useMemo(
     () => ({
@@ -265,7 +269,7 @@ export function AnnouncementPanel({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return sorted
-      .map((a) => ({ a, status: announcementStatus(a, ANNOUNCEMENT_TODAY_ISO) }))
+      .map((a) => ({ a, status: announcementStatus(a, todayISO) }))
       .filter((r) => (statusTab === "all" ? true : statusGroup(r.status) === statusTab))
       .filter(
         (r) =>
@@ -276,7 +280,7 @@ export function AnnouncementPanel({
           targetLabel(r.a.targetFloor).toLowerCase().includes(q) ||
           ANNOUNCEMENT_KATEGORI_META[r.a.kategori].label.toLowerCase().includes(q)
       );
-  }, [sorted, statusTab, query]);
+  }, [sorted, statusTab, query, todayISO]);
 
   const openCreate = () => {
     setEditing(null);
@@ -627,7 +631,7 @@ export function AnnouncementPanel({
         propertyName={propertyName}
         editing={editing}
         onSave={handleSave}
-        todayISO={ANNOUNCEMENT_TODAY_ISO}
+        todayISO={todayISO}
       />
 
       {/* Hapus confirmation */}

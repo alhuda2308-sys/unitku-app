@@ -53,6 +53,9 @@ interface TenantPortalProps {
   propertyName: string;
   /** Pengumuman aktif milik pengelola — banner di atas kartu tagihan */
   announcements?: Announcement[];
+  /** "Hari ini" utk banner tayang — default ISO snapshot demo;
+   *  halaman /portal & pratinjau akun riil mengirim tanggal nyata. */
+  todayISO?: string;
   /** Fasilitas bersama properti (dari Pengaturan → Katalog Fasilitas) */
   sharedFacilities?: string[];
   /** Rekening & QRIS statis owner (cloud / Pengaturan) — kartu pembayaran.
@@ -235,6 +238,7 @@ export function TenantPortal({
   invoices,
   propertyName,
   announcements = [],
+  todayISO = ANNOUNCEMENT_TODAY_ISO,
   sharedFacilities = [],
   rekening,
   standalone = false,
@@ -258,11 +262,11 @@ export function TenantPortal({
     if (!room) return [];
     return announcements.filter(
       (a) =>
-        isAnnouncementLive(a, ANNOUNCEMENT_TODAY_ISO) &&
+        isAnnouncementLive(a, todayISO) &&
         matchesFloor(a, room.floor) &&
         !dismissed.has(a.id)
     );
-  }, [announcements, room, dismissed]);
+  }, [announcements, room, dismissed, todayISO]);
 
   const dismissBanner = (id: string) =>
     setDismissed((prev) => new Set(prev).add(id));

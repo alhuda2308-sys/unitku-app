@@ -9,7 +9,9 @@
 // dari handler mana pun cukup memanggil updateRooms/updateInvoices/….
 //
 // Sumber kebenaran: Route Handlers (Prisma → Supabase). Bila database tak
-// terjangkau, store jatuh ke dataset demo lokal (mode "offline").
+// terjangkau untuk AKUN RIIL, store memasuki mode "offline" DENGAN DATA
+// KOSONG + banner retry — TIDAK PERNAH menyuntikkan dataset dummy (data
+// simulasi 12 kamar HANYA untuk sesi demo via applyDemoSnapshot).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { api } from "@/lib/api-client";
@@ -186,8 +188,8 @@ function startRecoveryPolling(): void {
 /**
  * Mode demo instan (?demo=1 — redirect dari GET /demo): pasang dataset
  * simulasi 12 kamar LANGSUNG tanpa satu pun panggilan API/database. Dashboard
- * tampil < 1 detik dan tidak pernah menunggu Supabase. Mutasi berikutnya
- * tetap dapat dicoba lewat API bila database sehat.
+ * tampil < 1 detik dan tidak pernah menunggu Supabase. HANYA untuk sesi demo —
+ * akun riil tidak pernah melewati jalur ini.
  */
 export function applyDemoSnapshot(): void {
   stopRecoveryPolling();
@@ -202,22 +204,21 @@ export function applyDemoSnapshot(): void {
 
 /**
  * Pengaman anti-hang (watchdog dashboard): bila status masih "loading" setelah
- * batas waktu — koneksi database tidak pernah menjawab — lepaskan skeleton
- * dan tampilkan fallback data demo + banner offline. Polling pemulihan
- * berjalan sampai database merespons kembali (data asli otomatis masuk).
+ * batas waktu — koneksi database tidak pernah menjawab — lepaskan skeleton ke
+ * mode "offline" DENGAN DATA TETAP KOSONG + banner offline + polling pemulihan
+ * (data asli otomatis masuk saat database merespons).
+ *
+ * ARSITEKTUR DATA: akun riil TIDAK PERNAH diberi data dummy — menampilkan
+ * dataset simulasi ke pemilik akun justru menyesatkan (bisa dianggap data
+ * hilang/berubah). Simulasi 12 kamar eksklusif sesi demo (applyDemoSnapshot).
  * Aman dipanggil kapan saja: hanya bertindak saat status masih "loading".
  */
 export function markStalled(): void {
   if (state.status !== "loading") return;
   console.warn(
-    "[UnitKu] Database tidak merespons tepat waktu — fallback mode offline diaktifkan (watchdog).",
+    "[UnitKu] Database tidak merespons tepat waktu — mode offline diaktifkan (watchdog) dengan data kosong (tanpa dummy).",
   );
-  setState({
-    rooms: ROOMS,
-    invoices: INVOICES,
-    cashEntries: CASH_ENTRIES,
-    status: "offline",
-  });
+  setState({ status: "offline" });
   startRecoveryPolling();
 }
 
@@ -237,17 +238,18 @@ export function rescueDemoIfLoading(): void {
  * in-place per kartu data (UI shell dashboard tetap tampil, layar penuh tidak
  * pernah diblokir); kegagalan sementara di-retry otomatis (warm-up server,
  * SQLITE_BUSY, dsb. tidak langsung menjatuhkan mode offline). Setelah 3
- * percobaan gagal → status "offline" + fallback dataset demo + polling
- * /api/health utk pemulihan otomatis. Melempar error agar pemanggil
- * menampilkan toast.
+ * percobaan gagal → status "offline" + banner retry + polling /api/health
+ * utk pemulihan otomatis — DATA TETAP KOSONG, TANPA dataset dummy (akun riil
+ * tidak boleh melihat data simulasi seolah-olah datanya hilang). Melempar
+ * error agar pemanggil menampilkan toast.
  *
  * Dijamin SELALU selesai: tiap fetch punya timeout, sehingga status tak
  * mungkin menggantung di "loading" — sukses ("ready") maupun gagal
  * ("offline") selalu dicatat sebelum fungsi kembali.
  */
 export async function loadDashboard(): Promise<void> {
-  // Saat mode offline (fallback sudah tampil), JANGAN balik ke skeleton —
-  // biarkan data demo tetap terlihat selama percobaan ulang berjalan.
+  // Saat mode offline, JANGAN balik ke skeleton — biarkan tampilan (kosong/
+  // banner) tetap stabil selama percobaan ulang berjalan.
   if (state.status !== "offline") setState({ status: "loading" });
   const attempts: [number, number][] = [
     [1, 0],
@@ -270,9 +272,9 @@ export async function loadDashboard(): Promise<void> {
       );
     }
   }
-  // Benar-benar gagal → mode offline + fallback demo + log akar masalah
+  // Benar-benar gagal → mode offline DENGAN DATA KOSONG (tanpa dummy) + log
   console.error(
-    "[UnitKu] MODE OFFLINE diaktifkan — database tidak terjangkau setelah 3 percobaan.",
+    "[UnitKu] MODE OFFLINE diaktifkan — database tidak terjangkau setelah 3 percobaan (data tidak dimuat, tanpa dummy).",
     "\n  Penyebab:",
     describeError(lastError),
     "\n  (Detail permintaan gagal: lihat log [UnitKu API] di atas — network error / HTTP 4xx-5xx)",
@@ -280,12 +282,7 @@ export async function loadDashboard(): Promise<void> {
   // Cegah balapan: bila data sudah dipulihkan lewat jalur lain (watchdog +
   // polling kesehatan berhasil lebih dulu), jangan timpa status "ready".
   if (state.status === "ready") return;
-  setState({
-    rooms: ROOMS,
-    invoices: INVOICES,
-    cashEntries: CASH_ENTRIES,
-    status: "offline",
-  });
+  setState({ status: "offline" });
   startRecoveryPolling();
   throw lastError;
 }
