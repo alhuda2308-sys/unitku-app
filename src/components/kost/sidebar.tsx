@@ -4,6 +4,7 @@ import Image from "next/image";
 import { ChevronsUpDown, DatabaseBackup, LayoutGrid, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Smartphone, Users, Wallet, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STAFF_ROLE_META, type StaffAccessRole } from "@/lib/staff-access";
+import { CloudSyncBadge } from "@/components/kost/cloud-sync-badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -37,6 +38,9 @@ interface SidebarProps {
   /** Sesi staf aktif (dari /staff?token=…) — null = owner */
   staffSession: { name: string; role: StaffAccessRole } | null;
   onStaffLogout: () => void;
+  /** Indikator status sinkron cloud di kaki sidebar — disembunyikan di mode
+   *  demo (sesi demo tidak pernah menyentuh Supabase, hijau/merah akan bohong) */
+  showSyncStatus?: boolean;
 }
 
 const NAV_ITEMS: { key: string; label: string; icon: typeof LayoutGrid }[] = [
@@ -66,6 +70,7 @@ export function Sidebar({
   onOpenDangerZone,
   staffSession,
   onStaffLogout,
+  showSyncStatus = true,
 }: SidebarProps) {
   const isStaff = staffSession != null;
   const staffMeta = staffSession ? STAFF_ROLE_META[staffSession.role] : null;
@@ -251,8 +256,15 @@ export function Sidebar({
           })}
         </nav>
 
-        {/* Footer: data management + profile + collapse */}
+        {/* Footer: sync cloud + data management + profile + collapse */}
         <div className={cn("border-t border-border p-2", collapsed && "px-1.5")}>
+          {showSyncStatus && (
+            <CloudSyncBadge
+              variant="sidebar"
+              collapsed={collapsed}
+              className={cn(!collapsed && "mb-1.5")}
+            />
+          )}
           {!isStaff && (
             <Button
               variant="ghost"

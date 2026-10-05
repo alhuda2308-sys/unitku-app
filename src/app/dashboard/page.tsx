@@ -38,6 +38,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Sidebar } from "@/components/kost/sidebar";
+import { CloudSyncBadge } from "@/components/kost/cloud-sync-badge";
 import { TopBar } from "@/components/kost/topbar";
 import { MobileBottomBar } from "@/components/kost/mobile-bottombar";
 import { PwaInstallBanner } from "@/components/kost/pwa-install";
@@ -194,7 +195,7 @@ export default function IndoKostPage() {
     getDashboardSnapshot,
     getServerDashboardSnapshot,
   );
-  const { rooms, invoices, cashEntries, status: dbState, syncedAt } = dash;
+  const { rooms, invoices, cashEntries, status: dbState } = dash;
   const [tickets, setTickets] = useState<Ticket[]>(() =>
     // Mock TIDAK PERNAH tampil utk akun riil — hanya sesi demo (?demo=1);
     // akun riil mulai kosong lalu diisi dari database (empty state bila 0).
@@ -2192,6 +2193,7 @@ export default function IndoKostPage() {
         onOpenDangerZone={handleOpenDangerZone}
         staffSession={staffSession ? { name: staffSession.name, role: staffSession.role } : null}
         onStaffLogout={handleStaffLogout}
+        showSyncStatus={!isDemoVisitor}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -2374,24 +2376,18 @@ export default function IndoKostPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <p className="hidden text-[13px] font-medium text-zinc-700 sm:block">
-                      {syncedAt ? (
-                        `Tersinkron cloud · ${syncedAt}`
-                      ) : isDemoSession ? (
-                        "Mode Demo · data simulasi"
-                      ) : dbState === "offline" ? (
-                        "Mode offline · data perangkat"
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Loader2
-                            className="size-3.5 animate-spin text-zinc-400"
-                            strokeWidth={2}
-                            aria-hidden="true"
-                          />
-                          Menyambungkan ke cloud…
-                        </span>
-                      )}
-                    </p>
+                    {/* Status sinkron cloud — 3 keadaan jujur: hijau (tersinkron
+                        + jam), awan berputar (menyinkronkan), merah (gagal).
+                        Demo: teks netral — sesi demo memang tidak ke cloud. */}
+                    {isDemoVisitor ? (
+                      <p className="hidden text-[13px] font-medium text-zinc-700 sm:block">
+                        Mode Demo · data simulasi
+                      </p>
+                    ) : (
+                      <div className="hidden sm:block">
+                        <CloudSyncBadge variant="inline" />
+                      </div>
+                    )}
                     {canManageRooms && (
                       <Button
                         onClick={() => setAddRoomOpen(true)}

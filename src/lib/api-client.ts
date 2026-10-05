@@ -7,6 +7,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { fetchWithTimeout, isTimeoutError } from "@/lib/http";
+import {
+  notifySyncError,
+  notifySyncStart,
+  notifySyncSuccess,
+} from "@/lib/sync-status";
 import type { Room as ClientRoom, RoomStatus } from "@/lib/kost-data";
 import type { Invoice as ClientInvoice } from "@/lib/kost-invoices";
 import type { CashEntry as ClientCashEntry, CashType } from "@/lib/kost-cashflow";
@@ -112,6 +117,9 @@ export function getAuthMeOnce(): Promise<AuthMeResult> {
  * Default 15 dtk; operasi berat (onboarding buat puluhan kamar) boleh lebih.
  */
 async function request<T>(url: string, init?: RequestInit, timeoutMs = 15_000): Promise<T> {
+  // Indikator sinkron cloud: setiap permintaan ke route handler dilaporkan ke
+  // store global (ikon awan berputar → hijau/merah di sidebar dashboard).
+  notifySyncStart();
   const method = init?.method ?? "GET";
   let res: Response;
   let body: (T & { error?: string }) | null;
@@ -119,6 +127,7 @@ async function request<T>(url: string, init?: RequestInit, timeoutMs = 15_000): 
     res = await fetchWithTimeout(url, { cache: "no-store", timeoutMs, ...init });
     body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
   } catch (cause) {
+    notifySyncError();
     if (isTimeoutError(cause)) {
       console.error(`[UnitKu API] ${method} ${url} → timeout setelah ${timeoutMs} ms`);
       throw new Error(
@@ -137,6 +146,7 @@ async function request<T>(url: string, init?: RequestInit, timeoutMs = 15_000): 
     });
   }
   if (!res.ok) {
+    notifySyncError(); // HTTP error → indikator merah (data gagal sampai ke cloud)
     // 401 = sesi berakhir — KONFIRMASI dulu via /api/auth/me (anti ping-pong,
     // lihat catatan di atas), kecuali endpoint auth itu sendiri
     if (res.status === 401 && typeof window !== "undefined" && !url.startsWith("/api/auth/")) {
@@ -149,6 +159,7 @@ async function request<T>(url: string, init?: RequestInit, timeoutMs = 15_000): 
     console.error(`[UnitKu API] ${method} ${url} → HTTP ${res.status}: ${message}`);
     throw new Error(message);
   }
+  notifySyncSuccess(); // 2xx — data benar-benar tersampai ke/dari cloud
   return body as T;
 }
 

@@ -14,6 +14,11 @@
  */
 
 import { toast } from "@/lib/toast";
+import {
+  notifySyncError,
+  notifySyncStart,
+  notifySyncSuccess,
+} from "@/lib/sync-status";
 
 export const SETTINGS_KEY = "indokost:settings:v1";
 
@@ -683,6 +688,7 @@ let lastPushFailed = false;
 
 async function pushSettingsToCloud(): Promise<void> {
   if (!cloudSyncEnabled || applyingRemote) return;
+  notifySyncStart(); // indikator awan berputar selama push berjalan
   try {
     const res = await fetch("/api/settings", {
       method: "PUT",
@@ -693,6 +699,7 @@ async function pushSettingsToCloud(): Promise<void> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     lastPushFailed = false;
+    notifySyncSuccess();
   } catch (err) {
     // offline/timeout/HTTP error — localStorage tetap sumber sehari-hari;
     // push berikutnya (edit/kunjungan berikutnya) menyinkronkan ulang secara
@@ -705,6 +712,7 @@ async function pushSettingsToCloud(): Promise<void> {
           "Koneksi ke database gagal — perubahan baru tersimpan di perangkat ini saja. Periksa koneksi internet lalu coba simpan ulang.",
       });
     }
+    notifySyncError(); // indikator merah — push pengaturan belum sampai ke cloud
   }
 }
 
@@ -735,6 +743,7 @@ export async function commitSettingsToCloud(
 ): Promise<boolean> {
   const base = getSettingsSnapshot();
   const next = { ...base, ...patch };
+  notifySyncStart(); // indikator sinkron: mulai menyimpan ke cloud
   try {
     const res = await fetch("/api/settings", {
       method: "PUT",
@@ -751,9 +760,11 @@ export async function commitSettingsToCloud(
       );
     }
     pauseCloudSync(() => updateStoredSettings(patch));
+    notifySyncSuccess();
     return true;
   } catch (err) {
     console.error("[UnitKu Settings] Gagal menyimpan pengaturan ke server:", err);
+    notifySyncError();
     return false;
   }
 }
