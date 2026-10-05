@@ -66,6 +66,7 @@ import type { Invoice } from "@/lib/kost-invoices";
 import type { CashEntry } from "@/lib/kost-cashflow";
 import { BackupView } from "./backup-view";
 import {
+  commitSettingsToCloud,
   fileToPhotoDataUrl,
   nextSettingsId,
   PROPERTY_TYPES,
@@ -159,11 +160,6 @@ interface SettingsViewProps {
   onClearDemo: () => void;
   onFactoryReset: () => void;
   onApplyTariff: (changes: { type: string; price: number }[]) => void;
-  /** Sinkronkan profil properti / rekening ke database via PUT /api/properties */
-  onSyncProperty?: (patch: {
-    propertyProfile?: IndoKostSettings["propertyProfile"];
-    rekening?: IndoKostSettings["rekening"];
-  }) => void;
   /** Data cadangan & rekap — kamar, tagihan, dan transaksi kas yang sedang hidup */
   invoices: Invoice[];
   cashEntries: CashEntry[];
@@ -186,12 +182,25 @@ export function SettingsView({
   onClearDemo,
   onFactoryReset,
   onApplyTariff,
-  onSyncProperty,
   invoices,
   cashEntries,
   onRestoreComplete,
   isDemoMode,
 }: SettingsViewProps) {
+  /** Server-first commit utk seluruh tab Pengaturan (standarisasi tombol Simpan):
+   *  akun riil → PUT /api/settings dulu, TUNGGU respons server (sukses: cache
+   *  lokal diperbarui oleh commitSettingsToCloud; gagal: false — state lokal
+   *  TIDAK diubah, pemanggil menampilkan toast merah). Demo: tulis lokal
+   *  langsung tanpa menyentuh Supabase. */
+  const commitSettings = async (
+    patch: Partial<IndoKostSettings>,
+  ): Promise<boolean> => {
+    if (isDemoMode) {
+      onUpdateSettings(patch);
+      return true;
+    }
+    return commitSettingsToCloud(patch);
+  };
   // ── RBAC staf: tab tersembunyi + snap tab terlarang ke yang diizinkan ──
   const allowedKeys = useMemo(() => {
     if (!staffSession) return NAV.map((n) => n.key);
@@ -341,22 +350,21 @@ export function SettingsView({
         <ProfilSayaTab
           key={JSON.stringify(settings.owner)}
           owner={settings.owner}
-          onSave={(owner) => onUpdateSettings({ owner })}
+          onSave={(owner) => commitSettings({ owner })}
           isDemoMode={isDemoMode}
         />
         <ProfilPropertiTab
           key={JSON.stringify(settings.propertyProfile)}
           profile={settings.propertyProfile}
           propertyCount={settings.properties.length}
-          onSave={(propertyProfile) => {
-            onUpdateSettings({ propertyProfile });
-            onSyncProperty?.({ propertyProfile });
-          }}
+          onSave={(propertyProfile) => commitSettings({ propertyProfile })}
+          isDemoMode={isDemoMode}
         />
         <PropertiListTab
           properties={settings.properties}
           activeName={propertyName}
-          onChange={(properties) => onUpdateSettings({ properties })}
+          onChange={(properties) => commitSettings({ properties })}
+          isDemoMode={isDemoMode}
         />
         <StaffAccessTab
           properties={settings.properties}
@@ -365,21 +373,21 @@ export function SettingsView({
         <RekeningTab
           key={JSON.stringify(settings.rekening)}
           rekening={settings.rekening}
-          onSave={(rekening) => {
-            onUpdateSettings({ rekening });
-            onSyncProperty?.({ rekening });
-          }}
+          onSave={(rekening) => commitSettings({ rekening })}
+          isDemoMode={isDemoMode}
         />
         <TemplateTab
           key={JSON.stringify(settings.templates)}
           propertyName={propertyName}
           templates={settings.templates}
-          onSave={(templates) => onUpdateSettings({ templates })}
+          onSave={(templates) => commitSettings({ templates })}
+          isDemoMode={isDemoMode}
         />
         <TarifTab rooms={rooms} onApplyTariff={onApplyTariff} />
         <FasilitasTab
           catalog={settings.facilities}
-          onChange={(facilities) => onUpdateSettings({ facilities })}
+          onChange={(facilities) => commitSettings({ facilities })}
+          isDemoMode={isDemoMode}
         />
         <TemaTab theme={settings.theme} onSelect={(theme) => onUpdateSettings({ theme })} />
         <Pane value="backup">
@@ -421,19 +429,60 @@ function Pane({
   );
 }
 
-function SaveRow({ onClick, hint, compact }: { onClick: () => void; hint?: string | undefined; compact?: boolean }) {
+/** Toast hasil simpan yang terstandarisasi (arsitektur data cloud-first):
+ *  sukses → hijau "Tersimpan ke Cloud" (sesi demo → wording demo);
+ *  gagal  → merah "Gagal menyimpan ke server" — dipanggil SETELAH respons
+ *  server diketahui, bukan sebelum request dikirim. */
+function toastSaveResult(
+  ok: boolean,
+  isDemoMode: boolean | undefined,
+  okDesc: string,
+  failContext: string,
+): void {
+  if (ok) {
+    if (isDemoMode) {
+      toast.success("Perubahan tersimpan di sesi demo!", {
+        description:
+          "Dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.",
+      });
+    } else {
+      toast.success("Tersimpan ke Cloud", { description: okDesc });
+    }
+  } else {
+    toast.error("Gagal menyimpan ke server", {
+      description: `${failContext} belum masuk database — periksa koneksi internet lalu coba simpan ulang.`,
+    });
+  }
+}
+
+function SaveRow({
+  onClick,
+  hint,
+  compact,
+  busy,
+}: {
+  onClick: () => void;
+  hint?: string | undefined;
+  compact?: boolean;
+  busy?: boolean;
+}) {
   return (
     <div className="flex items-center justify-end gap-3">
       {hint && <p className="mr-auto text-[12.5px] text-zinc-700">{hint}</p>}
       <Button
         onClick={onClick}
+        disabled={busy}
         className={cn(
           "bg-[var(--ik-accent)] text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]",
           compact ? "h-8 px-3" : "h-9 px-4"
         )}
       >
-        <Save className="size-3.5" strokeWidth={2} />
-        Simpan Perubahan
+        {busy ? (
+          <Loader2 className="size-3.5 animate-spin" strokeWidth={2} />
+        ) : (
+          <Save className="size-3.5" strokeWidth={2} />
+        )}
+        {busy ? "Menyimpan…" : "Simpan Perubahan"}
       </Button>
     </div>
   );
@@ -552,13 +601,16 @@ function ProfilSayaTab({
   isDemoMode,
 }: {
   owner: IndoKostSettings["owner"];
-  onSave: (owner: IndoKostSettings["owner"]) => void;
+  /** Server-first — resolve true = tersimpan (cloud/sesi demo); false = gagal
+   *  (state lokal TIDAK diubah, toast merah ditampilkan). */
+  onSave: (owner: IndoKostSettings["owner"]) => Promise<boolean>;
   /** Mode demo — data hanya hidup di sesi, toast mengarahkan ke lisensi */
   isDemoMode?: boolean;
 }) {
   const [nama, setNama] = useState(owner.nama);
   const [email, setEmail] = useState(owner.email);
   const [wa, setWa] = useState(owner.whatsapp);
+  const [saving, setSaving] = useState(false);
 
   const dirty = nama.trim() !== owner.nama || email.trim() !== owner.email || wa.trim() !== owner.whatsapp;
 
@@ -566,14 +618,17 @@ function ProfilSayaTab({
   const emailValid = /\S+@\S+\.\S+/.test(email);
   const valid = nama.trim().length >= 2 && emailValid && waDigits.length >= 9;
 
-  const save = () => {
-    if (!valid) return;
-    onSave({ nama: nama.trim(), email: email.trim(), whatsapp: wa.trim() });
-    toast.success("Profil pengelola tersimpan", {
-      description: isDemoMode
-        ? "Perubahan tersimpan di sesi demo! Dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud."
-        : "Data dipakai pada identitas dashboard & pengirim broadcast WA.",
-    });
+  const save = async () => {
+    if (!valid || saving) return;
+    setSaving(true);
+    const ok = await onSave({ nama: nama.trim(), email: email.trim(), whatsapp: wa.trim() });
+    setSaving(false);
+    toastSaveResult(
+      ok,
+      isDemoMode,
+      "Profil pengelola dipakai pada identitas dashboard & pengirim broadcast WA di semua perangkat.",
+      "Profil pengelola",
+    );
   };
 
   return (
@@ -636,6 +691,7 @@ function ProfilSayaTab({
         </SectionCard>
         <SaveRow
           onClick={save}
+          busy={saving}
           hint={
             !valid && dirty
               ? "Lengkapi nama, email valid, dan nomor WA (min. 9 digit)."
@@ -656,15 +712,19 @@ function ProfilPropertiTab({
   profile,
   propertyCount,
   onSave,
+  isDemoMode,
 }: {
   profile: PropertyProfile;
   propertyCount: number;
-  onSave: (profile: PropertyProfile) => void;
+  /** Server-first — resolve true = tersimpan (cloud/sesi demo). */
+  onSave: (profile: PropertyProfile) => Promise<boolean>;
+  isDemoMode?: boolean;
 }) {
   const [draft, setDraft] = useState<PropertyProfile>(profile);
   const fileRef = useRef<HTMLInputElement>(null);
   const [urlMode, setUrlMode] = useState(false);
   const [urlDraft, setUrlDraft] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
 
@@ -683,12 +743,17 @@ function ProfilPropertiTab({
     }
   };
 
-  const save = () => {
-    if (!draft.nama.trim()) return;
-    onSave({ ...draft, nama: draft.nama.trim() });
-    toast.success("Profil properti tersimpan", {
-      description: "Nama, tipe, foto, dan aturan langsung tampil di banner & portal.",
-    });
+  const save = async () => {
+    if (!draft.nama.trim() || saving) return;
+    setSaving(true);
+    const ok = await onSave({ ...draft, nama: draft.nama.trim() });
+    setSaving(false);
+    toastSaveResult(
+      ok,
+      isDemoMode,
+      "Nama, tipe, foto, dan aturan langsung tampil di banner & portal di semua perangkat.",
+      "Profil properti",
+    );
   };
 
   return (
@@ -841,6 +906,7 @@ function ProfilPropertiTab({
 
         <SaveRow
           onClick={save}
+          busy={saving}
           hint={
             !draft.nama.trim()
               ? "Nama properti wajib diisi."
@@ -862,15 +928,19 @@ function PropertiListTab({
   properties,
   activeName,
   onChange,
+  isDemoMode,
 }: {
   properties: PropertyEntry[];
   activeName: string;
-  onChange: (properties: PropertyEntry[]) => void;
+  /** Server-first — resolve true = tersimpan (cloud/sesi demo). */
+  onChange: (properties: PropertyEntry[]) => Promise<boolean>;
+  isDemoMode?: boolean;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [draft, setDraft] = useState(emptyPropDraft);
   const [confirmDelete, setConfirmDelete] = useState<PropertyEntry | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const openAdd = () => {
     setEditId(null);
@@ -890,40 +960,51 @@ function PropertiListTab({
   const unitCount = Number(draft.unitCount);
   const valid = draft.name.trim().length >= 3 && !nameTaken && unitCount >= 1;
 
-  const submit = () => {
-    if (!valid) return;
-    if (editId) {
-      onChange(
-        properties.map((p) =>
+  const submit = async () => {
+    if (!valid || saving) return;
+    setSaving(true);
+    const next: PropertyEntry[] = editId
+      ? properties.map((p) =>
           p.id === editId
             ? { ...p, name: draft.name.trim(), type: draft.type, unitCount, address: draft.address.trim(), photoUrl: draft.photoUrl.trim() || undefined }
             : p
         )
-      );
-      toast.success("Properti diperbarui", { description: draft.name.trim() });
-    } else {
-      onChange([
-        ...properties,
-        {
-          id: nextSettingsId("prop"),
-          name: draft.name.trim(),
-          type: draft.type,
-          unitCount,
-          address: draft.address.trim(),
-          photoUrl: draft.photoUrl.trim() || undefined,
-        },
-      ]);
-      toast.success("Properti baru ditambahkan", {
-        description: `${draft.name.trim()} · ${unitCount} ${PROPERTY_TYPE_META[draft.type].unit}`,
-      });
+      : [
+          ...properties,
+          {
+            id: nextSettingsId("prop"),
+            name: draft.name.trim(),
+            type: draft.type,
+            unitCount,
+            address: draft.address.trim(),
+            photoUrl: draft.photoUrl.trim() || undefined,
+          },
+        ];
+    const ok = await onChange(next);
+    setSaving(false);
+    if (!ok) {
+      toastSaveResult(false, isDemoMode, "Daftar properti tersinkron di semua perangkat.", "Daftar properti");
+      return;
     }
+    toastSaveResult(
+      true,
+      isDemoMode,
+      editId
+        ? `${draft.name.trim()} — daftar cabang tersinkron di semua perangkat.`
+        : `${draft.name.trim()} · ${unitCount} ${PROPERTY_TYPE_META[draft.type].unit} — tersinkron di semua perangkat.`,
+      "Daftar properti",
+    );
     setModalOpen(false);
   };
 
-  const doDelete = (p: PropertyEntry) => {
-    onChange(properties.filter((x) => x.id !== p.id));
+  const doDelete = async (p: PropertyEntry) => {
+    const ok = await onChange(properties.filter((x) => x.id !== p.id));
+    if (!ok) {
+      toastSaveResult(false, isDemoMode, "Daftar properti tersinkron di semua perangkat.", "Daftar properti");
+      return;
+    }
     setConfirmDelete(null);
-    toast.success("Properti dihapus", { description: `${p.name} dikeluarkan dari daftar.` });
+    toastSaveResult(true, isDemoMode, `${p.name} dikeluarkan dari daftar properti.`, "Daftar properti");
   };
 
   return (
@@ -1140,9 +1221,10 @@ function PropertiListTab({
             </DialogClose>
             <Button
               onClick={submit}
-              disabled={!valid}
+              disabled={!valid || saving}
               className="h-9 bg-[var(--ik-accent)] px-4 text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)] disabled:opacity-40"
             >
+              {saving && <Loader2 className="mr-1 size-3.5 animate-spin" strokeWidth={2} />}
               {editId ? "Simpan Perubahan" : "Tambah Properti"}
             </Button>
           </DialogFooter>
@@ -1226,9 +1308,12 @@ function fileToQrisDataUrl(file: File): Promise<string> {
 function RekeningTab({
   rekening,
   onSave,
+  isDemoMode,
 }: {
   rekening: IndoKostSettings["rekening"];
-  onSave: (rekening: IndoKostSettings["rekening"]) => void;
+  /** Server-first — resolve true = tersimpan (cloud/sesi demo). */
+  onSave: (rekening: IndoKostSettings["rekening"]) => Promise<boolean>;
+  isDemoMode?: boolean;
 }) {
   const [bank, setBank] = useState(rekening.bank);
   const [noRek, setNoRek] = useState(rekening.noRek);
@@ -1241,12 +1326,13 @@ function RekeningTab({
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   /** Persist QRIS — bank fields diambil dari snapshot tersimpan (bukan draft
    *  lokal) agar aksi QRIS tidak ikut menyimpan editan rekening yang belum
-   *  disimpan pengguna. */
-  const saveQris = (qrisImageUrl: string | undefined) => {
-    onSave({
+   *  disimpan pengguna. Server-first: tunggu respons, toast mengikuti hasil. */
+  const saveQris = async (qrisImageUrl: string | undefined) => {
+    const ok = await onSave({
       ...rekening,
       bank: rekening.bank,
       noRek: rekening.noRek,
@@ -1254,6 +1340,14 @@ function RekeningTab({
       qrisImageUrl,
       qrisNmid: nmid.trim() || undefined,
     });
+    toastSaveResult(
+      ok,
+      isDemoMode,
+      qrisImageUrl
+        ? "QRIS tampil di portal penyewa (tab Scan QRIS) & pesan tagihan WhatsApp di semua perangkat."
+        : "Portal penyewa kembali menampilkan nomor rekening bank saja.",
+      "QRIS / rekening",
+    );
   };
 
   const pick = (file: File | undefined) => {
@@ -1272,12 +1366,7 @@ function RekeningTab({
     }
     setUploading(true);
     fileToQrisDataUrl(file)
-      .then((dataUrl) => {
-        saveQris(dataUrl);
-        toast.success("QRIS tersimpan", {
-          description: "Tersedia di portal penyewa (tab Scan QRIS) & pesan tagihan WhatsApp.",
-        });
-      })
+      .then((dataUrl) => saveQris(dataUrl))
       .catch((err: unknown) => {
         toast.error("Gagal memuat QRIS", {
           description: err instanceof Error ? err.message : "Coba file lain.",
@@ -1286,22 +1375,30 @@ function RekeningTab({
       .finally(() => setUploading(false));
   };
 
-  const save = () => {
-    if (!noRek.trim() || !atasNama.trim()) return;
-    onSave({ bank, noRek: noRek.trim(), atasNama: atasNama.trim(), qrisImageUrl: qrisUrl, qrisNmid: nmid.trim() || undefined });
-    toast.success("Rekening tersimpan", {
-      description: "Instruksi transfer pada invoice & pengingat WA ikut diperbarui.",
-    });
+  const save = async () => {
+    if (!noRek.trim() || !atasNama.trim() || saving) return;
+    setSaving(true);
+    const ok = await onSave({ bank, noRek: noRek.trim(), atasNama: atasNama.trim(), qrisImageUrl: qrisUrl, qrisNmid: nmid.trim() || undefined });
+    setSaving(false);
+    toastSaveResult(
+      ok,
+      isDemoMode,
+      "Instruksi transfer pada invoice & pengingat WA ikut diperbarui di semua perangkat.",
+      "Rekening bank",
+    );
   };
 
-  /** Simpan NMID saat blur bila berubah (input opsional) */
-  const commitNmid = () => {
+  /** Simpan NMID saat blur bila berubah (input opsional) — server-first */
+  const commitNmid = async () => {
     const next = nmid.trim() || undefined;
     if (next === (rekening.qrisNmid ?? undefined)) return;
-    onSave({ ...rekening, qrisNmid: next });
-    toast.success("Info QRIS tersimpan", {
-      description: "Nama merchant / NMID tampil bersama kode QRIS di portal penyewa.",
-    });
+    const ok = await onSave({ ...rekening, qrisNmid: next });
+    toastSaveResult(
+      ok,
+      isDemoMode,
+      "Nama merchant / NMID tampil bersama kode QRIS di portal penyewa.",
+      "Info QRIS (NMID)",
+    );
   };
 
   return (
@@ -1337,7 +1434,7 @@ function RekeningTab({
                 Rekening ini otomatis muncul pada template pengingat WA &amp; instruksi transfer invoice.
               </p>
             </div>
-            <SaveRow onClick={save} hint={undefined} compact />
+            <SaveRow onClick={save} busy={saving} hint={undefined} compact />
           </div>
         </SectionCard>
 
@@ -1384,10 +1481,7 @@ function RekeningTab({
                       disabled={uploading}
                       className="h-7 px-2 text-[12.5px] text-red-600 hover:bg-red-50 hover:text-red-700"
                       onClick={() => {
-                        saveQris(undefined);
-                        toast.success("QRIS dihapus", {
-                          description: "Portal penyewa kembali menampilkan nomor rekening bank saja.",
-                        });
+                        void saveQris(undefined);
                       }}
                     >
                       <Trash2 className="size-3" strokeWidth={1.75} />
@@ -1490,10 +1584,13 @@ function TemplateTab({
   propertyName,
   templates,
   onSave,
+  isDemoMode,
 }: {
   propertyName: string;
   templates: IndoKostSettings["templates"];
-  onSave: (templates: IndoKostSettings["templates"]) => void;
+  /** Server-first — resolve true = tersimpan (cloud/sesi demo). */
+  onSave: (templates: IndoKostSettings["templates"]) => Promise<boolean>;
+  isDemoMode?: boolean;
 }) {
   const [draft, setDraft] = useState<IndoKostSettings["templates"]>(templates);
   const refs = useRef<Record<string, HTMLTextAreaElement | null>>({});
@@ -1518,11 +1615,19 @@ function TemplateTab({
     });
   };
 
-  const save = () => {
-    onSave(draft);
-    toast.success("Template WhatsApp tersimpan", {
-      description: "Dipakai pada pengingat tagihan berikutnya & tombol kirim WA.",
-    });
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    const ok = await onSave(draft);
+    setSaving(false);
+    toastSaveResult(
+      ok,
+      isDemoMode,
+      "Template dipakai pada pengingat tagihan berikutnya & tombol kirim WA di semua perangkat.",
+      "Template WhatsApp",
+    );
   };
 
   const FIELDS: { key: keyof IndoKostSettings["templates"]; label: string; hint: string }[] = [
@@ -1593,6 +1698,7 @@ function TemplateTab({
 
         <SaveRow
           onClick={save}
+          busy={saving}
           hint={dirty ? "Perubahan template belum disimpan." : undefined}
         />
       </div>
@@ -1747,15 +1853,19 @@ function FacilityGroupEditor({
   hint,
   items,
   onUpdate,
+  isDemoMode,
 }: {
   title: string;
   hint: string;
   items: FacilityItem[];
-  onUpdate: (items: FacilityItem[]) => void;
+  /** Server-first — resolve true = tersimpan (cloud/sesi demo). */
+  onUpdate: (items: FacilityItem[]) => Promise<boolean>;
+  isDemoMode?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [editId, setEditId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const labelsLower = items.map((i) => i.label.toLowerCase());
   const dup = draft.trim().length > 0 && labelsLower.includes(draft.trim().toLowerCase());
@@ -1763,29 +1873,44 @@ function FacilityGroupEditor({
     editDraft.trim().length > 0 &&
     items.some((i) => i.id !== editId && i.label.toLowerCase() === editDraft.trim().toLowerCase());
 
-  const add = () => {
+  const add = async () => {
     const label = draft.trim();
-    if (!label || dup) return;
-    onUpdate([...items, { id: nextSettingsId("fac"), label, custom: true }]);
+    if (!label || dup || busy) return;
+    setBusy(true);
+    const ok = await onUpdate([...items, { id: nextSettingsId("fac"), label, custom: true }]);
+    setBusy(false);
+    if (!ok) {
+      toastSaveResult(false, isDemoMode, `Fasilitas "${label}"`, "Katalog fasilitas");
+      return;
+    }
     setDraft("");
-    toast.success(`Fasilitas "${label}" ditambahkan`, {
-      description: `Masuk katalog ${title} — langsung tersedia di pilihan fasilitas kamar.`,
-    });
+    toastSaveResult(true, isDemoMode, `Fasilitas "${label}" masuk katalog ${title} — langsung tersedia di pilihan fasilitas kamar.`, "Katalog fasilitas");
   };
 
-  const rename = () => {
+  const rename = async () => {
     const label = editDraft.trim();
-    if (!label || editDup || !editId) return;
-    onUpdate(items.map((i) => (i.id === editId ? { ...i, label } : i)));
-    toast.success("Nama fasilitas diperbarui", { description: `"${label}" — katalog ${title}.` });
+    if (!label || editDup || !editId || busy) return;
+    setBusy(true);
+    const ok = await onUpdate(items.map((i) => (i.id === editId ? { ...i, label } : i)));
+    setBusy(false);
+    if (!ok) {
+      toastSaveResult(false, isDemoMode, `Nama fasilitas "${label}"`, "Katalog fasilitas");
+      return;
+    }
+    toastSaveResult(true, isDemoMode, `"${label}" — katalog ${title} diperbarui di semua perangkat.`, "Katalog fasilitas");
     setEditId(null);
   };
 
-  const remove = (item: FacilityItem) => {
-    onUpdate(items.filter((i) => i.id !== item.id));
-    toast.info(`Fasilitas "${item.label}" dihapus dari katalog`, {
-      description: "Kamar yang sudah memilikinya tidak berubah.",
-    });
+  const remove = async (item: FacilityItem) => {
+    if (busy) return;
+    setBusy(true);
+    const ok = await onUpdate(items.filter((i) => i.id !== item.id));
+    setBusy(false);
+    if (!ok) {
+      toastSaveResult(false, isDemoMode, `Fasilitas "${item.label}"`, "Katalog fasilitas");
+      return;
+    }
+    toastSaveResult(true, isDemoMode, `Fasilitas "${item.label}" dihapus dari katalog ${title} — kamar yang sudah memilikinya tidak berubah.`, "Katalog fasilitas");
   };
 
   return (
@@ -1920,9 +2045,12 @@ function FacilityGroupEditor({
 function FasilitasTab({
   catalog,
   onChange,
+  isDemoMode,
 }: {
   catalog: FacilityCatalog;
-  onChange: (catalog: FacilityCatalog) => void;
+  /** Server-first — resolve true = tersimpan (cloud/sesi demo). */
+  onChange: (catalog: FacilityCatalog) => Promise<boolean>;
+  isDemoMode?: boolean;
 }) {
   return (
     <Pane value="fasilitas">
@@ -1942,12 +2070,14 @@ function FasilitasTab({
             hint="Fasilitas default unit (milik kamar) — dipilih saat tambah/kelola kamar."
             items={catalog.unit}
             onUpdate={(unit) => onChange({ ...catalog, unit })}
+            isDemoMode={isDemoMode}
           />
           <FacilityGroupEditor
             title="Fasilitas Bersama"
             hint="Fasilitas bersama properti — tampil di Portal Penyewa."
             items={catalog.shared}
             onUpdate={(shared) => onChange({ ...catalog, shared })}
+            isDemoMode={isDemoMode}
           />
         </div>
 

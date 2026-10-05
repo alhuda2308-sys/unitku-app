@@ -359,7 +359,7 @@ model Announcement {
   tanggalBerakhir String // ISO yyyy-mm-dd
   aktif          Boolean  @default(true) // toggle manual pengelola
   createdAtLabel String // "26 Sep 2026"
-  createdAtSort  Int      @default(0) // yyyymmddHHmm — urut terbaru dulu
+  createdAtSort  BigInt   @default(0) // yyyymmddHHmm — urut terbaru dulu (12 digit: BIGINT, INT4 meluap)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

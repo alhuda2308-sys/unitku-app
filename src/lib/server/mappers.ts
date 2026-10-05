@@ -168,7 +168,7 @@ export function toClientAnnouncement(a: Announcement): ClientAnnouncement {
     tanggalBerakhir: a.tanggalBerakhir,
     aktif: a.aktif,
     createdAtLabel: a.createdAtLabel,
-    createdAtSort: a.createdAtSort,
+    createdAtSort: Number(a.createdAtSort),
   };
 }
 

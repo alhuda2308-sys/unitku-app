@@ -717,6 +717,47 @@ function scheduleCloudSync(): void {
   }, CLOUD_SYNC_DEBOUNCE_MS);
 }
 
+/**
+ * Simpan patch pengaturan SERVER-FIRST (akun riil) — standarisasi tombol
+ * "Simpan": kirim PUT /api/settings → TUNGGU respons server →
+ *   • sukses : barulah patch ditulis ke store (cache localStorage + UI ikut
+ *              terbarui, TANPA push ulang — nilai bersumber dari server) dan
+ *              pemanggil menampilkan toast hijau "Tersimpan ke Cloud".
+ *   • gagal  : state lokal TIDAK diubah sama sekali (tidak ada kesan sukses);
+ *              pemanggil menampilkan toast merah "Gagal menyimpan ke server".
+ *
+ * Server juga mencerminkan field properti (nama/tipe/alamat/foto) & rekening/
+ * QRIS ke tabel `properties` — satu panggilan menyimpan semuanya.
+ * Mode demo TIDAK boleh lewat sini (panggil updateStoredSettings langsung).
+ */
+export async function commitSettingsToCloud(
+  patch: Partial<IndoKostSettings>,
+): Promise<boolean> {
+  const base = getSettingsSnapshot();
+  const next = { ...base, ...patch };
+  try {
+    const res = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildSettingsCloudPayload(next)),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => null);
+      throw new Error(
+        detail && typeof detail.error === "string"
+          ? detail.error
+          : `HTTP ${res.status}`,
+      );
+    }
+    pauseCloudSync(() => updateStoredSettings(patch));
+    return true;
+  } catch (err) {
+    console.error("[UnitKu Settings] Gagal menyimpan pengaturan ke server:", err);
+    return false;
+  }
+}
+
 if (typeof window !== "undefined") {
   // Tab ditutup / pindah halaman setelah edit → flush sisa debounce.
   window.addEventListener("pagehide", () => {

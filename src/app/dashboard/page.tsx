@@ -117,6 +117,7 @@ import {
   TagihanSkeleton,
 } from "@/components/kost/dashboard-skeletons";
 import {
+  commitSettingsToCloud,
   DEFAULT_SETTINGS,
   fileToPhotoDataUrl,
   nextSettingsId,
@@ -130,7 +131,6 @@ import {
   updateStoredSettings,
   type IndoKostSettings,
   type PropertyProfile,
-  type RekeningConfig,
 } from "@/lib/app-settings";
 
 type ViewKey =
@@ -559,8 +559,11 @@ export default function IndoKostPage() {
       // Bedakan sesi demo (cookie) vs akun riil SEBELUM menyentuh cache lokal —
       // sesi demo pada perangkat baru memang berbasis dataset default.
       let isDemo = false;
+      let sessionEmail = "";
       try {
-        isDemo = (await getAuthMeOnce()).demo === true;
+        const me = await getAuthMeOnce();
+        isDemo = me.demo === true;
+        sessionEmail = me.user?.email ?? "";
       } catch {
         /* tak terkonfirmasi — perlakukan sebagai akun riil (aman) */
       }
@@ -601,12 +604,36 @@ export default function IndoKostPage() {
         const res = await api.getSettings();
         if (!alive) return;
         // degraded = tabel owner_settings belum dibuat (SQL belum dijalankan)
-        // → tetap mode lokal, tanpa error — lihat sql/owner-settings-table.sql
+        // → tetap mode lokal, tanpa error — tabel dibuat otomatis via self-heal
+        // di /api/settings (ensureOwnerSettingsTable).
         if (res.demo || !res.settings) {
           setSettingsCloudSync(false);
           return;
         }
-        applyRemoteSettings(res.settings); // cloud menang atas dummy default
+        // OVERWRITE CACHE LINTAS AKUN: bila cloud belum menyimpan daftar
+        // properti (baris owner_settings masih kosong) dan cache lokal berasal
+        // dari akun LAIN di perangkat yang sama (email pemilik cache ≠ email
+        // sesi), buang daftar properti/staf/template cache tersebut — cloud
+        // WAJIB menimpa cache supaya akun lain tidak melihat data akun lain.
+        const cachedEmail = getSettingsSnapshot().owner.email;
+        if (
+          res.settings.properties == null &&
+          cachedEmail &&
+          sessionEmail &&
+          cachedEmail !== sessionEmail
+        ) {
+          console.info(
+            "[UnitKu] Cache pengaturan lokal milik akun lain — dibuang, menunggu data cloud akun ini.",
+          );
+          pauseCloudSync(() =>
+            updateStoredSettings((s) => ({
+              ...s,
+              properties: [],
+              staff: [],
+            })),
+          );
+        }
+        applyRemoteSettings(res.settings); // cloud menang atas cache lokal
         setSettingsCloudSync(true); // edit berikutnya otomatis di-push
       } catch (err: unknown) {
         // offline — pengaturan lokal (netral/owner asli) tetap dipakai;
@@ -752,7 +779,6 @@ export default function IndoKostPage() {
   // memicu error "Tagihan tidak ditemukan" / 401. Di mode offline akun riil
   // datanya kosong sehingga cabang ini praktis no-op (tidak ada yang bisa
   // dimutasi) — simpan ulang hanya bisa setelah koneksi pulih.
-  const isLocalDataMode = instantDemo || isDemoSession || dbState === "offline";
 
   // ── Pengunjung mode demo (?demo=1 / sesi demo cookie) → target konversi
   // Meta Ads: sticky bottom bar "Beli Lisensi Sekarang" (DemoConvertBar).
@@ -865,8 +891,10 @@ export default function IndoKostPage() {
   const markRoomPaid = (roomId: string) => {
     const stateInvoice = invoices.find((i) => i.roomId === roomId && i.status !== "lunas");
 
-    // MODE DEMO / OFFLINE: manipulasi state lokal — instan, tanpa API.
-    if (isLocalDataMode) {
+    // MODE DEMO: manipulasi state lokal — instan, tanpa API. (Akun riil yang
+    // database-nya offline TIDAK memanipulasi lokal — biarkan API gagal dengan
+    // toast merah agar tidak ada perubahan yang hilang saat reload.)
+    if (instantDemo || isDemoSession) {
       markPaidLocal(roomId, stateInvoice);
       return;
     }
@@ -891,7 +919,7 @@ export default function IndoKostPage() {
   /** Tagihan table "Tandai Lunas / Konfirmasi" — server-first dgn fallback
    *  roomId, kamar & Buku Kas ikut disinkronkan; demo/offline murni lokal. */
   const handleInvoiceMarkPaid = (inv: Invoice) => {
-    if (isLocalDataMode) {
+    if (instantDemo || isDemoSession) {
       markPaidLocal(inv.roomId, inv);
       return;
     }
@@ -1430,16 +1458,25 @@ export default function IndoKostPage() {
   };
 
   const handleDeleteEntry = (entry: CashEntry) => {
-    updateCashEntries((prev) => prev.filter((e) => e.id !== entry.id));
-    toast.success(`Transaksi ${entry.id} dihapus`, {
-      description: `${entry.description} · ${formatIDR(entry.amount)} dikeluarkan dari rekap.`,
-    });
     // MODE DEMO: tanpa API — catatan demo hidup hanya di sesi ini.
-    if (instantDemo || isDemoSession) return;
-    api.deleteCash(entry.id).catch((err: unknown) => {
-      toast.error("Gagal menghapus transaksi di database", { description: errMsg(err) });
-      void refreshDashboard();
-    });
+    if (instantDemo || isDemoSession) {
+      updateCashEntries((prev) => prev.filter((e) => e.id !== entry.id));
+      toast.success(`Transaksi ${entry.id} dihapus`, {
+        description: `${entry.description} · ${formatIDR(entry.amount)} dikeluarkan dari rekap (sesi demo).`,
+      });
+      return;
+    }
+    // AKUN RIIL — server-first: hapus di database, baru perbarui Buku Kas.
+    api.deleteCash(entry.id).then(() => {
+      updateCashEntries((prev) => prev.filter((e) => e.id !== entry.id));
+      toast.success(`Transaksi ${entry.id} dihapus`, {
+        description: `${entry.description} · ${formatIDR(entry.amount)} dihapus permanen dari database.`,
+      });
+    }).catch((err: unknown) =>
+      toast.error("Gagal menyimpan ke server", {
+        description: `Transaksi ${entry.id} belum terhapus di database — ${errMsg(err)}`,
+      }),
+    );
   };
 
   // ── Pengaturan ─────────────────────────────────────────────────────────────
@@ -1470,24 +1507,32 @@ export default function IndoKostPage() {
   const handleGantiFotoProperti = (file: File) => {
     fileToPhotoDataUrl(file)
       .then((url) => {
-        updateSettings({ propertyProfile: { ...settings.propertyProfile, fotoUrl: url } });
+        // MODE DEMO: foto cukup tampil lokal (sesi demo tidak menyentuh database)
         if (instantDemo || isDemoSession) {
+          updateSettings({ propertyProfile: { ...settings.propertyProfile, fotoUrl: url } });
           toast.success("Foto properti diperbarui", {
             description:
               "Perubahan tersimpan di sesi demo! Dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.",
           });
           return;
         }
+        // AKUN RIIL — server-first: unggah ke database dulu; cache lokal & UI
+        // hanya diperbarui setelah server mengonfirmasi.
         api
           .updateProperty({ fotoUrl: url })
           .then(() => {
+            pauseCloudSync(() =>
+              updateStoredSettings((s) => ({
+                propertyProfile: { ...s.propertyProfile, fotoUrl: url },
+              })),
+            );
             toast.success("Foto properti diperbarui", {
               description: "Banner identitas & modul Pengaturan ikut berganti — tersimpan ke cloud.",
             });
           })
           .catch((err: unknown) =>
-            toast.error("Foto tampil lokal, gagal tersimpan ke database", {
-              description: errMsg(err),
+            toast.error("Gagal menyimpan ke server", {
+              description: `Foto belum masuk database — ${errMsg(err)}`,
             }),
           );
       })
@@ -1496,65 +1541,26 @@ export default function IndoKostPage() {
       });
   };
 
-  /** Sinkronkan profil properti & rekening (Pengaturan) ke database via PUT /api/properties
-   *  MODE DEMO (?demo=1 / sesi demo): pengunjung belum punya properti riil di database —
-   *  JANGAN panggil API Supabase (dulu memunculkan toast merah "Properti belum terdaftar").
-   *  updateSettings di settings-view sudah menyimpan perubahan ke state lokal +
-   *  localStorage, jadi cukup konfirmasi ramah + arahan ke upgrade lisensi. */
-  const handleSyncPropertyToDb = useCallback(
-    (patch: { propertyProfile?: PropertyProfile; rekening?: RekeningConfig }) => {
-      if (instantDemo || isDemoSession) {
-        toast.success("Perubahan tersimpan di sesi demo!", {
-          description: "Dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.",
-        });
-        return;
-      }
-      const payload: Record<string, string | null> = {};
-      if (patch.propertyProfile) {
-        payload.name = patch.propertyProfile.nama;
-        payload.tipe = patch.propertyProfile.tipe;
-        payload.alamat = patch.propertyProfile.alamat;
-        if (patch.propertyProfile.fotoUrl) payload.fotoUrl = patch.propertyProfile.fotoUrl;
-      }
-      if (patch.rekening) {
-        payload.bankName = patch.rekening.bank;
-        payload.bankAccountNo = patch.rekening.noRek;
-        payload.bankAccountName = patch.rekening.atasNama;
-        // QRIS statis — undefined di-drop JSON, string/null dikirim apa adanya
-        payload.qrisImageUrl = patch.rekening.qrisImageUrl ?? null;
-        payload.qrisNmid = patch.rekening.qrisNmid ?? null;
-      }
-      api
-        .updateProperty(payload)
-        .then((res) => {
-          toast.success("Tersinkron ke database", {
-            description: `Profil "${res.property.name}" tersimpan di Supabase — ikut tampil di semua perangkat.`,
-          });
-        })
-        .catch((err: unknown) =>
-          toast.error("Gagal sinkron profil ke database", { description: errMsg(err) }),
-        );
-    },
-    [instantDemo, isDemoSession],
-  );
-
   const handleApplyTariff = (changes: { type: string; price: number }[]) => {
-    updateRooms((prev) =>
-      prev.map((r) => {
-        const change = changes.find((c) => c.type === r.type);
-        return change ? { ...r, price: change.price } : r;
-      })
-    );
-    toast.success("Tarif kamar diperbarui", {
-      description: changes
-        .map((c) => `${c.type}: ${formatIDR(c.price)}/bln`)
-        .join(" · ")
-        .concat(" — berlaku untuk tagihan periode berikutnya."),
-    });
-    // Bulk patch ke database (tarif massal per tipe kamar) — dilewati di mode
-    // demo: dataset simulasi lokal tidak punya padanan baris di database, dan
-    // dulu memunculkan toast merah "Gagal menyimpan tarif ke database".
-    if (instantDemo || isDemoSession) return;
+    // MODE DEMO: tarif cukup di state lokal — dataset simulasi tidak ada di
+    // database; bulk PATCH hanya memicu toast merah.
+    if (instantDemo || isDemoSession) {
+      updateRooms((prev) =>
+        prev.map((r) => {
+          const change = changes.find((c) => c.type === r.type);
+          return change ? { ...r, price: change.price } : r;
+        })
+      );
+      toast.success("Tarif kamar diperbarui", {
+        description: changes
+          .map((c) => `${c.type}: ${formatIDR(c.price)}/bln`)
+          .join(" · ")
+          .concat(" — berlaku untuk tagihan periode berikutnya (sesi demo)."),
+      });
+      return;
+    }
+
+    // AKUN RIIL — server-first: bulk PATCH dulu, TUNGGU respons server.
     const targets = rooms.filter((r) => changes.some((c) => c.type === r.type));
     if (targets.length === 0) return;
     api
@@ -1564,10 +1570,22 @@ export default function IndoKostPage() {
           patch: { price: changes.find((c) => c.type === r.type)!.price },
         })),
       )
-      .catch((err: unknown) => {
-        toast.error("Gagal menyimpan tarif ke database", { description: errMsg(err) });
-        void refreshDashboard();
-      });
+      .then(({ rooms: updated }) => {
+        updateRooms((prev) =>
+          prev.map((r) => updated.find((u) => u.id === r.id) ?? r),
+        );
+        toast.success("Tarif kamar diperbarui", {
+          description: changes
+            .map((c) => `${c.type}: ${formatIDR(c.price)}/bln`)
+            .join(" · ")
+            .concat(" — tersimpan ke cloud, berlaku untuk tagihan periode berikutnya."),
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menyimpan ke server", {
+          description: `Tarif belum masuk database — ${errMsg(err)}`,
+        }),
+      );
   };
 
   // ── Manajemen Kamar (CRUD) ────────────────────────────────────────────
@@ -1613,70 +1631,110 @@ export default function IndoKostPage() {
       );
   };
 
-  /** Katalog Fasilitas — tambah custom dari modal Tambah Kamar (tersimpan master) */
+  /** Katalog Fasilitas — tambah custom dari modal Tambah Kamar (master katalog
+   *  fasilitas tersimpan di cloud owner_settings; demo: lokal murni). */
   const handleAddCustomFacility = (label: string) => {
-    updateStoredSettings((s) => ({
-      facilities: {
-        ...s.facilities,
-        unit: [...s.facilities.unit, { id: nextSettingsId("fac"), label, custom: true }],
-      },
-    }));
-    toast.success(`Fasilitas "${label}" masuk katalog`, {
-      description: "Otomatis terpilih untuk kamar ini & tersedia saat menambah kamar berikutnya.",
+    const inDemo = instantDemo || isDemoSession;
+    const s = getSettingsSnapshot();
+    const facilities = {
+      ...s.facilities,
+      unit: [...s.facilities.unit, { id: nextSettingsId("fac"), label, custom: true }],
+    };
+    if (inDemo) {
+      updateStoredSettings({ facilities });
+      toast.success(`Fasilitas "${label}" masuk katalog`, {
+        description: "Otomatis terpilih untuk kamar ini & tersedia saat menambah kamar berikutnya (sesi demo).",
+      });
+      return;
+    }
+    void commitSettingsToCloud({ facilities }).then((ok) => {
+      if (ok) {
+        toast.success("Tersimpan ke Cloud", {
+          description: `Fasilitas "${label}" masuk katalog — otomatis terpilih untuk kamar ini & tersedia di semua perangkat.`,
+        });
+      } else {
+        toast.error("Gagal menyimpan ke server", {
+          description: `Fasilitas "${label}" belum masuk katalog di database — coba simpan ulang di Pengaturan → Katalog Fasilitas.`,
+        });
+      }
     });
   };
 
   /** Hapus fasilitas custom dari katalog (salah ketik) — kamar lama tak terpengaruh */
   const handleRemoveCustomFacility = (id: string) => {
     const removed = settings.facilities.unit.find((f) => f.id === id);
-    updateStoredSettings((s) => ({
-      facilities: {
-        ...s.facilities,
-        unit: s.facilities.unit.filter((f) => f.id !== id),
-      },
-    }));
-    if (removed) {
-      toast.info(`Fasilitas "${removed.label}" dihapus dari katalog`, {
-        description: "Kamar yang sudah memilikinya tidak berubah.",
-      });
+    const inDemo = instantDemo || isDemoSession;
+    const s = getSettingsSnapshot();
+    const facilities = {
+      ...s.facilities,
+      unit: s.facilities.unit.filter((f) => f.id !== id),
+    };
+    if (inDemo) {
+      updateStoredSettings({ facilities });
+      if (removed) {
+        toast.info(`Fasilitas "${removed.label}" dihapus dari katalog`, {
+          description: "Kamar yang sudah memilikinya tidak berubah (sesi demo).",
+        });
+      }
+      return;
     }
+    void commitSettingsToCloud({ facilities }).then((ok) => {
+      if (!ok) {
+        toast.error("Gagal menyimpan ke server", {
+          description: `Fasilitas belum terhapus dari katalog di database — coba ulang dari Pengaturan → Katalog Fasilitas.`,
+        });
+        return;
+      }
+      if (removed) {
+        toast.success("Tersimpan ke Cloud", {
+          description: `Fasilitas "${removed.label}" dihapus dari katalog — kamar yang sudah memilikinya tidak berubah.`,
+        });
+      }
+    });
   };
 
   const handleUpdateRoom = (room: Room, patch: RoomPatch) => {
     const idChanged = patch.id !== room.id;
-    updateRooms((prev) =>
-      prev.map((r) =>
-        r.id === room.id
-          ? {
-              ...r,
-              id: patch.id,
-              floor: patch.floor,
-              type: patch.type,
-              price: patch.price,
-              facilities: patch.facilities,
-              operational: patch.operational,
-            }
-          : r
-      )
-    );
-    // Renumber propagates to invoice & ticket datasets so nothing dangles
-    if (idChanged) {
-      updateInvoices((prev) =>
-        prev.map((i) => (i.roomId === room.id ? { ...i, roomId: patch.id } : i))
-      );
-      setTickets((prev) =>
-        prev.map((t) => (t.roomId === room.id ? { ...t, roomId: patch.id } : t))
-      );
-    }
     const inDemo = instantDemo || isDemoSession;
-    toast.success(`Kamar ${room.id} diperbarui`, {
-      description: idChanged
-        ? `Nomor kamar berubah menjadi "${patch.id}" — tagihan & tiket ikut diperbarui${inDemo ? " (sesi demo)." : "."}`
-        : `${patch.type} · ${formatIDR(patch.price)}/bln · Lantai ${patch.floor}${inDemo ? " · tersimpan di sesi demo." : "."}`,
-    });
+
     // MODE DEMO: perubahan kamar cukup di state lokal — dataset simulasi tidak
     // ada di database; PATCH /api/rooms hanya memicu toast merah.
-    if (inDemo) return;
+    if (inDemo) {
+      updateRooms((prev) =>
+        prev.map((r) =>
+          r.id === room.id
+            ? {
+                ...r,
+                id: patch.id,
+                floor: patch.floor,
+                type: patch.type,
+                price: patch.price,
+                facilities: patch.facilities,
+                operational: patch.operational,
+              }
+            : r
+        )
+      );
+      // Renumber propagates to invoice & ticket datasets so nothing dangles
+      if (idChanged) {
+        updateInvoices((prev) =>
+          prev.map((i) => (i.roomId === room.id ? { ...i, roomId: patch.id } : i))
+        );
+        setTickets((prev) =>
+          prev.map((t) => (t.roomId === room.id ? { ...t, roomId: patch.id } : t))
+        );
+      }
+      toast.success(`Kamar ${room.id} diperbarui`, {
+        description: idChanged
+          ? `Nomor kamar berubah menjadi "${patch.id}" — tagihan & tiket ikut diperbarui (sesi demo).`
+          : `${patch.type} · ${formatIDR(patch.price)}/bln · Lantai ${patch.floor} · tersimpan di sesi demo.`,
+      });
+      return;
+    }
+
+    // AKUN RIIL — server-first: kirim PATCH, TUNGGU respons; state UI & toast
+    // hijau hanya setelah server mengonfirmasi. Gagal → TIDAK ada perubahan
+    // lokal (tidak ada kesan sukses palsu), hanya toast merah.
     api
       .patchRoom(room.id, {
         id: patch.id,
@@ -1686,10 +1744,29 @@ export default function IndoKostPage() {
         facilities: patch.facilities,
         operational: patch.operational,
       })
-      .catch((err: unknown) => {
-        toast.error("Gagal menyimpan perubahan kamar", { description: errMsg(err) });
-        void refreshDashboard();
-      });
+      .then(({ rooms: [updated] }) => {
+        if (updated) updateRooms((prev) => prev.map((r) => (r.id === room.id ? updated : r)));
+        if (idChanged) {
+          // Server meng-cascade perubahan id ke invoice & tiket (FK onUpdate) —
+          // state lokal ikut dinomori ulang agar denah konsisten.
+          updateInvoices((prev) =>
+            prev.map((i) => (i.roomId === room.id ? { ...i, roomId: patch.id } : i))
+          );
+          setTickets((prev) =>
+            prev.map((t) => (t.roomId === room.id ? { ...t, roomId: patch.id } : t))
+          );
+        }
+        toast.success(`Kamar ${patch.id} diperbarui`, {
+          description: idChanged
+            ? `Nomor kamar berubah menjadi "${patch.id}" — tagihan & tiket ikut diperbarui · tersimpan ke cloud.`
+            : `${patch.type} · ${formatIDR(patch.price)}/bln · Lantai ${patch.floor} · tersimpan ke cloud.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menyimpan ke server", {
+          description: `Perubahan Kamar ${room.id} belum masuk database — ${errMsg(err)}`,
+        }),
+      );
   };
 
   const handleDeleteRoom = (room: Room) => {
@@ -1700,21 +1777,35 @@ export default function IndoKostPage() {
       });
       return;
     }
-    updateRooms((prev) => prev.filter((r) => r.id !== room.id));
-    updateInvoices((prev) => prev.filter((i) => i.roomId !== room.id));
-    if (selectedRoomId === room.id) setSelectedRoomId(null);
-    if (manageRoomId === room.id) setManageRoomId(null);
     const inDemo = instantDemo || isDemoSession;
-    toast.success(`Kamar ${room.id} dihapus`, {
-      description: `${room.type} (${formatIDR(room.price)}/bln) dikeluarkan dari denah & daftar tagihan${inDemo ? " di sesi demo." : " di database."}`,
-    });
+
     // MODE DEMO: penghapusan kamar cukup di state lokal — dataset simulasi
     // tidak ada di database; DELETE /api/rooms hanya memicu toast merah.
-    if (inDemo) return;
-    api.deleteRoom(room.id).catch((err: unknown) => {
-      toast.error("Gagal menghapus kamar di database", { description: errMsg(err) });
-      void refreshDashboard();
-    });
+    if (inDemo) {
+      updateRooms((prev) => prev.filter((r) => r.id !== room.id));
+      updateInvoices((prev) => prev.filter((i) => i.roomId !== room.id));
+      if (selectedRoomId === room.id) setSelectedRoomId(null);
+      if (manageRoomId === room.id) setManageRoomId(null);
+      toast.success(`Kamar ${room.id} dihapus`, {
+        description: `${room.type} (${formatIDR(room.price)}/bln) dikeluarkan dari denah & daftar tagihan di sesi demo.`,
+      });
+      return;
+    }
+
+    // AKUN RIIL — server-first: hapus di database dulu, baru perbarui denah.
+    api.deleteRoom(room.id).then(() => {
+      updateRooms((prev) => prev.filter((r) => r.id !== room.id));
+      updateInvoices((prev) => prev.filter((i) => i.roomId !== room.id));
+      if (selectedRoomId === room.id) setSelectedRoomId(null);
+      if (manageRoomId === room.id) setManageRoomId(null);
+      toast.success(`Kamar ${room.id} dihapus`, {
+        description: `${room.type} (${formatIDR(room.price)}/bln) dihapus permanen dari database.`,
+      });
+    }).catch((err: unknown) =>
+      toast.error("Gagal menyimpan ke server", {
+        description: `Kamar ${room.id} belum terhapus di database — ${errMsg(err)}`,
+      }),
+    );
   };
 
   /** Kebab path — gate the destructive action behind a confirmation dialog */
@@ -1731,42 +1822,48 @@ export default function IndoKostPage() {
   const handleClearDemoData = () => {
     const keptRooms = rooms.length;
     const removedTenants = rooms.filter((r) => r.tenant && r.status !== "kosong").length;
-    setTickets([]);
-    setAnnouncements([]);
-    setSelectedRoomId(null);
     api
       .resetData("demo")
       .then(() => refreshDashboard())
       .then(() => {
+        // Bersihkan state LOKAL hanya setelah server mengonfirmasi
+        setTickets([]);
+        setAnnouncements([]);
+        setSelectedRoomId(null);
         toast.success("Data demo berhasil dihapus", {
           description: `${removedTenants} penyewa, seluruh invoice & transaksi kas dikosongkan dari database — struktur ${keptRooms} kamar & profil properti dipertahankan.`,
         });
       })
       .catch((err: unknown) =>
-        toast.error("Reset data gagal", { description: errMsg(err) }),
+        toast.error("Gagal menyimpan ke server", {
+          description: `Reset data belum diproses database — ${errMsg(err)}`,
+        }),
       );
   };
 
   const handleFactoryReset = () => {
     const removedRooms = rooms.length;
-    updateRooms(() => []);
-    updateInvoices(() => []);
-    updateCashEntries(() => []);
-    setTickets([]);
-    setAnnouncements([]);
-    setSelectedRoomId(null);
-    setView("denah");
-    setActiveTab("all");
-    setQuery("");
     api
       .resetData("factory")
       .then(() => {
+        // Kosongkan state LOKAL hanya setelah server mengonfirmasi
+        updateRooms(() => []);
+        updateInvoices(() => []);
+        updateCashEntries(() => []);
+        setTickets([]);
+        setAnnouncements([]);
+        setSelectedRoomId(null);
+        setView("denah");
+        setActiveTab("all");
+        setQuery("");
         toast.success("Factory reset selesai", {
           description: `${removedRooms} kamar beserta seluruh data penyewa, tagihan & transaksi dihapus permanen dari database.`,
         });
       })
       .catch((err: unknown) =>
-        toast.error("Factory reset gagal", { description: errMsg(err) }),
+        toast.error("Gagal menyimpan ke server", {
+          description: `Factory reset belum diproses database — ${errMsg(err)}`,
+        }),
       );
   };
 
@@ -1774,23 +1871,29 @@ export default function IndoKostPage() {
 
   const handleTicketStatus = (ticket: Ticket, status: TicketStatus) => {
     if (status === ticket.status) return;
-    // Optimistic — status baru langsung tampil, database disinkronkan belakangan
-    setTickets((prev) =>
-      prev.map((t) =>
-        t.id === ticket.id
-          ? {
-              ...t,
-              status,
-              selesaiLabel: status === "selesai" ? "Selesai hari ini" : t.selesaiLabel,
-            }
-          : t
-      )
-    );
-    toast.success(`${ticket.id} → ${TICKET_STATUS_META[status].label}`, {
-      description: `${ticketSubject(ticket)} · ${ticket.kategori} · urgensi ${
-        TICKET_URGENSI_META[ticket.urgensi].label
-      }`,
-    });
+
+    // MODE DEMO: tiket simulasi lokal — tanpa API (dataset tidak ada di DB).
+    if (instantDemo || isDemoSession) {
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === ticket.id
+            ? {
+                ...t,
+                status,
+                selesaiLabel: status === "selesai" ? "Selesai hari ini" : t.selesaiLabel,
+              }
+            : t
+        )
+      );
+      toast.success(`${ticket.id} → ${TICKET_STATUS_META[status].label}`, {
+        description: `${ticketSubject(ticket)} · ${ticket.kategori} · urgensi ${
+          TICKET_URGENSI_META[ticket.urgensi].label
+        } (sesi demo).`,
+      });
+      return;
+    }
+
+    // AKUN RIIL — server-first: PATCH dulu, TUNGGU respons server.
     api
       .updateTicket(ticket.id, { status })
       .then((res) => {
@@ -1798,38 +1901,52 @@ export default function IndoKostPage() {
         setTickets((prev) =>
           prev.map((t) => (t.id === res.ticket.id ? { ...t, ...res.ticket } : t))
         );
+        toast.success(`${ticket.id} → ${TICKET_STATUS_META[status].label}`, {
+          description: `${ticketSubject(ticket)} · ${ticket.kategori} · urgensi ${
+            TICKET_URGENSI_META[ticket.urgensi].label
+          } · tersimpan ke cloud.`,
+        });
       })
-      .catch((err: unknown) => {
-        toast.error("Status tiket gagal tersimpan", { description: errMsg(err) });
-        api
-          .getTickets()
-          .then((res) => setTickets(res.tickets))
-          .catch(() => {});
-      });
+      .catch((err: unknown) =>
+        toast.error("Gagal menyimpan ke server", {
+          description: `Status ${ticket.id} belum masuk database — ${errMsg(err)}`,
+        }),
+      );
   };
 
-  /** Hapus permanen tiket — optimistic remove (statistik & tab ikut update),
-   *  lalu DELETE ke database; gagal → toast error + refetch supaya tetap tampil. */
+  /** Hapus permanen tiket — server-first: DELETE ke database dulu; baris baru
+   *  hilang dari daftar setelah server mengonfirmasi. Demo: lokal murni. */
   const handleDeleteTicket = (ticket: Ticket) => {
-    setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
-    toast.success(`Tiket ${ticket.id} berhasil dihapus`, {
-      description: `${ticketSubject(ticket)} · ${ticket.kategori} — dihapus permanen dari database.`,
-    });
-    api.deleteTicket(ticket.id).catch((err: unknown) => {
-      toast.error("Gagal menghapus tiket di database", { description: errMsg(err) });
-      api
-        .getTickets()
-        .then((res) => setTickets(res.tickets))
-        .catch(() => {});
-    });
+    if (instantDemo || isDemoSession) {
+      setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+      toast.success(`Tiket ${ticket.id} berhasil dihapus`, {
+        description: `${ticketSubject(ticket)} · ${ticket.kategori} — dihapus dari sesi demo.`,
+      });
+      return;
+    }
+    api.deleteTicket(ticket.id).then(() => {
+      setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+      toast.success(`Tiket ${ticket.id} berhasil dihapus`, {
+        description: `${ticketSubject(ticket)} · ${ticket.kategori} — dihapus permanen dari database.`,
+      });
+    }).catch((err: unknown) =>
+      toast.error("Gagal menyimpan ke server", {
+        description: `Tiket ${ticket.id} belum terhapus di database — ${errMsg(err)}`,
+      }),
+    );
   };
 
-  /** Shared ticket creator (modal owner + portal webhook) — optimistic + POST API.
-   *  Tiket tampil instan secara lokal; begitu server merespons, digantikan versi
-   *  kanonik database (id #TKT-xxx resmi) agar konsisten lintas perangkat. */
+  /** Shared ticket creator (modal owner + portal webhook) — baris placeholder
+   *  tampil instan (modal & portal butuh id), LALU digantikan versi kanonik
+   *  server (id #TKT-xxx resmi). Gagal → placeholder DIBUANG + toast merah
+   *  (tidak ada kesan sukses palsu); demo: murni lokal tanpa API. */
   const insertTicket = (draft: CreateTicketDraft): Ticket => {
     const temp = ticketFromDraft(draft, tickets);
     setTickets((prev) => [temp, ...prev]);
+
+    // MODE DEMO: tiket simulasi lokal — tanpa API.
+    if (instantDemo || isDemoSession) return temp;
+
     api
       .createTicket({
         sumber: draft.sumber,
@@ -1847,8 +1964,10 @@ export default function IndoKostPage() {
         setTickets((prev) => prev.map((t) => (t.id === temp.id ? res.ticket : t)));
       })
       .catch((err: unknown) => {
-        toast.error("Tiket gagal tersimpan ke database", {
-          description: `${errMsg(err)} — tiket hanya tampil di perangkat ini.`,
+        // Buang placeholder — jangan tampilkan tiket yang gagal tersimpan
+        setTickets((prev) => prev.filter((t) => t.id !== temp.id));
+        toast.error("Gagal menyimpan ke server", {
+          description: `Tiket "${draft.judul}" tidak jadi terbuat di database — ${errMsg(err)}`,
         });
       });
     return temp;
@@ -1857,11 +1976,19 @@ export default function IndoKostPage() {
   /** "+ Buat Laporan Komplain / Maintenance" modal → new Menunggu ticket (metrics & badge live) */
   const handleCreateTicket = (draft: CreateTicketDraft): string => {
     const ticket = insertTicket(draft);
-    toast.success(`Tiket ${ticket.id} dibuat — status Perlu Ditangani`, {
-      description: `${ticket.judul} · ${ticketSubject(ticket)} · urgensi ${
-        TICKET_URGENSI_META[ticket.urgensi].label
-      }${ticket.photos.length > 0 ? ` · ${ticket.photos.length} foto lampiran` : ""}.`,
-    });
+    if (instantDemo || isDemoSession) {
+      toast.success(`Tiket ${ticket.id} dibuat — status Perlu Ditangani`, {
+        description: `${ticket.judul} · ${ticketSubject(ticket)} · urgensi ${
+          TICKET_URGENSI_META[ticket.urgensi].label
+        }${ticket.photos.length > 0 ? ` · ${ticket.photos.length} foto lampiran` : ""} · tersimpan di sesi demo.`,
+      });
+    } else {
+      toast.success(`Tiket ${ticket.id} dibuat — status Perlu Ditangani`, {
+        description: `${ticket.judul} · ${ticketSubject(ticket)} · urgensi ${
+          TICKET_URGENSI_META[ticket.urgensi].label
+        }${ticket.photos.length > 0 ? ` · ${ticket.photos.length} foto lampiran` : ""} — disinkronkan ke cloud.`,
+      });
+    }
     return ticket.id;
   };
 
@@ -1884,53 +2011,50 @@ export default function IndoKostPage() {
 
   // ── Pengumuman & Broadcast ─────────────────────────────────────────
   // Sesi demo  : murni lokal (dataset simulasi, 0 panggilan API).
-  // Akun riil  : optimistic update + POST/PATCH/DELETE ke database
-  //              (tersimpan permanen, ikut tampil di Portal Penyewa perangkat
-  //              penyewa mana pun); gagal → revert + toast merah agar user
-  //              tahu data belum tersimpan ke server.
+  // Akun riil  : SERVER-FIRST — POST/PATCH/DELETE ke database, TUNGGU respons;
+  //              state & toast hijau hanya setelah server mengonfirmasi.
+  //              Gagal → TIDAK ada perubahan lokal + toast merah (pengumuman
+  //              tidak seolah tersimpan padahal tidak).
 
   /** "+ Buat Pengumuman Baru" → tayang di portal sesuai periode & lantai */
   const handleCreateAnnouncement = (draft: AnnouncementDraft) => {
-    const a = announcementFromDraft(draft, announcements, announcementTodayISO);
-    setAnnouncements((prev) => [a, ...prev]);
-
     // Sesi demo → cukup state lokal (dataset simulasi tidak ada di database)
     if (instantDemo || isDemoSession) {
+      const a = announcementFromDraft(draft, announcements, announcementTodayISO);
+      setAnnouncements((prev) => [a, ...prev]);
       toast.success(`Pengumuman ${a.id} dipasang di Portal Penyewa`, {
         description: `${a.judul} · ${targetLabel(a.targetFloor)} · tayang ${periodeLabel(a)}.`,
       });
       return;
     }
 
-    toast.success(`Pengumuman ${a.id} dipasang di Portal Penyewa`, {
-      description: `${a.judul} · ${targetLabel(a.targetFloor)} · tayang ${periodeLabel(a)} · tersimpan ke cloud.`,
-    });
     api
       .createAnnouncement(draft)
       .then((res) => {
-        // Ganti baris optimis dgn versi kanonik server (id #PGM-xxx resmi)
-        setAnnouncements((prev) =>
-          prev.map((row) => (row.id === a.id ? res.announcement : row)),
-        );
-      })
-      .catch((err: unknown) => {
-        // Revert — hilangkan baris optimis agar tidak seolah tersimpan
-        setAnnouncements((prev) => prev.filter((row) => row.id !== a.id));
-        toast.error("Pengumuman gagal tersimpan ke database", {
-          description: `${errMsg(err)} — pengumuman hanya tampil di perangkat ini.`,
+        const a = res.announcement;
+        setAnnouncements((prev) => [a, ...prev]);
+        toast.success(`Pengumuman ${a.id} dipasang di Portal Penyewa`, {
+          description: `${a.judul} · ${targetLabel(a.targetFloor)} · tayang ${periodeLabel(a)} · tersimpan ke cloud.`,
         });
-      });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menyimpan ke server", {
+          description: `Pengumuman "${draft.judul}" belum masuk database — ${errMsg(err)}`,
+        }),
+      );
   };
 
   const handleUpdateAnnouncement = (a: Announcement, draft: AnnouncementDraft) => {
-    const previous = a; // snapshot utk revert bila server gagal
-    setAnnouncements((prev) =>
-      prev.map((row) => (row.id === a.id ? { ...row, ...draft } : row))
-    );
-    toast.success(`Pengumuman ${a.id} diperbarui`, {
-      description: `${draft.judul} · tayang ${periodeLabel({ ...a, ...draft })}.`,
-    });
-    if (instantDemo || isDemoSession) return; // demo: murni lokal
+    // Sesi demo → cukup state lokal
+    if (instantDemo || isDemoSession) {
+      setAnnouncements((prev) =>
+        prev.map((row) => (row.id === a.id ? { ...row, ...draft } : row))
+      );
+      toast.success(`Pengumuman ${a.id} diperbarui`, {
+        description: `${draft.judul} · tayang ${periodeLabel({ ...a, ...draft })} (sesi demo).`,
+      });
+      return;
+    }
 
     api
       .updateAnnouncement(a.id, draft)
@@ -1938,31 +2062,33 @@ export default function IndoKostPage() {
         setAnnouncements((prev) =>
           prev.map((row) => (row.id === a.id ? res.announcement : row)),
         );
-      })
-      .catch((err: unknown) => {
-        setAnnouncements((prev) =>
-          prev.map((row) => (row.id === a.id ? previous : row)),
-        );
-        toast.error("Perubahan pengumuman gagal tersimpan", {
-          description: `${errMsg(err)} — data dikembalikan ke versi sebelumnya.`,
+        toast.success(`Pengumuman ${a.id} diperbarui`, {
+          description: `${draft.judul} · tayang ${periodeLabel({ ...a, ...draft })} · tersimpan ke cloud.`,
         });
-      });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menyimpan ke server", {
+          description: `Perubahan ${a.id} belum masuk database — ${errMsg(err)}`,
+        }),
+      );
   };
 
   const handleToggleAnnouncement = (a: Announcement) => {
-    const previous = a;
-    setAnnouncements((prev) =>
-      prev.map((row) => (row.id === a.id ? { ...row, aktif: !row.aktif } : row))
-    );
-    toast.success(
-      a.aktif ? `Pengumuman ${a.id} dinonaktifkan` : `Pengumuman ${a.id} diaktifkan kembali`,
-      {
-        description: a.aktif
-          ? `"${a.judul}" ditarik dari Portal Penyewa.`
-          : `"${a.judul}" kembali tayang sesuai periode & target lantai.`,
-      }
-    );
-    if (instantDemo || isDemoSession) return; // demo: murni lokal
+    // Sesi demo → cukup state lokal
+    if (instantDemo || isDemoSession) {
+      setAnnouncements((prev) =>
+        prev.map((row) => (row.id === a.id ? { ...row, aktif: !row.aktif } : row))
+      );
+      toast.success(
+        a.aktif ? `Pengumuman ${a.id} dinonaktifkan` : `Pengumuman ${a.id} diaktifkan kembali`,
+        {
+          description: a.aktif
+            ? `"${a.judul}" ditarik dari Portal Penyewa (sesi demo).`
+            : `"${a.judul}" kembali tayang sesuai periode & target lantai (sesi demo).`,
+        }
+      );
+      return;
+    }
 
     api
       .updateAnnouncement(a.id, { aktif: !a.aktif })
@@ -1970,36 +2096,42 @@ export default function IndoKostPage() {
         setAnnouncements((prev) =>
           prev.map((row) => (row.id === a.id ? res.announcement : row)),
         );
-      })
-      .catch((err: unknown) => {
-        setAnnouncements((prev) =>
-          prev.map((row) => (row.id === a.id ? previous : row)),
+        toast.success(
+          a.aktif ? `Pengumuman ${a.id} dinonaktifkan` : `Pengumuman ${a.id} diaktifkan kembali`,
+          {
+            description: a.aktif
+              ? `"${a.judul}" ditarik dari Portal Penyewa · tersimpan ke cloud.`
+              : `"${a.judul}" kembali tayang sesuai periode & target lantai · tersimpan ke cloud.`,
+          }
         );
-        toast.error("Status pengumuman gagal tersimpan", {
-          description: `${errMsg(err)} — status dikembalikan seperti semula.`,
-        });
-      });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menyimpan ke server", {
+          description: `Status ${a.id} belum masuk database — ${errMsg(err)}`,
+        }),
+      );
   };
 
   const handleDeleteAnnouncement = (a: Announcement) => {
-    setAnnouncements((prev) => prev.filter((row) => row.id !== a.id));
-    toast.success(`Pengumuman ${a.id} dihapus`, {
-      description: `"${a.judul}" dikeluarkan dari riwayat & Portal Penyewa${
-        instantDemo || isDemoSession ? "." : " — dihapus permanen dari database."
-      }`,
-    });
-    if (instantDemo || isDemoSession) return; // demo: murni lokal
-
-    api.deleteAnnouncement(a.id).catch((err: unknown) => {
-      toast.error("Gagal menghapus pengumuman di database", {
-        description: errMsg(err),
+    // Sesi demo → cukup state lokal
+    if (instantDemo || isDemoSession) {
+      setAnnouncements((prev) => prev.filter((row) => row.id !== a.id));
+      toast.success(`Pengumuman ${a.id} dihapus`, {
+        description: `"${a.judul}" dikeluarkan dari riwayat & Portal Penyewa.`,
       });
-      // Sinkronkan ulang dari server — baris asli tetap tampil bila gagal hapus
-      api
-        .getAnnouncements()
-        .then((res) => setAnnouncements(res.announcements))
-        .catch(() => {});
-    });
+      return;
+    }
+
+    api.deleteAnnouncement(a.id).then(() => {
+      setAnnouncements((prev) => prev.filter((row) => row.id !== a.id));
+      toast.success(`Pengumuman ${a.id} dihapus`, {
+        description: `"${a.judul}" dihapus permanen dari database.`,
+      });
+    }).catch((err: unknown) =>
+      toast.error("Gagal menyimpan ke server", {
+        description: `${a.id} belum terhapus di database — ${errMsg(err)}`,
+      }),
+    );
   };
 
   // ── Gerbang lisensi: akun belum lunas → layar gembok (akses ditahan) ──
@@ -2203,7 +2335,6 @@ export default function IndoKostPage() {
                 onClearDemo={handleClearDemoData}
                 onFactoryReset={handleFactoryReset}
                 onApplyTariff={handleApplyTariff}
-                onSyncProperty={handleSyncPropertyToDb}
                 invoices={invoices}
                 cashEntries={cashEntries}
                 onRestoreComplete={() => void refreshDashboard()}

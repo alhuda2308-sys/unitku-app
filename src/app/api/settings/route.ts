@@ -29,6 +29,38 @@ import { PROPERTY_TYPES, THEME_KEYS } from "@/lib/app-settings";
 
 export const dynamic = "force-dynamic";
 
+/* ── Self-heal migrasi (zero-touch produksi) ──────────────────────────────
+ * Bila `prisma db push` / sql/owner-settings-table.sql belum dijalankan di
+ * Supabase produksi, tabel owner_settings dibuat otomatis saat request
+ * pertama (idempoten, memoized) — pola sama dengan ensureLicenseLeadTable.
+ * Tanpa ini, sinkron lintas perangkat gagal senyap (degraded) dan pengaturan
+ * owner terjebak di cache perangkat. */
+let ownerSettingsTableReady: Promise<void> | null = null;
+
+function ensureOwnerSettingsTable(): Promise<void> {
+  ownerSettingsTableReady ??= (async () => {
+    await db.$executeRawUnsafe(
+      `CREATE TABLE IF NOT EXISTS "owner_settings" (
+         "userId"         TEXT NOT NULL,
+         "owner"          JSONB,
+         "propertyExtras" JSONB,
+         "properties"     JSONB,
+         "staff"          JSONB,
+         "templates"      JSONB,
+         "facilities"     JSONB,
+         "theme"          TEXT,
+         "createdAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+         "updatedAt"      TIMESTAMP(3) NOT NULL,
+         CONSTRAINT "owner_settings_pkey" PRIMARY KEY ("userId")
+       )`,
+    );
+  })().catch((err) => {
+    ownerSettingsTableReady = null; // gagal → boleh dicoba ulang request berikutnya
+    throw err;
+  });
+  return ownerSettingsTableReady;
+}
+
 /* ── Util kecil ─────────────────────────────────────────────────────────── */
 
 function str(value: unknown): string | undefined {
@@ -92,6 +124,7 @@ export async function GET() {
   }
 
   try {
+    await ensureOwnerSettingsTable();
     const row = await db.ownerSetting.findUnique({ where: { userId: user.id } });
     const profile = await accountProfile(user.email);
     const savedOwner = isRecord(row?.owner) ? row.owner : null;
@@ -212,6 +245,7 @@ export async function PUT(request: NextRequest) {
   const theme = themeRaw && (THEME_KEYS as readonly string[]).includes(themeRaw) ? themeRaw : undefined;
 
   try {
+    await ensureOwnerSettingsTable();
     // ── 1. Cermin ke tabel properties (sumber kebenaran identitas & rekening)
     if ((propertyMirror && Object.keys(propertyMirror).length > 0) || rekeningMirror) {
       const property = await getActiveOwnedProperty(user);
@@ -250,8 +284,8 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    // Tabel belum dibuat (P2021) dsb. — klien tetap menyimpan lokal & akan
-    // mencoba sinkron ulang pada edit/kunjungan berikutnya.
+    // DB gagal diluar pembuatan tabel (koneksi, dsb.) — klien tetap menyimpan
+    // lokal & akan mencoba sinkron ulang pada edit/kunjungan berikutnya.
     console.error("[api/settings PUT] Gagal menyimpan pengaturan ke cloud:", err);
     return NextResponse.json(
       { error: "Gagal menyimpan pengaturan ke cloud — jalankan sql/owner-settings-table.sql di Supabase." },

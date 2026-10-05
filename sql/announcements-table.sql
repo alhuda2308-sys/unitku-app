@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS "announcements" (
   "tanggalBerakhir" TEXT       NOT NULL,
   "aktif"           BOOLEAN    NOT NULL DEFAULT true,
   "createdAtLabel"  TEXT       NOT NULL DEFAULT '',
-  "createdAtSort"   INTEGER    NOT NULL DEFAULT 0,
+  "createdAtSort"   BIGINT     NOT NULL DEFAULT 0,
   "createdAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt"       TIMESTAMP(3) NOT NULL,
 
@@ -43,3 +43,5 @@ END $$;
 -- Index query utama: daftar per properti + urutan terbaru dulu
 CREATE INDEX IF NOT EXISTS "announcements_propertyId_idx"   ON "announcements"("propertyId");
 CREATE INDEX IF NOT EXISTS "announcements_createdAtSort_idx" ON "announcements"("createdAtSort");
+-- Kolom lama INTEGER meluap utk stamp yyyymmddHHmm (12 digit) — naikkan ke BIGINT:
+ALTER TABLE "announcements" ALTER COLUMN "createdAtSort" TYPE BIGINT;

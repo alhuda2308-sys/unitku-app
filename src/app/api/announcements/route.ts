@@ -56,7 +56,7 @@ function ensureAnnouncementTable(): Promise<void> {
          "tanggalBerakhir" TEXT       NOT NULL,
          "aktif"           BOOLEAN    NOT NULL DEFAULT true,
          "createdAtLabel"  TEXT       NOT NULL DEFAULT '',
-         "createdAtSort"   INTEGER    NOT NULL DEFAULT 0,
+         "createdAtSort"   BIGINT     NOT NULL DEFAULT 0,
          "createdAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
          "updatedAt"       TIMESTAMP(3) NOT NULL,
          CONSTRAINT "announcements_pkey" PRIMARY KEY ("id")
@@ -70,6 +70,13 @@ function ensureAnnouncementTable(): Promise<void> {
     await db
       .$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS "announcements_createdAtSort_idx" ON "announcements"("createdAtSort")`,
+      )
+      .catch(() => undefined);
+    // Tabel lama dibuat dengan INTEGER — createdAtSort yyyymmddHHmm (12 digit)
+    // meluap INT4. Naikkan ke BIGINT (idempoten, no-op bila sudah BIGINT).
+    await db
+      .$executeRawUnsafe(
+        `ALTER TABLE "announcements" ALTER COLUMN "createdAtSort" TYPE BIGINT`,
       )
       .catch(() => undefined);
     await db
@@ -193,10 +200,12 @@ export async function POST(request: NextRequest) {
     const createdSortAgg = await db.announcement.aggregate({
       _max: { createdAtSort: true },
     });
-    const maxExisting = createdSortAgg._max.createdAtSort ?? 0;
-    const createdAtSort = Math.max(
-      Number(`${y}${String(mo).padStart(2, "0")}${String(da).padStart(2, "0")}0900`),
-      maxExisting + 1,
+    const maxExisting = Number(createdSortAgg._max.createdAtSort ?? 0);
+    const createdAtSort = BigInt(
+      Math.max(
+        Number(`${y}${String(mo).padStart(2, "0")}${String(da).padStart(2, "0")}0900`),
+        maxExisting + 1,
+      ),
     );
 
     const created = await db.announcement.create({
