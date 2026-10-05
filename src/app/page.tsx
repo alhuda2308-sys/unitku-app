@@ -3,8 +3,8 @@
 //
 // Gaya bahasa: lugas, praktis, hangat — sasaran juragan kost & pemilik
 // kontrakan Indonesia. Layout Bento Grid + Tailwind, responsif mobile-first.
-// Struktur: Hero → Masalah vs Solusi → Fitur Jagoan (Bento) → Penawaran
-// Lifetime → FAQ → Final CTA → Footer legalitas (KYC Mayar).
+// Struktur: Hero → Video Tur (YouTube) → Masalah vs Solusi → Fitur Jagoan
+// (Bento) → Penawaran Lifetime → FAQ → Final CTA → Footer legalitas (KYC Mayar).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Metadata } from "next";
@@ -37,6 +37,7 @@ import { getAuthUser } from "@/lib/auth/server";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { BuyCta } from "@/components/landing/buy-cta";
 import { DemoCta } from "@/components/landing/demo-cta";
+import { VideoDemoCta } from "@/components/landing/video-demo-cta";
 import { SiteFooter } from "@/components/landing/site-footer";
 import {
   BRAND,
@@ -355,6 +356,51 @@ export default async function LandingPage() {
             </ul>
 
             <HeroMockup />
+          </div>
+        </section>
+
+        {/* ── 1b. Video Tur YouTube (tepat di bawah Hero) ──────────────────── */}
+        <section aria-labelledby="video-tur-title">
+          <div className="mx-auto my-10 w-full max-w-4xl px-4 text-center sm:px-6">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-1.5 text-[12.5px] font-bold text-emerald-700 sm:text-sm">
+              <span aria-hidden="true">🎬</span> Video Tur Singkat 2 Menit
+            </span>
+
+            <h2
+              id="video-tur-title"
+              className="mt-4 text-balance text-2xl font-bold tracking-tight sm:text-3xl lg:text-4xl"
+            >
+              Lihat Langsung Cara Kerja{" "}
+              <span className="text-emerald-700">UnitKu</span> Membantu Juragan
+              Kost
+            </h2>
+
+            <p className="mx-auto mt-3 max-w-2xl text-pretty text-base leading-relaxed text-slate-600 sm:text-lg">
+              Dari pantau kamar, tagih sewa otomatis via WhatsApp, hingga hitung
+              laba bersih tanpa pusing.
+            </p>
+
+            {/* Frame 16:9 — embed resmi YouTube (nocookie, tanpa rekomendasi video) */}
+            <div className="mt-7 aspect-video w-full overflow-hidden rounded-2xl border border-slate-200 shadow-2xl">
+              <iframe
+                src="https://www.youtube-nocookie.com/embed/3I08cUC_lIo?rel=0"
+                title="Video tur singkat UnitKu — pantau kamar, tagih sewa via WhatsApp, hitung laba bersih"
+                className="h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                loading="lazy"
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
+            </div>
+
+            {/* Dua aksi cepat: coba demo (scroll halus) & beli lisensi (modal) */}
+            <div className="mt-6 flex flex-col items-center justify-center gap-2.5 sm:flex-row">
+              <VideoDemoCta />
+              <BuyCta
+                className="w-full border border-zinc-300 bg-white text-zinc-900 shadow-none hover:bg-zinc-50 sm:w-auto"
+                label="Dapatkan Lisensi Rp 399.000 (Sekali Bayar)"
+              />
+            </div>
           </div>
         </section>
 
