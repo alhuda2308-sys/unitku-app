@@ -36,19 +36,21 @@ export function normalizeWaPhone(raw: string): string {
   return digits;
 }
 
-/** Validasi client-side — inline error per field (cermin parseBuyerInput) */
+/** Validasi client-side — inline error per field (cermin parseBuyerInput).
+ *  Pesan dibuat ramah & memberi contoh (tidak menghakimi) agar calon pembeli
+ *  tetap lanjut mengisi, bukan menutup modal — target konversi Task 102. */
 export function validateCheckoutBuyer(
   values: CheckoutFormState,
 ): CheckoutFieldErrors {
   const errors: CheckoutFieldErrors = {};
   if (values.name.trim().length < 2) {
-    errors.name = "Nama lengkap wajib diisi (minimal 2 karakter).";
+    errors.name = "Mohon isi nama lengkap Anda (minimal 2 huruf).";
   }
   if (!EMAIL_RE.test(values.email.trim())) {
-    errors.email = "Alamat email tidak valid — periksa kembali penulisannya.";
+    errors.email = "Format email belum benar — cth. nama@email.com";
   }
   if (!/^62[0-9]{8,13}$/.test(normalizeWaPhone(values.phone))) {
-    errors.phone = "Gunakan format 08… atau 62… (9–15 digit).";
+    errors.phone = "Nomor WhatsApp belum sesuai — mulai dengan 08 atau 62 ya.";
   }
   return errors;
 }

@@ -3,21 +3,32 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Tombol "Beli Akses Seumur Hidup" (landing)
 //
-// Modal checkout lisensi seumur hidup:
-//   1. Form data pembeli (nama, email, No. WhatsApp) — divalidasi di client
-//      & server (validasi shared di src/lib/checkout-validation.ts), lalu
-//      POST /api/checkout membuat invoice Mayar per-pembeli (lead tersimpan
-//      di server SEBELUM redirect ke Mayar).
-//   2. Tombol utama "Bayar Otomatis (QRIS / VA / E-Wallet)" → redirect ke
-//      paymentUrl Mayar; webhook /api/webhooks/mayar mengaktifkan lisensi.
-//   3. Tombol kedua "Pesan Manual via WhatsApp Admin" → VALIDASI form →
-//      POST /api/leads (simpan kontak — fire-and-forget, tidak memblokir
-//      navigasi) → buka wa.me Admin dengan pesan pemesanan terisi Nama/Email/
-//      No. WhatsApp (anchor native, imun pop-up blocker).
+// Modal checkout lisensi seumur hidup — dirancang ANTI-RAGU (Task 102):
+//   1. Ringkasan transparan di bagian atas: nominal sekali bayar + tanpa biaya
+//      admin + badge metode bayar (QRIS & Transfer Bank) — calon pembeli tahu
+//      persis bayar apa & lewat apa SEBELUM diminta mengisi data.
+//   2. Mikro-badge garansi tepat di atas tombol bayar: uang kembali 7 hari.
+//   3. Tautan bantuan di bawah tombol bayar: "Ragu cara bayarnya?" — pesan
+//      manual dipandu Admin via WhatsApp. Kliknya tetap memvalidasi form &
+//      menyimpan lead (POST /api/leads, fire-and-forget) lalu membuka wa.me
+//      Admin dengan pesan pemesanan terisi Nama/Email/No. WhatsApp — anchor
+//      native, imun pop-up blocker.
+//   4. Form ringkas 3 kolom (Nama, No. WhatsApp, Email) — placeholder contoh
+//      & pesan validasi ramah (validasi shared di src/lib/checkout-validation.ts),
+//      lalu POST /api/checkout membuat invoice Mayar per-pembeli (lead
+//      tersimpan di server SEBELUM redirect ke Mayar). Tombol utama redirect
+//      ke paymentUrl Mayar; webhook /api/webhooks/mayar mengaktifkan lisensi.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useMemo, useState, type FormEvent, type MouseEvent } from "react";
-import { Loader2, MessageCircle, Wallet } from "lucide-react";
+import {
+  Landmark,
+  Loader2,
+  MessageCircle,
+  QrCode,
+  ShieldCheck,
+  Wallet,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -39,9 +50,15 @@ import {
 import {
   LICENSE_AMOUNT_IDR,
   LICENSE_PRICE_LABEL,
-  SUPPORT_WA_PURCHASE_LINK,
+  SUPPORT_WA_DISPLAY,
+  SUPPORT_WA_HELP_LINK,
 } from "@/lib/landing-config";
 import { toast } from "@/lib/toast";
+
+/** "Rp399.000" → "Rp 399.000" — spasi setelah kode mata uang utk keterbacaan */
+const PRICE_LABEL = LICENSE_PRICE_LABEL.startsWith("Rp")
+  ? `Rp ${LICENSE_PRICE_LABEL.slice(2).trim()}`
+  : LICENSE_PRICE_LABEL;
 
 interface BuyCtaProps {
   className?: string;
@@ -87,18 +104,20 @@ export function BuyCta({
     });
   };
 
-  // Link WA manual mengikuti isi form (pesan pemesanan terisi otomatis);
-  // fallback ke link default selama form belum valid (tak pernah dinavigasi
+  // Link WA bantuan mengikuti isi form (pesan pemesanan terisi otomatis saat
+  // form sudah valid — Admin langsung menerima data pembeli); fallback ke
+  // link "ragu cara bayar" selama form belum terisi (tak pernah dinavigasi
   // karena klik tetap dicegah oleh handleManualOrder).
   const formValid = useMemo(
     () => Object.keys(validateCheckoutBuyer(form)).length === 0,
     [form],
   );
-  const manualWaHref = formValid
+  const helpWaHref = formValid
     ? buildManualOrderWaLink(form)
-    : SUPPORT_WA_PURCHASE_LINK;
+    : SUPPORT_WA_HELP_LINK;
 
-  /** Klik "Pesan Manual" — simpan lead dulu (non-blocking), lalu buka WA Admin */
+  /** Klik tautan bantuan "Ragu cara bayarnya?" — simpan lead dulu
+   *  (non-blocking), lalu buka WA Admin dengan draft pemesanan terisi */
   const handleManualOrder = (event: MouseEvent<HTMLAnchorElement>) => {
     const errors = validateCheckoutBuyer(form);
     if (Object.keys(errors).length > 0) {
@@ -196,18 +215,72 @@ export function BuyCta({
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md rounded-xl p-6">
+        <DialogContent className="max-h-[92vh] max-w-md overflow-y-auto rounded-xl p-6 scrollbar-thin">
           <DialogHeader>
             <DialogTitle className="text-left text-lg font-bold text-zinc-900">
               Beli Lisensi Seumur Hidup UnitKu
             </DialogTitle>
             <DialogDescription className="text-left text-sm leading-relaxed text-zinc-500">
-              Satu kali bayar {LICENSE_PRICE_LABEL} — aktif selamanya tanpa
-              biaya bulanan.
+              Lengkapi data berikut — lisensi langsung aktif setelah pembayaran
+              terkonfirmasi.
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-3.5">
+            {/* ── Ringkasan transparan: nominal + metode bayar (anti-ragu) ── */}
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3.5 text-left">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <p className="text-2xl font-extrabold tracking-tight text-zinc-900 tabular-nums">
+                  {PRICE_LABEL}
+                </p>
+                <p className="text-[11.5px] font-bold leading-snug text-emerald-700">
+                  Sekali Bayar{" "}
+                  <span aria-hidden="true" className="font-normal text-zinc-400">
+                    •
+                  </span>{" "}
+                  Tanpa Biaya Admin Tambahan
+                </p>
+              </div>
+
+              {/* Metode bayar didukung — dua badge ringkas */}
+              <div className="mt-3 grid grid-cols-1 gap-2 border-t border-zinc-200 pt-3 sm:grid-cols-2">
+                <div className="flex items-center gap-2">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white">
+                    <QrCode
+                      className="size-4 text-zinc-700"
+                      strokeWidth={1.75}
+                      aria-hidden="true"
+                    />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[12.5px] font-bold leading-tight text-zinc-900">
+                      QRIS
+                    </p>
+                    <p className="text-[10.5px] leading-snug text-zinc-500">
+                      Semua E-Wallet / BCA / Bank
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white">
+                    <Landmark
+                      className="size-4 text-zinc-700"
+                      strokeWidth={1.75}
+                      aria-hidden="true"
+                    />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[12.5px] font-bold leading-tight text-zinc-900">
+                      Transfer Bank
+                    </p>
+                    <p className="text-[10.5px] leading-snug text-zinc-500">
+                      BCA, Mandiri, BRI, BNI
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Nama Lengkap */}
             <div className="space-y-1.5 text-left">
               <Label
@@ -232,6 +305,42 @@ export function BuyCta({
               {fieldErrors.name && (
                 <p id="buy-name-error" role="alert" className="text-[12px] font-medium text-red-600">
                   {fieldErrors.name}
+                </p>
+              )}
+            </div>
+
+            {/* Nomor WhatsApp — urutan kedua (kontak utama pembeli Indonesia) */}
+            <div className="space-y-1.5 text-left">
+              <Label
+                htmlFor="buy-phone"
+                className="text-[12.5px] font-semibold text-zinc-700"
+              >
+                Nomor WhatsApp <span aria-hidden="true" className="text-red-600">*</span>
+                <span className="sr-only">(wajib)</span>
+              </Label>
+              <Input
+                id="buy-phone"
+                name="phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="08xxxxxxxxxx / 62xxxxxxxxxx"
+                value={form.phone}
+                onChange={(e) => setField("phone")(e.target.value)}
+                disabled={submitting}
+                aria-invalid={Boolean(fieldErrors.phone)}
+                aria-describedby={
+                  fieldErrors.phone ? "buy-phone-error" : "buy-phone-hint"
+                }
+                className="h-10 text-[13.5px]"
+              />
+              {fieldErrors.phone ? (
+                <p id="buy-phone-error" role="alert" className="text-[12px] font-medium text-red-600">
+                  {fieldErrors.phone}
+                </p>
+              ) : (
+                <p id="buy-phone-hint" className="text-[12px] leading-snug text-zinc-500">
+                  Dipakai Admin untuk konfirmasi &amp; aktivasi lisensi.
                 </p>
               )}
             </div>
@@ -272,95 +381,62 @@ export function BuyCta({
               )}
             </div>
 
-            {/* Nomor WhatsApp */}
-            <div className="space-y-1.5 text-left">
-              <Label
-                htmlFor="buy-phone"
-                className="text-[12.5px] font-semibold text-zinc-700"
-              >
-                Nomor WhatsApp <span aria-hidden="true" className="text-red-600">*</span>
-                <span className="sr-only">(wajib)</span>
-              </Label>
-              <Input
-                id="buy-phone"
-                name="phone"
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="08xxxxxxxxxx / 62xxxxxxxxxx"
-                value={form.phone}
-                onChange={(e) => setField("phone")(e.target.value)}
-                disabled={submitting}
-                aria-invalid={Boolean(fieldErrors.phone)}
-                aria-describedby={fieldErrors.phone ? "buy-phone-error" : undefined}
-                className="h-10 text-[13.5px]"
+            {/* ── Mikro-badge garansi — tepat di atas tombol bayar (anti-ragu) ── */}
+            <p className="flex items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-center text-[11.5px] font-semibold leading-snug text-emerald-800">
+              <ShieldCheck
+                className="size-3.5 shrink-0"
+                strokeWidth={1.75}
+                aria-hidden="true"
               />
-              {fieldErrors.phone && (
-                <p id="buy-phone-error" role="alert" className="text-[12px] font-medium text-red-600">
-                  {fieldErrors.phone}
-                </p>
-              )}
-            </div>
+              Garansi 7 Hari Uang Kembali 100% jika tidak cocok
+            </p>
 
-            {/* Dua aksi seimbang: checkout otomatis & manual via WA */}
-            <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
-              <Button
-                type="submit"
-                disabled={submitting}
-                className="h-auto min-h-11 whitespace-normal px-3 py-2.5 text-[13px] font-bold leading-snug"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2
-                      className="size-4 shrink-0 animate-spin"
-                      strokeWidth={1.75}
-                      aria-hidden="true"
-                    />
-                    Memproses…
-                  </>
-                ) : (
-                  <>
-                    <Wallet
-                      className="size-4 shrink-0"
-                      strokeWidth={1.75}
-                      aria-hidden="true"
-                    />
-                    Bayar Otomatis (QRIS / VA / E-Wallet)
-                  </>
-                )}
-              </Button>
-              <Button
-                asChild
-                variant="outline"
-                className="h-auto min-h-11 whitespace-normal border-green-600 px-3 py-2.5 text-[13px] font-bold leading-snug text-green-700 hover:bg-green-50 hover:text-green-800"
-              >
-                <a
-                  href={manualWaHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={handleManualOrder}
-                >
-                  <MessageCircle
+            {/* Tombol bayar utama — lebar penuh, fokus satu aksi */}
+            <Button
+              type="submit"
+              disabled={submitting}
+              className="h-auto min-h-11 w-full whitespace-normal px-3 py-2.5 text-[13.5px] font-bold leading-snug"
+            >
+              {submitting ? (
+                <>
+                  <Loader2
+                    className="size-4 shrink-0 animate-spin"
+                    strokeWidth={1.75}
+                    aria-hidden="true"
+                  />
+                  Memproses…
+                </>
+              ) : (
+                <>
+                  <Wallet
                     className="size-4 shrink-0"
                     strokeWidth={1.75}
                     aria-hidden="true"
                   />
-                  Pesan Manual via WhatsApp Admin
-                </a>
-              </Button>
-            </div>
+                  Bayar Sekarang (QRIS / Transfer Bank)
+                </>
+              )}
+            </Button>
 
-            {/* Trust badge — jaminan & dukungan (penguat konversi) */}
-            <div className="space-y-1 pt-1.5 text-center">
-              <p className="text-[11.5px] font-semibold leading-snug text-zinc-700">
-                <span aria-hidden="true">🛡️</span> Garansi 7 Hari Uang Kembali
-                Tanpa Ribet
-              </p>
-              <p className="text-[11.5px] leading-snug text-zinc-500">
-                <span aria-hidden="true">💬</span> Support WhatsApp Siap Bantu —
-                Fast response langsung dari tim pengembang
-              </p>
-            </div>
+            {/* ── Opsi bantuan langsung — jalan keluar bagi yang ragu ──
+                Tetap menyimpan lead + membuka WA dengan draft pemesanan */}
+            <a
+              href={helpWaHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleManualOrder}
+              className="flex items-center justify-center gap-1.5 rounded-lg text-center text-[12px] font-medium leading-snug text-green-700 underline-offset-2 transition-colors hover:text-green-800 hover:underline"
+            >
+              <MessageCircle
+                className="size-3.5 shrink-0"
+                strokeWidth={1.75}
+                aria-hidden="true"
+              />
+              <span>
+                Ragu cara bayarnya? Pesan manual dipandu Admin via WhatsApp (
+                {SUPPORT_WA_DISPLAY})
+              </span>
+            </a>
           </form>
         </DialogContent>
       </Dialog>
