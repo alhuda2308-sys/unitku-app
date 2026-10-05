@@ -90,14 +90,18 @@ model LicenseAccount {
 // ── Lead calon pembeli lisensi (data kontak form checkout / register) ────────
 // Disimpan SEBELUM pembayaran — saat user klik "Bayar Otomatis" (sebelum
 // redirect ke Mayar) maupun "Pesan Manual" (sebelum membuka WhatsApp), dan
-// saat pendaftaran akun (/register). Satu baris per email (upsert) agar data
-// kontak terbaru selalu siap di-follow-up admin dari Panel Super Admin.
+// saat pendaftaran akun (/register). Satu baris per No. WhatsApp (upsert by
+// phone) agar data kontak terbaru selalu siap di-follow-up admin dari Panel
+// Super Admin. Email OPSIONAL (boleh NULL) — form checkout zero-friction
+// hanya meminta Nama + No. WhatsApp.
 
 model LicenseLead {
   id        String   @id @default(cuid())
-  email     String   @unique // lowercase — kunci upsert
-  name      String // Nama Lengkap dari form
-  phone     String // Nomor WhatsApp ternormalisasi 62xxxxxxxxxx
+  // Opsional — NULL/kosong bila pembeli hanya mengisi Nama + No. WhatsApp.
+  // Kunci upsert kini phone (bukan email); isi hanya untuk melengkapi kontak.
+  email     String?
+  name      String   // Nama Lengkap dari form
+  phone     String   @unique // Nomor WhatsApp ternormalisasi 62xxxxxxxxxx — kunci upsert
   // Asal lead — BAYAR_OTOMATIS | PESAN_MANUAL | REGISTER
   source    String   @default("BAYAR_OTOMATIS")
   createdAt DateTime @default(now())

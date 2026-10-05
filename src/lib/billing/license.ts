@@ -202,28 +202,68 @@ let leadTableReady: Promise<void> | null = null;
 
 /**
  * Jaminan tabel `license_leads` tersedia — self-heal untuk database produksi
- * yang belum menjalankan `prisma db push` setelah model LicenseLead ditambahkan.
- * Idempoten (CREATE TABLE / INDEX IF NOT EXISTS) dan hanya dieksekusi sekali
- * per proses; cache dibatalkan saat gagal agar dicoba ulang di request berikut.
+ * yang belum menjalankan `prisma db push` setelah model LicenseLead berubah.
+ * Idempoten dan hanya dieksekusi sekali per proses; cache dibatalkan saat
+ * gagal agar dicoba ulang di request berikutnya.
+ *
+ * Migrasi email→phone (zero friction checkout):
+ *   • email dibolehkan kosong (NULL) — form checkout hanya Nama + No. WA
+ *   • kunci unik upsert pindah dari email ke phone (No. WhatsApp)
+ *   • baris lama dengan phone kembar di-dedupe (simpan terbaru; email terisi
+ *     diwariskan dari duplikat lain bila baris tersisa belum punya email)
  */
 async function ensureLicenseLeadTable(): Promise<void> {
   if (!leadTableReady) {
     leadTableReady = (async () => {
       await prisma.$executeRawUnsafe(
         `CREATE TABLE IF NOT EXISTS "license_leads" (
-           "id"        TEXT        NOT NULL,
-           "email"     TEXT        NOT NULL,
-           "name"      TEXT        NOT NULL,
-           "phone"     TEXT        NOT NULL,
-           "source"    TEXT        NOT NULL DEFAULT 'BAYAR_OTOMATIS',
-           "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-           "updatedAt" TIMESTAMP(3) NOT NULL,
+           "id"        TEXT             NOT NULL,
+           "email"     TEXT,
+           "name"      TEXT             NOT NULL,
+           "phone"     TEXT             NOT NULL,
+           "source"    TEXT             NOT NULL DEFAULT 'BAYAR_OTOMATIS',
+           "createdAt" TIMESTAMP(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           "updatedAt" TIMESTAMP(3)     NOT NULL,
            CONSTRAINT "license_leads_pkey" PRIMARY KEY ("id")
          )`,
       );
+      // Bentuk lama: email NOT NULL + unique(email) → longgarkan (idempoten)
       await prisma.$executeRawUnsafe(
-        `CREATE UNIQUE INDEX IF NOT EXISTS "license_leads_email_key"
-           ON "license_leads"("email")`,
+        `ALTER TABLE "license_leads" ALTER COLUMN "email" DROP NOT NULL`,
+      );
+      // Wariskan email dari duplikat ke baris terbaru per phone (bila kosong)
+      await prisma.$executeRawUnsafe(
+        `UPDATE "license_leads" a
+            SET "email" = sub."email"
+           FROM (
+             SELECT DISTINCT ON ("phone") "id", "phone", "email"
+               FROM "license_leads"
+              WHERE "email" IS NOT NULL AND "email" <> ''
+              ORDER BY "phone", "updatedAt" DESC, "id" DESC
+           ) sub
+          WHERE a."phone" = sub."phone"
+            AND a."id" <> sub."id"
+            AND (a."email" IS NULL OR a."email" = '')`,
+      );
+      // Dedupe phone — sisakan SATU baris terbaru per nomor WhatsApp
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM "license_leads" a
+           USING "license_leads" b
+          WHERE a."phone" = b."phone"
+            AND (a."updatedAt" < b."updatedAt"
+                 OR (a."updatedAt" = b."updatedAt" AND a."id" < b."id"))`,
+      );
+      // Kunci upsert pindah: unique(email) → unique(phone)
+      await prisma.$executeRawUnsafe(
+        `DROP INDEX IF EXISTS "license_leads_email_key"`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "license_leads_phone_key"
+           ON "license_leads"("phone")`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "license_leads_updatedAt_idx"
+           ON "license_leads"("updatedAt")`,
       );
     })().catch((err) => {
       leadTableReady = null; // izinkan retry pada request berikutnya
@@ -234,23 +274,31 @@ async function ensureLicenseLeadTable(): Promise<void> {
 }
 
 /**
- * Simpan/perbarui lead calon pembeli lisensi — SATU baris per email (upsert)
- * agar admin selalu punya data kontak terbaru meski pembayaran belum selesai.
+ * Simpan/perbarui lead calon pembeli lisensi — SATU baris per No. WhatsApp
+ * (upsert by phone) agar admin selalu punya data kontak terbaru meski
+ * pembayaran belum selesai. Email OPSIONAL: checkout zero-friction hanya
+ * mengirim Nama + No. WhatsApp → email tersimpan NULL (tidak pernah gagal).
+ * Email lama tidak ditimpa dengan kosong — hanya diperbarui bila dikirim.
  * Melempar error bila DB gagal — pemanggil (checkout/register/WA manual) yang
  * memutuskan apakah kegagalan ini memblokir alur utama (umumnya tidak).
  */
 export async function upsertLicenseLead(input: {
   name: string;
-  email: string;
-  /** Nomor WhatsApp TERNORMALISASI 62xxxxxxxxxx (normalizeWaPhone) */
+  /** Opsional — null/kosong bila pembeli tidak mengisi email */
+  email?: string | null;
+  /** Nomor WhatsApp TERNORMALISASI 62xxxxxxxxxx (normalizeWaPhone) — kunci upsert */
   phone: string;
   source: LicenseLeadSource;
 }): Promise<void> {
   await ensureLicenseLeadTable();
-  const email = normalizeEmail(input.email);
+  const email = input.email ? normalizeEmail(input.email) : null;
   await prisma.licenseLead.upsert({
-    where: { email },
+    where: { phone: input.phone },
     create: { email, name: input.name, phone: input.phone, source: input.source },
-    update: { name: input.name, phone: input.phone, source: input.source },
+    update: {
+      name: input.name,
+      source: input.source,
+      ...(email ? { email } : {}),
+    },
   });
 }

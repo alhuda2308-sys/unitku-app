@@ -67,8 +67,12 @@ import {
 } from "@/components/ui/table";
 
 interface AdminUserRow {
+  /** Identitas baris stabil utk React key & aksi panel — "email:{email}" | "lead:{id}" */
+  key: string;
   id: string | null;
-  email: string;
+  /** null = lead zero-friction tanpa email (hanya Nama + No. WhatsApp) —
+   *  panel menampilkannya "(Tanpa Email)" agar tabel tetap rapi. */
+  email: string | null;
   name: string | null;
   phone: string | null; // No. WhatsApp 62… dari form checkout/register/lead
   registeredAt: string | null;
@@ -77,6 +81,14 @@ interface AdminUserRow {
   licensedAt: string | null;
   source: "mayar" | "manual" | null;
   isSuperAdmin: boolean;
+}
+
+/** Label baris utk toast/dialog — email, atau fallback Nama (No. WA).
+ *  (formatWaDisplay adalah function declaration — hoisted, aman dipanggil di sini.) */
+function rowLabel(row: AdminUserRow): string {
+  if (row.email) return row.email;
+  const wa = row.phone ? formatWaDisplay(row.phone) : "tanpa nomor";
+  return row.name ? `${row.name} (${wa})` : wa;
 }
 
 interface Credentials {
@@ -420,7 +432,7 @@ function ResetPasswordDialog({
   }, [target]);
 
   const submit = async () => {
-    if (!target || busy || password.length < 6) return;
+    if (!target?.email || busy || password.length < 6) return;
     setBusy(true);
     setError("");
     try {
@@ -472,7 +484,7 @@ function ResetPasswordDialog({
               <DialogTitle className="text-[15px]">Reset Password Cepat</DialogTitle>
               <DialogDescription className="text-[12.5px]">
                 Set password baru untuk{" "}
-                <span className="font-medium text-zinc-700">{target?.email}</span> langsung via Admin API.
+                <span className="font-medium text-zinc-700">{target?.email ?? "(tanpa email)"}</span> langsung via Admin API.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
@@ -572,11 +584,14 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
 
   const toggleLicense = async (row: AdminUserRow, licensed: boolean) => {
     if (pendingToggle) return;
-    setPendingToggle(row.email);
+    // Lisensi dikelola per akun email — lead tanpa email (zero-friction) tidak
+    // bisa ditoggle (Switch sudah disabled; guard ini pertahanan ekstra).
+    if (!row.email) return;
+    setPendingToggle(row.key);
     // Optimistic — balikkan bila gagal
     setRows((prev) =>
       prev
-        ? prev.map((r) => (r.email === row.email ? { ...r, licensed } : r))
+        ? prev.map((r) => (r.key === row.key ? { ...r, licensed } : r))
         : prev,
     );
     try {
@@ -590,7 +605,7 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
         setRows((prev) =>
           prev
             ? prev.map((r) =>
-                r.email === row.email
+                r.key === row.key
                   ? { ...r, licensed: data.licensed === true, licensedAt: licensed ? (r.licensedAt ?? new Date().toISOString()) : r.licensedAt }
                   : r,
               )
@@ -598,17 +613,17 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
         );
         toast.success(
           licensed ? "Lisensi diaktifkan" : "Lisensi dicabut",
-          { description: `${row.email} — akses seumur hidup ${licensed ? "aktif" : "dikunci"}.` },
+          { description: `${rowLabel(row)} — akses seumur hidup ${licensed ? "aktif" : "dikunci"}.` },
         );
       } else {
         setRows((prev) =>
-          prev ? prev.map((r) => (r.email === row.email ? { ...r, licensed: !licensed } : r)) : prev,
+          prev ? prev.map((r) => (r.key === row.key ? { ...r, licensed: !licensed } : r)) : prev,
         );
         toast.error("Gagal mengubah lisensi", { description: data.error ?? "Coba lagi sebentar." });
       }
     } catch {
       setRows((prev) =>
-        prev ? prev.map((r) => (r.email === row.email ? { ...r, licensed: !licensed } : r)) : prev,
+        prev ? prev.map((r) => (r.key === row.key ? { ...r, licensed: !licensed } : r)) : prev,
       );
       toast.error("Gagal mengubah lisensi", { description: "Tidak dapat terhubung ke server." });
     } finally {
@@ -621,7 +636,10 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
     const target = deleteTarget;
     setDeleteBusy(true);
     try {
-      const res = await fetch(`/api/admin/users?email=${encodeURIComponent(target.email)}`, {
+      const deleteParams = target.email
+        ? `email=${encodeURIComponent(target.email)}`
+        : `phone=${encodeURIComponent(target.phone ?? "")}`;
+      const res = await fetch(`/api/admin/users?${deleteParams}`, {
         method: "DELETE",
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -633,13 +651,13 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
       if (res.ok) {
         // Optimistic update — baris hilang instan dari tabel & statistik,
         // lalu re-fetch sebagai sumber kebenaran (konsistensi akhir server).
-        setRows((prev) => (prev ? prev.filter((r) => r.email !== target.email) : prev));
+        setRows((prev) => (prev ? prev.filter((r) => r.key !== target.key) : prev));
         setDeleteTarget(null);
         const hasAuth = Boolean(target.id);
         toast.success("Data pengguna/lead berhasil dihapus.", {
           description: hasAuth
-            ? `${target.email} — akun & lisensi dihapus; data properti dipertahankan.`
-            : `${target.email} — data lead calon pembeli dihapus dari database.`,
+            ? `${rowLabel(target)} — akun & lisensi dihapus; data properti dipertahankan.`
+            : `${rowLabel(target)} — data lead calon pembeli dihapus dari database.`,
         });
         await load(true);
       } else {
@@ -660,7 +678,7 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
     if (!q) return rows;
     return rows.filter(
       (r) =>
-        r.email.includes(q) ||
+        (r.email ?? "").includes(q) ||
         (r.name ?? "").toLowerCase().includes(q) ||
         (r.phone ?? "").includes(q) ||
         r.properties.some((p) => p.toLowerCase().includes(q)),
@@ -816,7 +834,7 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                 </TableHeader>
                 <TableBody>
                   {filtered.map((row) => (
-                    <TableRow key={row.email} className="hover:bg-zinc-50/60">
+                    <TableRow key={row.key} className="hover:bg-zinc-50/60">
                       <TableCell className="py-2.5 pl-4">
                         <div className="flex items-center gap-2">
                           <span className="max-w-[160px] truncate text-[13px] font-medium text-zinc-900">
@@ -830,7 +848,13 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                         </div>
                       </TableCell>
                       <TableCell className="py-2.5">
-                        <span className="block max-w-[220px] truncate text-[12.5px] text-zinc-600">{row.email}</span>
+                        {row.email ? (
+                          <span className="block max-w-[220px] truncate text-[12.5px] text-zinc-600">{row.email}</span>
+                        ) : (
+                          <span className="block max-w-[220px] truncate text-[12.5px] italic text-zinc-400" title="Lead tanpa email — form checkout zero-friction (Nama + No. WhatsApp)">
+                            (Tanpa Email)
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="py-2.5">
                         {row.phone ? (
@@ -839,7 +863,7 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium text-emerald-700 underline-offset-2 hover:bg-emerald-50 hover:text-emerald-800 hover:underline"
-                            aria-label={`Chat WhatsApp ${formatWaDisplay(row.phone)} (${row.email})`}
+                            aria-label={`Chat WhatsApp ${formatWaDisplay(row.phone)} (${row.email ?? "tanpa email"})`}
                             title={`Follow-up via WhatsApp — ${formatWaDisplay(row.phone)}`}
                           >
                             <MessageCircle className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
@@ -891,26 +915,29 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                           <div className="flex items-center gap-1.5">
                             <Switch
                               checked={row.licensed}
-                              disabled={pendingToggle === row.email}
+                              disabled={pendingToggle === row.key || !row.email}
                               onCheckedChange={(v) => void toggleLicense(row, v === true)}
                               aria-label={
                                 row.licensed
-                                  ? `Cabut lisensi ${row.email}`
-                                  : `Aktifkan lisensi ${row.email}`
+                                  ? `Cabut lisensi ${rowLabel(row)}`
+                                  : `Aktifkan lisensi ${rowLabel(row)}`
                               }
+                              title={row.email ? undefined : "Lisensi dikelola per akun email — lead tanpa email belum bisa diaktifkan"}
                             />
                           </div>
-                          {/* Reset password cepat */}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setResetTarget(row)}
-                            className="size-7 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
-                            aria-label={`Reset password ${row.email}`}
-                            title="Reset Password Cepat"
-                          >
-                            <KeyRound className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
-                          </Button>
+                          {/* Reset password cepat — hanya utk baris ber-email */}
+                          {row.email && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setResetTarget(row)}
+                              className="size-7 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                              aria-label={`Reset password ${rowLabel(row)}`}
+                              title="Reset Password Cepat"
+                            >
+                              <KeyRound className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+                            </Button>
+                          )}
                           {/* Hapus akun */}
                           {row.email !== adminEmail.trim().toLowerCase() && (
                             <Button
@@ -918,7 +945,7 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                               size="icon"
                               onClick={() => setDeleteTarget(row)}
                               className="size-7 text-red-500 hover:bg-red-50 hover:text-red-600"
-                              aria-label={`Hapus akun ${row.email}`}
+                              aria-label={`Hapus akun ${rowLabel(row)}`}
                               title="Hapus Akun"
                             >
                               <Trash2 className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
@@ -957,14 +984,14 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
             <AlertDialogDescription className="text-[12.5px]">
               {deleteTarget?.id ? (
                 <>
-                  Akun auth <span className="font-medium text-zinc-700">{deleteTarget?.email}</span> dan data
+                  Akun auth <span className="font-medium text-zinc-700">{deleteTarget ? rowLabel(deleteTarget) : ""}</span> dan data
                   lisensinya akan dihapus permanen. Data properti (kamar, tagihan, kas) tetap tersimpan tanpa
                   pemilik. Tindakan ini tidak dapat dibatalkan.
                 </>
               ) : (
                 <>
                   Data lead calon pembeli{" "}
-                  <span className="font-medium text-zinc-700">{deleteTarget?.email}</span> akan dihapus permanen
+                  <span className="font-medium text-zinc-700">{deleteTarget ? rowLabel(deleteTarget) : ""}</span> akan dihapus permanen
                   dari database (license_leads). Tindakan ini tidak dapat dibatalkan.
                 </>
               )}

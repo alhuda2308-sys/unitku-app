@@ -1362,7 +1362,7 @@ export default function IndoKostPage() {
         if (instantDemo || isDemoSession) {
           toast.success("Foto properti diperbarui", {
             description:
-              "Tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar tersimpan permanen di cloud.",
+              "Perubahan tersimpan di sesi demo! Dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.",
           });
           return;
         }
@@ -2018,6 +2018,7 @@ export default function IndoKostPage() {
                   staffSession ? { name: staffSession.name, role: staffSession.role } : null
                 }
                 onStaffLogout={handleStaffLogout}
+                isDemoMode={isDemoVisitor}
               />
             ) : (
               <>

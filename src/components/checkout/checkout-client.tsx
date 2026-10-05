@@ -6,20 +6,21 @@
 // Desain ringkas, mobile-first, fokus konversi — tanpa header/footer landing.
 //   1. Ringkasan penawaran: badge, judul, harga coret Rp 799.000 → Rp 399.000,
 //      3 poin manfaat utama (checklist hijau).
-//   2. Form data pembeli — validasi SHARED yang sama dengan modal checkout
-//      (src/lib/checkout-validation.ts, cermin validasi server /api/checkout).
+//   2. Form ZERO FRICTION — HANYA 2 input (email dihapus sepenuhnya):
+//      Nama Lengkap + Nomor WhatsApp. Validasi SHARED yang sama dengan modal
+//      checkout (src/lib/checkout-validation.ts, cermin validasi server).
 //   3. Dua aksi seimbang:
 //      - Primary  : "Bayar Otomatis (QRIS / VA / E-Wallet)" → POST /api/checkout
 //                   (loading state) → redirect ke payment link Mayar (lead
 //                   tersimpan di server SEBELUM redirect).
 //      - Sekunder : "Pesan Manual via WhatsApp Admin" → VALIDASI form →
 //                   POST /api/leads (simpan kontak — fire-and-forget) → wa.me
-//                   Admin dengan pesan draft pembelian terisi Nama/Email/No. WA
+//                   Admin dengan pesan draft pembelian terisi Nama/No. WA
 //                   (anchor native, imun pop-up blocker).
 //   4. Catatan jaminan di bawah tombol.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo, useState, type FormEvent, type MouseEvent } from "react";
+import { useState, type FormEvent, type MouseEvent } from "react";
 import Image from "next/image";
 import {
   BadgeCheck,
@@ -77,10 +78,8 @@ export function CheckoutClient() {
   // Link WA manual mengikuti isi form (draft pesan terisi otomatis);
   // fallback link default selama form belum valid (tak pernah dinavigasi —
   // klik dicegah handleManualOrder bila form belum lengkap).
-  const formValid = useMemo(
-    () => Object.keys(validateCheckoutBuyer(form)).length === 0,
-    [form],
-  );
+  const formValid =
+    Object.keys(validateCheckoutBuyer(form)).length === 0;
   const manualWaHref = formValid
     ? buildManualOrderWaLink(form)
     : SUPPORT_WA_PURCHASE_LINK;
@@ -92,7 +91,7 @@ export function CheckoutClient() {
       // Form belum lengkap — cegah navigasi & tampilkan error per field
       event.preventDefault();
       setFieldErrors(errors);
-      toast.error("Lengkapi data pemesan terlebih dahulu.");
+      toast.error("Isi dulu nama dan nomor WhatsApp Anda ya.");
       return;
     }
 
@@ -103,7 +102,6 @@ export function CheckoutClient() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: form.name.trim(),
-        email: form.email.trim(),
         phone: form.phone,
         source: "PESAN_MANUAL",
       }),
@@ -134,12 +132,12 @@ export function CheckoutClient() {
 
     setSubmitting(true);
     try {
+      // Zero friction — hanya nama + No. WhatsApp (email tidak dikumpulkan)
       const response = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: form.name.trim(),
-          email: form.email.trim(),
           phone: form.phone,
         }),
       });
@@ -247,8 +245,7 @@ export function CheckoutClient() {
               Data Pembeli
             </h2>
             <p className="mt-0.5 text-[12.5px] leading-snug text-zinc-500">
-              Dipakai untuk pembuatan akun otomatis &amp; aktivasi lisensi
-              Anda.
+              Cukup 2 data — dipakai Admin untuk aktivasi lisensi Anda.
             </p>
 
             <form onSubmit={handleSubmit} noValidate className="mt-4 space-y-3.5">
@@ -268,7 +265,7 @@ export function CheckoutClient() {
                   id="checkout-name"
                   name="name"
                   autoComplete="name"
-                  placeholder="cth. Budi Santoso"
+                  placeholder="Nama Anda / Nama Kost"
                   value={form.name}
                   onChange={(e) => setField("name")(e.target.value)}
                   disabled={submitting}
@@ -285,55 +282,6 @@ export function CheckoutClient() {
                     className="text-[12px] font-medium text-red-600"
                   >
                     {fieldErrors.name}
-                  </p>
-                )}
-              </div>
-
-              {/* Alamat Email */}
-              <div className="space-y-1.5 text-left">
-                <Label
-                  htmlFor="checkout-email"
-                  className="text-[12.5px] font-semibold text-zinc-700"
-                >
-                  Alamat Email{" "}
-                  <span aria-hidden="true" className="text-red-600">
-                    *
-                  </span>
-                  <span className="sr-only">(wajib)</span>
-                </Label>
-                <Input
-                  id="checkout-email"
-                  name="email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  placeholder="nama@email.com"
-                  value={form.email}
-                  onChange={(e) => setField("email")(e.target.value)}
-                  disabled={submitting}
-                  aria-invalid={Boolean(fieldErrors.email)}
-                  aria-describedby={
-                    fieldErrors.email
-                      ? "checkout-email-error"
-                      : "checkout-email-hint"
-                  }
-                  className="h-10 text-[13.5px]"
-                />
-                {fieldErrors.email ? (
-                  <p
-                    id="checkout-email-error"
-                    role="alert"
-                    className="text-[12px] font-medium text-red-600"
-                  >
-                    {fieldErrors.email}
-                  </p>
-                ) : (
-                  <p
-                    id="checkout-email-hint"
-                    className="text-[12px] leading-snug text-zinc-500"
-                  >
-                    Wajib valid — untuk pembuatan akun otomatis &amp; pengiriman
-                    lisensi.
                   </p>
                 )}
               </div>
@@ -356,23 +304,32 @@ export function CheckoutClient() {
                   type="tel"
                   inputMode="tel"
                   autoComplete="tel"
-                  placeholder="08xxxxxxxxxx / 62xxxxxxxxxx"
+                  placeholder="08123456789"
                   value={form.phone}
                   onChange={(e) => setField("phone")(e.target.value)}
                   disabled={submitting}
                   aria-invalid={Boolean(fieldErrors.phone)}
                   aria-describedby={
-                    fieldErrors.phone ? "checkout-phone-error" : undefined
+                    fieldErrors.phone
+                      ? "checkout-phone-error"
+                      : "checkout-phone-hint"
                   }
                   className="h-10 text-[13.5px]"
                 />
-                {fieldErrors.phone && (
+                {fieldErrors.phone ? (
                   <p
                     id="checkout-phone-error"
                     role="alert"
                     className="text-[12px] font-medium text-red-600"
                   >
                     {fieldErrors.phone}
+                  </p>
+                ) : (
+                  <p
+                    id="checkout-phone-hint"
+                    className="text-[12px] leading-snug text-zinc-500"
+                  >
+                    Dipakai Admin untuk konfirmasi &amp; aktivasi lisensi.
                   </p>
                 )}
               </div>
@@ -433,8 +390,8 @@ export function CheckoutClient() {
                   aria-hidden="true"
                 />
                 <span>
-                  Garansi transaksi aman via Mayar Payment Gateway • Akses akun
-                  instan
+                  Garansi 7 Hari Uang Kembali 100% • Transaksi aman via Mayar
+                  Payment Gateway
                 </span>
               </p>
             </form>

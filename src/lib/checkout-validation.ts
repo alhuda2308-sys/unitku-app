@@ -1,20 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Validasi & utilitas form data pembeli lisensi (client + server)
 //
+// ZERO FRICTION — form hanya meminta 2 data: Nama + No. WhatsApp. Email
+// dihapus sepenuhnya dari UI checkout (modal landing & halaman /checkout) dan
+// BUKAN syarat validasi; di server email bersifat opsional.
+//
 // Dipakai bersama oleh:
 //   - Modal checkout landing      : src/components/landing/buy-cta.tsx
 //   - Halaman iklan Facebook      : src/components/checkout/checkout-client.tsx
 //   - POST /api/checkout          (validasi server, cermin identik)
 //   - POST /api/leads             (penyimpanan lead sebelum redirect)
 //   - POST /api/auth/register     (Nama + No. WhatsApp akun baru)
-// sehingga aturan nama/email/No. WhatsApp selalu identik di semua entry point.
+// sehingga aturan nama/No. WhatsApp selalu identik di semua entry point.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { LICENSE_PRICE_LABEL, SUPPORT_WA_NUMBER } from "@/lib/landing-config";
 
 export interface CheckoutFormState {
   name: string;
-  email: string;
   phone: string;
 }
 
@@ -22,7 +25,6 @@ export type CheckoutFieldErrors = Partial<Record<keyof CheckoutFormState, string
 
 export const EMPTY_CHECKOUT_FORM: CheckoutFormState = {
   name: "",
-  email: "",
   phone: "",
 };
 
@@ -38,16 +40,14 @@ export function normalizeWaPhone(raw: string): string {
 
 /** Validasi client-side — inline error per field (cermin parseBuyerInput).
  *  Pesan dibuat ramah & memberi contoh (tidak menghakimi) agar calon pembeli
- *  tetap lanjut mengisi, bukan menutup modal — target konversi Task 102. */
+ *  tetap lanjut mengisi, bukan menutup modal — target konversi.
+ *  HANYA 2 field: nama + No. WhatsApp (email dihapus — zero friction). */
 export function validateCheckoutBuyer(
   values: CheckoutFormState,
 ): CheckoutFieldErrors {
   const errors: CheckoutFieldErrors = {};
   if (values.name.trim().length < 2) {
-    errors.name = "Mohon isi nama lengkap Anda (minimal 2 huruf).";
-  }
-  if (!EMAIL_RE.test(values.email.trim())) {
-    errors.email = "Format email belum benar — cth. nama@email.com";
+    errors.name = "Mohon isi nama Anda (minimal 2 huruf).";
   }
   if (!/^62[0-9]{8,13}$/.test(normalizeWaPhone(values.phone))) {
     errors.phone = "Nomor WhatsApp belum sesuai — mulai dengan 08 atau 62 ya.";
@@ -57,7 +57,7 @@ export function validateCheckoutBuyer(
 
 export interface BuyerInput {
   name: string; // sudah di-trim (2–100 karakter)
-  email: string; // sudah di-trim + lowercase
+  email: string; // OPSIONAL — "" bila pembeli tidak mengisi (boleh kosong)
   phone: string; // sudah dinormalisasi 62xxxxxxxxxx
 }
 
@@ -65,7 +65,10 @@ export type BuyerParseResult =
   | { ok: true; data: BuyerInput }
   | { ok: false; error: string; field: string };
 
-/** Validasi server untuk body { name, email, phone } — dipakai /api/checkout, /api/leads, /api/auth/register */
+/** Validasi server untuk body { name, email?, phone } — dipakai /api/checkout,
+ *  /api/leads, /api/auth/register.
+ *  Email OPSIONAL: kosong/tidak dikirim → diterima (email: ""); bila diisi,
+ *  formatnya tetap divalidasi agar data lead tetap bersih. */
 export function parseBuyerInput(body: unknown): BuyerParseResult {
   if (typeof body !== "object" || body === null) {
     return { ok: false, error: "Data pembeli tidak terkirim — coba lagi.", field: "" };
@@ -78,7 +81,7 @@ export function parseBuyerInput(body: unknown): BuyerParseResult {
   }
 
   const email = typeof raw.email === "string" ? raw.email.trim().toLowerCase() : "";
-  if (!EMAIL_RE.test(email) || email.length > 254) {
+  if (email && (!EMAIL_RE.test(email) || email.length > 254)) {
     return {
       ok: false,
       error: "Alamat email tidak valid — periksa kembali penulisannya.",
@@ -101,7 +104,8 @@ export function parseBuyerInput(body: unknown): BuyerParseResult {
 /**
  * Link wa.me Admin dengan draft pesan pemesanan terisi data form — dipakai
  * tombol "Pesan Manual via WhatsApp Admin" (anchor native, imun pop-up blocker)
- * sehingga Admin menerima Nama/Email/No. WhatsApp langsung di chat.
+ * sehingga Admin menerima Nama/No. WhatsApp langsung di chat.
+ * (Email tidak lagi dikumpulkan — baris Email hanya muncul bila ternyata ada.)
  */
 export function buildManualOrderWaLink(values: CheckoutFormState): string {
   const phone = normalizeWaPhone(values.phone);
@@ -109,7 +113,6 @@ export function buildManualOrderWaLink(values: CheckoutFormState): string {
     `Halo Admin UnitKu, saya ingin membeli Lisensi Seumur Hidup (${LICENSE_PRICE_LABEL}).`,
     "",
     `Nama: ${values.name.trim()}`,
-    `Email: ${values.email.trim()}`,
     `No. WhatsApp: ${phone}`,
     "",
     "Mohon info rekening / panduan pembayarannya. Terima kasih!",

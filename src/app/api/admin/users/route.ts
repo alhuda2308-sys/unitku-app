@@ -50,8 +50,12 @@ function nextManualTransactionId(): string {
 // ── GET — daftar seluruh pengguna ────────────────────────────────────────────
 
 interface AdminUserRow {
+  /** Identitas baris stabil utk React key & aksi panel — "email:{email}" | "lead:{id}" */
+  key: string;
   id: string | null;
-  email: string;
+  /** null = lead zero-friction tanpa email (hanya Nama + No. WhatsApp) —
+   *  panel menampilkannya "(Tanpa Email)" agar tabel tetap rapi. */
+  email: string | null;
   name: string | null;
   phone: string | null; // No. WhatsApp ternormalisasi 62… (dari lead/license/metadata)
   registeredAt: string | null;
@@ -146,8 +150,27 @@ async function buildAdminUserList(): Promise<{
       err,
     );
   }
+  // Lead TANPA email (zero-friction: hanya Nama + No. WhatsApp) tampil sebagai
+  // baris sendiri dgn email null — panel merendernya "(Tanpa Email)".
+  const emaillessLeads: AdminUserRow[] = [];
   for (const lead of leads) {
-    const email = lead.email.trim().toLowerCase();
+    const email = (lead.email ?? "").trim().toLowerCase();
+    if (!email) {
+      emaillessLeads.push({
+        key: `lead:${lead.id}`,
+        id: null,
+        email: null,
+        name: lead.name,
+        phone: lead.phone,
+        registeredAt: lead.createdAt.toISOString(),
+        properties: [],
+        licensed: false,
+        licensedAt: null,
+        source: null,
+        isSuperAdmin: false,
+      });
+      continue;
+    }
     const existing = accounts.get(email);
     if (existing) {
       if (!existing.name && lead.name) existing.name = lead.name;
@@ -192,10 +215,11 @@ async function buildAdminUserList(): Promise<{
 
   const licByEmail = new Map(licenses.map((l) => [l.email.trim().toLowerCase(), l]));
 
-  const users: AdminUserRow[] = [...accounts.values()]
-    .map((a) => {
+  const users: AdminUserRow[] = [
+    ...[...accounts.values()].map((a) => {
       const lic = licByEmail.get(a.email);
       return {
+        key: `email:${a.email}`,
         id: a.id,
         email: a.email,
         name: a.name,
@@ -206,13 +230,14 @@ async function buildAdminUserList(): Promise<{
         licensedAt: lic?.licensedAt?.toISOString() ?? null,
         source: sourceByEmail.get(a.email) ?? null,
         isSuperAdmin: isSuperAdminEmail(a.email),
-      };
-    })
-    .sort((a, b) => {
-      const ta = a.registeredAt ? Date.parse(a.registeredAt) : 0;
-      const tb = b.registeredAt ? Date.parse(b.registeredAt) : 0;
-      return tb - ta || a.email.localeCompare(b.email);
-    });
+      } satisfies AdminUserRow;
+    }),
+    ...emaillessLeads,
+  ].sort((a, b) => {
+    const ta = a.registeredAt ? Date.parse(a.registeredAt) : 0;
+    const tb = b.registeredAt ? Date.parse(b.registeredAt) : 0;
+    return tb - ta || (a.email ?? "").localeCompare(b.email ?? "");
+  });
 
   return { mode, users };
 }
@@ -463,6 +488,43 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Akses ditolak — khusus Super Admin." }, { status: guard.status });
   }
 
+  // Lead TANPA email (zero-friction: hanya Nama + No. WhatsApp) dihapus per
+  // No. WhatsApp — panel memanggil DELETE /api/admin/users?phone=62xxxxxxxxxx
+  const phoneParam = (request.nextUrl.searchParams.get("phone") ?? "").replace(
+    /[^\d]/g,
+    "",
+  );
+  if (!request.nextUrl.searchParams.get("email") && phoneParam) {
+    try {
+      const lead = await db.licenseLead.findFirst({ where: { phone: phoneParam } });
+      if (lead) {
+        await db.licenseLead.delete({ where: { id: lead.id } });
+        return NextResponse.json({
+          success: true,
+          phone: phoneParam,
+          authDeleted: false,
+          leadDeleted: true,
+          results: [
+            {
+              source: "lead",
+              ok: true,
+              skipped: false,
+              detail: "Lead calon pembeli (tanpa email) dihapus.",
+            },
+          ] satisfies DeleteStepResult[],
+        });
+      }
+      return NextResponse.json(
+        { error: "Tidak ada lead dengan nomor WhatsApp tersebut." },
+        { status: 404 },
+      );
+    } catch (err) {
+      console.error("[api/admin/users DELETE] hapus lead (by phone) gagal:", err);
+      const detail = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({ error: "Gagal menghapus data lead.", detail }, { status: 500 });
+    }
+  }
+
   const email = normalizeEmail(request.nextUrl.searchParams.get("email") ?? "");
   if (!EMAIL_RE.test(email)) {
     return NextResponse.json({ error: "Parameter email wajib diisi dan valid." }, { status: 400 });
@@ -557,9 +619,11 @@ export async function DELETE(request: NextRequest) {
     // "Calon user / akun dummy dari lead" hanya tersimpan di tabel ini; tanpa
     // langkah ini barisnya tetap muncul di panel setelah refresh.
     try {
-      const lead = await db.licenseLead.findUnique({ where: { email } });
+      // email bukan lagi unique key di license_leads (kini phone) — cari via
+      // findFirst lalu hapus per id.
+      const lead = await db.licenseLead.findFirst({ where: { email } });
       if (lead) {
-        await db.licenseLead.delete({ where: { email } });
+        await db.licenseLead.delete({ where: { id: lead.id } });
         push({ source: "lead", ok: true, skipped: false, detail: "Lead calon pembeli dihapus." });
       } else {
         push({ source: "lead", ok: true, skipped: true, detail: "Tidak ada lead untuk email ini." });

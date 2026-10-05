@@ -2,13 +2,18 @@
 // UnitKu — Checkout lisensi seumur hidup via Mayar API (server-only)
 //
 // POST /api/checkout
-//   Body : { name, email, phone }  (semua wajib)
+//   Body : { name, phone, email? }  — email OPSIONAL (zero friction: form
+//          checkout hanya meminta Nama + No. WhatsApp).
 //   Flow : validasi input (parseBuyerInput — shared) → SIMPAN LEAD ke
-//          license_leads (upsertLicenseLead) SEBELUM redirect, sehingga Admin
-//          tetap punya data kontak walau pembayaran tidak diselesaikan →
-//          POST {MAYAR_API_BASE_URL}/payment/create (Authorization: Bearer
+//          license_leads (upsertLicenseLead, kunci unik No. WhatsApp; email
+//          boleh kosong) SEBELUM redirect, sehingga Admin tetap punya data
+//          kontak walau pembayaran tidak diselesaikan → POST
+//          {MAYAR_API_BASE_URL}/payment/create (Authorization: Bearer
 //          MAYAR_API_KEY) → ambil `data.link` → kirim { paymentUrl } ke client
 //          untuk redirect otomatis.
+//          Bila email tidak dikirim, invoice Mayar memakai email deterministik
+//          turunan No. WhatsApp ({phone}@wa.unitku.my.id) — format selalu valid
+//          sehingga pembuatan invoice tidak pernah gagal karena email kosong.
 //
 //   Invoice dibuat per-pembeli (nama/email/no. WA terkirim ke Mayar), sehingga
 //   data pembayaran & webhook balik (payment.received) selaras — lisensi
@@ -67,6 +72,7 @@ export async function POST(request: NextRequest) {
   // ── Simpan lead SEBELUM redirect/checkout — kontak Admin tetap tersimpan
   // walau user tidak menyelesaikan pembayaran, bahkan saat Mayar tidak aktif.
   // Kegagalan penyimpanan TIDAK memblokir checkout (cukup dicatat di log).
+  // Payload tanpa email (hanya nama + WA) WAJIB tetap tersimpan (email null).
   try {
     await upsertLicenseLead({ name, email, phone, source: "BAYAR_OTOMATIS" });
   } catch (leadError) {
@@ -95,6 +101,10 @@ export async function POST(request: NextRequest) {
     process.env.MAYAR_API_BASE_URL || "https://api.mayar.id/hl/v1"
   ).replace(/\/+$/, "");
 
+  // Mayar meminta email pembeli pada invoice — bila form zero-friction tidak
+  // mengumpulkan email, derivasikan email deterministik dari No. WhatsApp.
+  const mayarEmail = email || `${phone}@wa.unitku.my.id`;
+
   try {
     const response = await fetch(`${apiBase}/payment/create`, {
       method: "POST",
@@ -105,7 +115,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         name,
-        email,
+        email: mayarEmail,
         mobile: phone,
         amount: LICENSE_AMOUNT_IDR,
         description: MAYAR_DESCRIPTION,
@@ -123,7 +133,7 @@ export async function POST(request: NextRequest) {
           ? String((payload as { message?: unknown }).message)
           : `HTTP ${response.status}`;
       console.error(
-        `[UnitKu Checkout] Mayar menolak pembuatan invoice (${detail}) — email: ${email}`,
+        `[UnitKu Checkout] Mayar menolak pembuatan invoice (${detail}) — email: ${mayarEmail}`,
       );
       return NextResponse.json(
         {

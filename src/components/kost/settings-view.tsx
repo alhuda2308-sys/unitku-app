@@ -169,6 +169,8 @@ interface SettingsViewProps {
   cashEntries: CashEntry[];
   /** Setelah restore sukses — muat ulang data dashboard dari database */
   onRestoreComplete: () => void;
+  /** Mode demo (?demo=1 / sesi demo) — toast "Profil Saya" menyebut sesi demo */
+  isDemoMode?: boolean;
 }
 
 export function SettingsView({
@@ -188,6 +190,7 @@ export function SettingsView({
   invoices,
   cashEntries,
   onRestoreComplete,
+  isDemoMode,
 }: SettingsViewProps) {
   // ── RBAC staf: tab tersembunyi + snap tab terlarang ke yang diizinkan ──
   const allowedKeys = useMemo(() => {
@@ -339,6 +342,7 @@ export function SettingsView({
           key={JSON.stringify(settings.owner)}
           owner={settings.owner}
           onSave={(owner) => onUpdateSettings({ owner })}
+          isDemoMode={isDemoMode}
         />
         <ProfilPropertiTab
           key={JSON.stringify(settings.propertyProfile)}
@@ -545,9 +549,12 @@ function AccountCard() {
 function ProfilSayaTab({
   owner,
   onSave,
+  isDemoMode,
 }: {
   owner: IndoKostSettings["owner"];
   onSave: (owner: IndoKostSettings["owner"]) => void;
+  /** Mode demo — data hanya hidup di sesi, toast mengarahkan ke lisensi */
+  isDemoMode?: boolean;
 }) {
   const [nama, setNama] = useState(owner.nama);
   const [email, setEmail] = useState(owner.email);
@@ -563,7 +570,9 @@ function ProfilSayaTab({
     if (!valid) return;
     onSave({ nama: nama.trim(), email: email.trim(), whatsapp: wa.trim() });
     toast.success("Profil pengelola tersimpan", {
-      description: "Data dipakai pada identitas dashboard & pengirim broadcast WA.",
+      description: isDemoMode
+        ? "Perubahan tersimpan di sesi demo! Dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud."
+        : "Data dipakai pada identitas dashboard & pengirim broadcast WA.",
     });
   };
 
