@@ -2141,7 +2141,8 @@ export default function IndoKostPage() {
         {!isDemoVisitor && <PwaInstallBanner />}
 
         {/* Sticky conversion bar mode demo — tombol memicu modal checkout +
-            event Meta Pixel InitiateCheckout (konversi kampanye Meta Ads) */}
+            event custom Meta Pixel ClickCTA_Beli (InitiateCheckout baru saat
+            form checkout disubmit — lihat buy-cta.tsx) */}
         {isDemoVisitor && <DemoConvertBar />}
         {isDemoVisitor && <div aria-hidden="true" className="h-16" />}
       </div>

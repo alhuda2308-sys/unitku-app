@@ -19,9 +19,18 @@
 //      native, imun pop-up blocker). Tombol utama POST /api/checkout membuat
 //      invoice Mayar per-pembeli (lead tersimpan di server SEBELUM redirect);
 //      webhook /api/webhooks/mayar mengaktifkan lisensi.
+//
+// DOCTRINE META PIXEL (akurat, tidak bias):
+//   - Membuka modal BUKAN konversi → tombol CTA hanya menembakkan event
+//     custom ringan fbq('trackCustom','ClickCTA_Beli') sebagai sinyal minat.
+//   - fbq('track','InitiateCheckout') ditembakkan TEPAT SEKALI per submit
+//     form dan HANYA pada dua momen sah: (a) tombol bayar utama sukses —
+//     lead sudah tersimpan di license_leads oleh server sebelum redirect ke
+//     halaman pembayaran; ATAU (b) tombol "Pesan Manual via WhatsApp Admin"
+//     diklik dengan form valid. Ref guard mencegah event dobel.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, type FormEvent, type MouseEvent } from "react";
+import { useRef, useState, type FormEvent, type MouseEvent } from "react";
 import {
   Landmark,
   Loader2,
@@ -79,18 +88,34 @@ export function BuyCta({
   const [fieldErrors, setFieldErrors] = useState<CheckoutFieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
 
-  /** Buka modal checkout + tembakkan event Meta Pixel InitiateCheckout.
-   *  Ini konversi utama kampanye Meta Ads — semua tombol beli (hero, bento,
-   *  testimoni, penawaran, final CTA, sticky demo bar) lewat pintu ini. */
-  const openCheckout = () => {
-    setOpen(true);
+  /** Guard anti-dobel: InitiateCheckout TEPAT SEKALI per submit form.
+   *  Ref di-reset di awal tiap percobaan submit baru (klik bayar / klik WA
+   *  manual yang valid), lalu event hanya ditembakkan pada satu titik sah —
+   *  klik ganda atau jalur async beruntun tak bisa menggandakan event. */
+  const initiateCheckoutFiredRef = useRef(false);
+
+  /** InitiateCheckout (standard event Meta) — momen SAH: form pembeli sudah
+   *  lengkap & tersimpan (lead di license_leads), checkout benar-benar
+   *  dimulai. Ditembakkan maksimal sekali per submit via ref guard. */
+  const fireInitiateCheckoutOnce = () => {
+    if (initiateCheckoutFiredRef.current) return;
+    initiateCheckoutFiredRef.current = true;
     window.fbq?.("track", "InitiateCheckout", {
       content_name: "Lisensi Seumur Hidup UnitKu",
-      content_ids: ["unitku-lifetime"],
-      content_type: "product",
       value: LICENSE_AMOUNT_IDR,
       currency: "IDR",
     });
+  };
+
+  /** Buka modal checkout — tembakkan HANYA event custom ringan
+   *  ClickCTA_Beli (sinyal minat, bukan konversi). InitiateCheckout TIDAK
+   *  ditembakkan di sini: user belum mengisi data apa pun — event tersebut
+   *  dipindah ke momen submit form (fireInitiateCheckoutOnce). Semua tombol
+   *  beli (hero, bento, testimoni, penawaran, final CTA, sticky demo bar)
+   *  lewat pintu ini. */
+  const openCheckout = () => {
+    setOpen(true);
+    window.fbq?.("trackCustom", "ClickCTA_Beli");
   };
 
   const setField = (key: keyof CheckoutFormState) => (value: string) => {
@@ -106,7 +131,9 @@ export function BuyCta({
 
   /** Klik tombol sekunder "Pesan Manual via WhatsApp Admin" — simpan lead
    *  (Nama + No. WhatsApp) dulu (non-blocking), lalu buka WA Admin dengan
-   *  pesan promo. Anchor native → imun pop-up blocker. */
+   *  pesan promo. Anchor native → imun pop-up blocker.
+   *  Momen sah (b) InitiateCheckout: klik VALID ini = submit form manual →
+   *  event ditembakkan tepat sekali untuk percobaan submit ini. */
   const handleManualOrder = (event: MouseEvent<HTMLAnchorElement>) => {
     const errors = validateCheckoutBuyer(form);
     if (Object.keys(errors).length > 0) {
@@ -116,6 +143,10 @@ export function BuyCta({
       toast.error("Isi dulu nama dan nomor WhatsApp Anda ya.");
       return;
     }
+
+    // Submit manual baru → reset guard, lalu tembak InitiateCheckout sekali
+    initiateCheckoutFiredRef.current = false;
+    fireInitiateCheckoutOnce();
 
     // Simpan lead SEBELUM membuka WhatsApp — fire-and-forget agar anchor
     // native (imun pop-up blocker) tetap berjalan tanpa jeda.
@@ -153,6 +184,8 @@ export function BuyCta({
     if (Object.keys(errors).length > 0) return;
 
     setSubmitting(true);
+    // Submit baru → izinkan InitiateCheckout ditembakkan sekali utk percobaan ini
+    initiateCheckoutFiredRef.current = false;
     try {
       // Zero friction — hanya nama + No. WhatsApp (email tidak dikumpulkan)
       const response = await fetch("/api/checkout", {
@@ -167,6 +200,10 @@ export function BuyCta({
         await response.json().catch(() => ({}));
 
       if (response.ok && typeof data.paymentUrl === "string") {
+        // Momen sah (a) InitiateCheckout: /api/checkout sudah menyimpan lead
+        // ke license_leads SEBELUM membuat invoice — event ditembakkan tepat
+        // sekali (guard ref) sebelum redirect ke halaman pembayaran Mayar.
+        fireInitiateCheckoutOnce();
         toast.success("Invoice dibuat — membuka halaman pembayaran…");
         // Redirect tab yang sama: pembayaran Mayar → kembali ke /payment/success
         window.location.assign(data.paymentUrl);

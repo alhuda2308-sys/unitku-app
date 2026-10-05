@@ -7,7 +7,8 @@
 // Tracking:
 //   - Meta Pixel dimuat kondisional via NEXT_PUBLIC_FACEBOOK_PIXEL_ID
 //     (kosong = tanpa pixel, tanpa error — lihat facebook-pixel.tsx).
-//   - Saat pixel aktif: event 'PageView' + 'InitiateCheckout' otomatis.
+//   - Saat pixel aktif: event 'PageView' otomatis; 'InitiateCheckout'
+//     menyusul HANYA saat form pembeli disubmit (lihat checkout-client.tsx).
 //
 // Alur pembelian identik dengan modal checkout landing:
 //   POST /api/checkout → invoice Mayar per-pembeli → redirect paymentUrl

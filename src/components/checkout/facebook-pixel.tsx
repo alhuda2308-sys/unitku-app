@@ -6,8 +6,11 @@
 // - NEXT_PUBLIC_FACEBOOK_PIXEL_ID kosong / tidak valid → komponen merender
 //   null: script pixel TIDAK dimuat sama sekali, tanpa error apa pun.
 // - Diisi → otomatis memuat fbevents.js, `fbq('init', ID)`, lalu menembakkan
-//   event 'PageView' + 'InitiateCheckout' (standard event Meta untuk halaman
-//   checkout, dipakai optimasi kampanye Ads).
+//   event 'PageView' saja saat halaman dibuka.
+// - 'InitiateCheckout' TIDAK ditembakkan di sini (page-load = belum ada data
+//   pembeli → konversi bias). Event standard tsb. dipindah ke CheckoutClient:
+//   HANYA saat form pembeli disubmit (lead tersimpan di license_leads) atau
+//   tombol "Pesan Manual via WhatsApp Admin" diklik dgn form valid.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Script from "next/script";
@@ -31,8 +34,7 @@ t.src=v;s=b.getElementsByTagName(e)[0];
 s.parentNode.insertBefore(t,s)}(window,document,'script',
 'https://connect.facebook.net/en_US/fbevents.js');
 fbq('init', '${pixelId}');
-fbq('track', 'PageView');
-fbq('track', 'InitiateCheckout');`}
+fbq('track', 'PageView');`}
       </Script>
       <noscript>
         <img

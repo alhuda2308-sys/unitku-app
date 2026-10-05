@@ -4,12 +4,14 @@
 // UnitKu — DemoConvertBar: sticky bottom bar konversi di Dashboard Demo
 //
 // Tampil HANYA saat pengunjung berada di mode demo (instantDemo ?demo=1 atau
-// sesi demo via cookie) — tujuan kampanye Meta Ads: demo → InitiateCheckout.
+// sesi demo via cookie) — tujuan kampanye Meta Ads: demo → checkout.
 //
 //  • Teks   : "Sedang mencoba demo UnitKu? Suka fiturnya? Amankan Lisensi
 //             Seumur Hidup Rp 399.000"
 //  • Tombol : "Beli Lisensi Sekarang" → membuka modal checkout (BuyCta) yang
-//             otomatis menembakkan event fbq('track','InitiateCheckout').
+//             menembakkan event custom fbq('trackCustom','ClickCTA_Beli') —
+//             InitiateCheckout baru ditembakkan saat form disubmit (bukan
+//             saat modal dibuka, agar event tak bias).
 //  • Bisa ditutup (X) — pilihan disimpan di sessionStorage agar tidak muncul
 //    lagi sepanjang sesi tab.
 //

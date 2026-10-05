@@ -18,9 +18,21 @@
 //                   Admin dengan pesan draft pembelian terisi Nama/No. WA
 //                   (anchor native, imun pop-up blocker).
 //   4. Catatan jaminan di bawah tombol.
+//
+// DOCTRINE META PIXEL (akurat, tidak bias — identik dgn modal checkout):
+//   - Pixel menembakkan 'PageView' saja saat halaman dibuka (facebook-pixel).
+//   - fbq('track','InitiateCheckout') ditembakkan TEPAT SEKALI per submit
+//     form dan HANYA pada dua momen sah: (a) tombol bayar utama sukses —
+//     lead tersimpan di license_leads oleh server sebelum redirect; ATAU
+//     (b) tombol "Pesan Manual via WhatsApp Admin" diklik dgn form valid.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, type FormEvent, type MouseEvent } from "react";
+import {
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent,
+} from "react";
 import Image from "next/image";
 import {
   BadgeCheck,
@@ -64,6 +76,25 @@ export function CheckoutClient() {
   const [fieldErrors, setFieldErrors] = useState<CheckoutFieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
 
+  /** Guard anti-dobel: InitiateCheckout TEPAT SEKALI per submit form.
+   *  Ref di-reset di awal tiap percobaan submit baru, lalu event hanya
+   *  ditembakkan pada satu titik sah — klik ganda / jalur async beruntun
+   *  tak bisa menggandakan event. */
+  const initiateCheckoutFiredRef = useRef(false);
+
+  /** InitiateCheckout (standard event Meta) — momen SAH: form pembeli sudah
+   *  lengkap & tersimpan (lead di license_leads), checkout benar-benar
+   *  dimulai. Ditembakkan maksimal sekali per submit via ref guard. */
+  const fireInitiateCheckoutOnce = () => {
+    if (initiateCheckoutFiredRef.current) return;
+    initiateCheckoutFiredRef.current = true;
+    window.fbq?.("track", "InitiateCheckout", {
+      content_name: "Lisensi Seumur Hidup UnitKu",
+      value: LICENSE_AMOUNT_IDR,
+      currency: "IDR",
+    });
+  };
+
   const setField = (key: keyof CheckoutFormState) => (value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     // Hapus error field terkait saat pengguna mulai mengetik ulang
@@ -84,7 +115,9 @@ export function CheckoutClient() {
     ? buildManualOrderWaLink(form)
     : SUPPORT_WA_PURCHASE_LINK;
 
-  /** Klik "Pesan Manual" — simpan lead dulu (non-blocking), lalu buka WA Admin */
+  /** Klik "Pesan Manual" — simpan lead dulu (non-blocking), lalu buka WA Admin.
+   *  Momen sah (b) InitiateCheckout: klik VALID ini = submit form manual →
+   *  event ditembakkan tepat sekali untuk percobaan submit ini. */
   const handleManualOrder = (event: MouseEvent<HTMLAnchorElement>) => {
     const errors = validateCheckoutBuyer(form);
     if (Object.keys(errors).length > 0) {
@@ -94,6 +127,10 @@ export function CheckoutClient() {
       toast.error("Isi dulu nama dan nomor WhatsApp Anda ya.");
       return;
     }
+
+    // Submit manual baru → reset guard, lalu tembak InitiateCheckout sekali
+    initiateCheckoutFiredRef.current = false;
+    fireInitiateCheckoutOnce();
 
     // Simpan lead SEBELUM membuka WhatsApp — fire-and-forget agar anchor
     // native (imun pop-up blocker) tetap berjalan tanpa jeda.
@@ -131,6 +168,8 @@ export function CheckoutClient() {
     if (Object.keys(errors).length > 0) return;
 
     setSubmitting(true);
+    // Submit baru → izinkan InitiateCheckout ditembakkan sekali utk percobaan ini
+    initiateCheckoutFiredRef.current = false;
     try {
       // Zero friction — hanya nama + No. WhatsApp (email tidak dikumpulkan)
       const response = await fetch("/api/checkout", {
@@ -145,6 +184,10 @@ export function CheckoutClient() {
         await response.json().catch(() => ({}));
 
       if (response.ok && typeof data.paymentUrl === "string") {
+        // Momen sah (a) InitiateCheckout: /api/checkout sudah menyimpan lead
+        // ke license_leads SEBELUM membuat invoice — event ditembakkan tepat
+        // sekali (guard ref) sebelum redirect ke halaman pembayaran Mayar.
+        fireInitiateCheckoutOnce();
         toast.success("Invoice dibuat — membuka halaman pembayaran…");
         // Redirect tab yang sama: pembayaran Mayar → kembali ke /payment/success
         window.location.assign(data.paymentUrl);
