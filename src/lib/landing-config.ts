@@ -63,6 +63,19 @@ export const LICENSE_AMOUNT_IDR =
 export const MAYAR_CHECKOUT_URL =
   process.env.NEXT_PUBLIC_MAYAR_CHECKOUT_URL ?? "";
 
+/**
+ * ▶ MASUKKAN LINK CHECKOUT MAYAR DI SINI — slot link hard-coded (fallback
+ *    terakhir tombol "Bayar Otomatis" di gerbang lisensi "Akses UnitKu Belum
+ *    Aktif"), mis. "https://mayar.id/l/xxxxx".
+ * Urutan prioritas URL gerbang lisensi:
+ *   1. API server (getMayarCheckoutUrl → NEXT_PUBLIC_MAYAR_CHECKOUT_URL /
+ *      MAYAR_CHECKOUT_URL)
+ *   2. env client NEXT_PUBLIC_MAYAR_CHECKOUT_URL
+ *   3. konstanta ini — SEMUA kosong → tombol Mayar disembunyikan (jalur
+ *      transfer BCA + konfirmasi WA tetap tampil).
+ */
+export const MAYAR_CHECKOUT_URL_FALLBACK = "";
+
 // ── Gerbang lisensi (layar gembok) — pembayaran & konfirmasi manual ─────────
 
 /** Nomor WhatsApp Admin penerima konfirmasi pembayaran manual di gerbang

@@ -5,8 +5,12 @@
 //
 // Ditampilkan pada dashboard owner & onboarding bila akun masuk tetapi
 // isLifetimeLicensed = false. Tiga jalur bayar agar pengguna baru tidak buntu:
-//   1. Bayar otomatis Mayar (QRIS / VA / E-Wallet) — tombol utama; bila env
-//      checkout kosong → tombol "Beli Lisensi Sekarang" (fallback WA admin)
+//   1. Bayar otomatis Mayar (QRIS / VA / E-Wallet) — SATU tombol utama
+//      "Bayar Otomatis (QRIS / VA / E-Wallet)" (ikon kartu kredit) yang
+//      SELALU membuka URL checkout Mayar di tab baru (jangan pernah ke WA —
+//      konfirmasi WA sudah ada di bawah). URL: API gerbang (server) →
+//      NEXT_PUBLIC_MAYAR_CHECKOUT_URL → slot hard-coded
+//      MAYAR_CHECKOUT_URL_FALLBACK; semua kosong → tombol disembunyikan
 //      TANPA pesan error mentah yang membingungkan.
 //   2. Transfer manual BCA — box rekening + tombol "Salin No Rekening"
 //      (ikon berubah jadi centang + toast "Tersalin").
@@ -23,12 +27,12 @@ import {
   BadgeCheck,
   Check,
   Copy,
+  CreditCard,
   Landmark,
   Loader2,
   Lock,
   MessageCircle,
   RefreshCw,
-  Wallet,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -39,7 +43,7 @@ import {
   LICENSE_PRICE_DISPLAY,
   MANUAL_TRANSFER,
   MAYAR_CHECKOUT_URL,
-  SUPPORT_WA_PURCHASE_LINK,
+  MAYAR_CHECKOUT_URL_FALLBACK,
 } from "@/lib/landing-config";
 
 interface LicenseGateProps {
@@ -58,9 +62,15 @@ export function LicenseGate({ email, checkoutUrl }: LicenseGateProps) {
     };
   }, []);
 
-  // URL checkout valid: dari API gerbang (getMayarCheckoutUrl, server) ATAU
-  // NEXT_PUBLIC_MAYAR_CHECKOUT_URL — dua-duanya kosong → tombol fallback WA.
-  const autoCheckoutUrl = (checkoutUrl ?? "").trim() || MAYAR_CHECKOUT_URL.trim();
+  // URL checkout valid — prioritas: API gerbang (getMayarCheckoutUrl,
+  // server) → NEXT_PUBLIC_MAYAR_CHECKOUT_URL → slot hard-coded
+  // MAYAR_CHECKOUT_URL_FALLBACK. TIDAK ADA fallback WhatsApp di sini
+  // (konfirmasi WA admin sudah tersedia sebagai tombol terpisah di bawah);
+  // semua kosong → tombol Mayar disembunyikan (bukan tautan mati).
+  const autoCheckoutUrl =
+    (checkoutUrl ?? "").trim() ||
+    MAYAR_CHECKOUT_URL.trim() ||
+    MAYAR_CHECKOUT_URL_FALLBACK.trim();
 
   const handleCheckAgain = () => {
     setBusy("check");
@@ -140,19 +150,17 @@ export function LicenseGate({ email, checkoutUrl }: LicenseGateProps) {
             </p>
           </div>
 
-          {/* ── 1) Pembayaran otomatis (Mayar) / fallback beli via WA ───── */}
-          {autoCheckoutUrl ? (
+          {/* ── 1) Pembayaran otomatis (Mayar) — selalu ke checkout Mayar ─ */}
+          {autoCheckoutUrl && (
             <Button asChild className="mt-4 h-11 w-full text-[13px] font-semibold">
-              <a href={autoCheckoutUrl} target="_blank" rel="noreferrer">
-                <Wallet strokeWidth={1.75} aria-hidden="true" />
-                Bayar Otomatis Sekarang (QRIS / VA / E-Wallet)
-              </a>
-            </Button>
-          ) : (
-            <Button asChild className="mt-4 h-11 w-full text-[13px] font-semibold">
-              <a href={SUPPORT_WA_PURCHASE_LINK} target="_blank" rel="noreferrer">
-                <MessageCircle strokeWidth={1.75} aria-hidden="true" />
-                Beli Lisensi Sekarang
+              <a
+                href={autoCheckoutUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Bayar otomatis via Mayar — QRIS, Virtual Account, atau E-Wallet (tab baru)"
+              >
+                <CreditCard strokeWidth={1.75} aria-hidden="true" />
+                Bayar Otomatis (QRIS / VA / E-Wallet)
               </a>
             </Button>
           )}
