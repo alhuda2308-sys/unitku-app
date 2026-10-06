@@ -8,11 +8,14 @@
 //   - Meta Pixel dimuat kondisional via NEXT_PUBLIC_FACEBOOK_PIXEL_ID
 //     (kosong = tanpa pixel, tanpa error — lihat facebook-pixel.tsx).
 //   - Saat pixel aktif: event 'PageView' otomatis; 'InitiateCheckout'
-//     menyusul HANYA saat form pembeli disubmit (lihat checkout-client.tsx).
+//     menyusul HANYA saat tombol bayar diklik (lihat checkout-client.tsx).
 //
-// Alur pembelian identik dengan modal checkout landing:
-//   POST /api/checkout → invoice Mayar per-pembeli → redirect paymentUrl
-//   → webhook /api/webhooks/mayar → akun + lisensi aktif otomatis.
+// Alur pembelian (lihat checkout-client.tsx):
+//   Tombol "Bayar Otomatis" → ANCHOR LANGSUNG ke URL checkout Mayar resmi
+//   (landing-config: MAYAR_CHECKOUT_URL → MAYAR_CHECKOUT_URL_FALLBACK) di tab
+//   baru; lead tersimpan via POST /api/leads bila form valid. Tombol "Pesan
+//   Manual via WhatsApp Admin" → POST /api/leads → wa.me Admin.
+//   Pembayaran sukses → webhook /api/webhooks/mayar → lisensi aktif otomatis.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Metadata } from "next";

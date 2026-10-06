@@ -5,14 +5,21 @@
 //
 // Desain ringkas, mobile-first, fokus konversi — tanpa header/footer landing.
 //   1. Ringkasan penawaran: badge, judul, harga coret Rp 799.000 → Rp 399.000,
-//      3 poin manfaat utama (checklist hijau).
+//      4 poin manfaat utama (checklist hijau).
 //   2. Form ZERO FRICTION — HANYA 2 input (email dihapus sepenuhnya):
 //      Nama Lengkap + Nomor WhatsApp. Validasi SHARED yang sama dengan modal
 //      checkout (src/lib/checkout-validation.ts, cermin validasi server).
 //   3. Dua aksi seimbang:
-//      - Primary  : "Bayar Otomatis (QRIS / VA / E-Wallet)" → POST /api/checkout
-//                   (loading state) → redirect ke payment link Mayar (lead
-//                   tersimpan di server SEBELUM redirect).
+//      - Primary  : "Bayar Otomatis (QRIS / VA / E-Wallet)" → ANCHOR LANGSUNG
+//                   membuka URL checkout Mayar resmi (MAYAR_CHECKOUT_URL →
+//                   MAYAR_CHECKOUT_URL_FALLBACK) di TAB BARU — anchor native,
+//                   imun pop-up blocker. Klik dgn form valid menyimpan lead
+//                   dulu via POST /api/leads (fire-and-forget, sumber
+//                   BAYAR_OTOMATIS) agar Admin tetap punya kontak walau
+//                   pembayaran tidak diselesaikan; form TIDAK memblokir
+//                   navigasi — data invoice diisi pembeli di halaman Mayar.
+//                   (Jalur lama POST /api/checkout invoice per-pembeli tidak
+//                   lagi dipakai UI; endpoint tetap tersedia server-side.)
 //      - Sekunder : "Pesan Manual via WhatsApp Admin" → VALIDASI form →
 //                   POST /api/leads (simpan kontak — fire-and-forget) → wa.me
 //                   Admin dengan pesan draft pembelian terisi Nama/No. WA
@@ -21,26 +28,25 @@
 //
 // DOCTRINE META PIXEL (akurat, tidak bias — identik dgn modal checkout):
 //   - Pixel menembakkan 'PageView' saja saat halaman dibuka (facebook-pixel).
-//   - fbq('track','InitiateCheckout') ditembakkan TEPAT SEKALI per submit
-//     form dan HANYA pada dua momen sah: (a) tombol bayar utama sukses —
-//     lead tersimpan di license_leads oleh server sebelum redirect; ATAU
-//     (b) tombol "Pesan Manual via WhatsApp Admin" diklik dgn form valid.
+//   - fbq('track','InitiateCheckout') ditembakkan TEPAT SEKALI per klik
+//     tombol bayar dan HANYA pada dua momen sah: (a) tombol "Bayar Otomatis"
+//     diklik — pembeli memasuki checkout Mayar (form opsional, tidak
+//     memblokir); ATAU (b) tombol "Pesan Manual via WhatsApp Admin" diklik
+//     dgn form valid.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
   useRef,
   useState,
-  type FormEvent,
   type MouseEvent,
 } from "react";
 import Image from "next/image";
 import {
   BadgeCheck,
   CheckCircle2,
-  Loader2,
+  CreditCard,
   LockKeyhole,
   MessageCircle,
-  Wallet,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -55,6 +61,8 @@ import {
 } from "@/lib/checkout-validation";
 import {
   LICENSE_AMOUNT_IDR,
+  MAYAR_CHECKOUT_URL,
+  MAYAR_CHECKOUT_URL_FALLBACK,
   SUPPORT_WA_PURCHASE_LINK,
 } from "@/lib/landing-config";
 import { toast } from "@/lib/toast";
@@ -74,7 +82,6 @@ const BENEFITS = [
 export function CheckoutClient() {
   const [form, setForm] = useState<CheckoutFormState>(EMPTY_CHECKOUT_FORM);
   const [fieldErrors, setFieldErrors] = useState<CheckoutFieldErrors>({});
-  const [submitting, setSubmitting] = useState(false);
 
   /** Guard anti-dobel: InitiateCheckout TEPAT SEKALI per submit form.
    *  Ref di-reset di awal tiap percobaan submit baru, lalu event hanya
@@ -105,6 +112,13 @@ export function CheckoutClient() {
       return next;
     });
   };
+
+  // URL checkout Mayar resmi — env client dulu, lalu slot hard-coded config.
+  // Sumber tunggal tombol "Bayar Otomatis" halaman ini (identik dgn tombol
+  // gerbang lisensi) — ganti link cukup di landing-config.ts / env, tanpa
+  // menyentuh UI.
+  const mayarCheckoutUrl =
+    MAYAR_CHECKOUT_URL.trim() || MAYAR_CHECKOUT_URL_FALLBACK.trim();
 
   // Link WA manual mengikuti isi form (draft pesan terisi otomatis);
   // fallback link default selama form belum valid (tak pernah dinavigasi —
@@ -159,55 +173,34 @@ export function CheckoutClient() {
       });
   };
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting) return;
-
-    const errors = validateCheckoutBuyer(form);
-    setFieldErrors(errors);
-    if (Object.keys(errors).length > 0) return;
-
-    setSubmitting(true);
-    // Submit baru → izinkan InitiateCheckout ditembakkan sekali utk percobaan ini
+  /** Klik "Bayar Otomatis" — buka halaman checkout Mayar resmi (TAB BARU,
+   *  anchor native imun pop-up blocker). InitiateCheckout ditembakkan sekali
+   *  per klik (momen sah: pembeli memasuki checkout Mayar — form TIDAK
+   *  memblokir navigasi, data invoice diisi pembeli di halaman Mayar). Bila
+   *  form sudah valid, kontak disimpan dulu via POST /api/leads
+   *  (fire-and-forget — navigasi terjadi di tab baru sehingga fetch tetap
+   *  selesai) agar Admin tetap mendapat data walau pembayaran batal. */
+  const handleAutoPay = () => {
+    // Percobaan klik baru → reset guard, lalu tembak InitiateCheckout sekali
     initiateCheckoutFiredRef.current = false;
-    try {
-      // Zero friction — hanya nama + No. WhatsApp (email tidak dikumpulkan)
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          phone: form.phone,
-        }),
-      });
-      const data: { paymentUrl?: string; error?: string; field?: string } =
-        await response.json().catch(() => ({}));
+    fireInitiateCheckoutOnce();
 
-      if (response.ok && typeof data.paymentUrl === "string") {
-        // Momen sah (a) InitiateCheckout: /api/checkout sudah menyimpan lead
-        // ke license_leads SEBELUM membuat invoice — event ditembakkan tepat
-        // sekali (guard ref) sebelum redirect ke halaman pembayaran Mayar.
-        fireInitiateCheckoutOnce();
-        toast.success("Invoice dibuat — membuka halaman pembayaran…");
-        // Redirect tab yang sama: pembayaran Mayar → kembali ke /payment/success
-        window.location.assign(data.paymentUrl);
-        return;
-      }
+    if (Object.keys(validateCheckoutBuyer(form)).length > 0) return;
 
-      const message =
-        data.error ?? "Gagal memproses checkout — silakan coba lagi.";
-      toast.error(message);
-      if (typeof data.field === "string" && data.field) {
-        setFieldErrors({ [data.field]: message } as CheckoutFieldErrors);
-      }
-    } catch {
-      toast.error(
-        "Tidak dapat menghubungi server. Periksa koneksi lalu coba lagi.",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
+    void fetch("/api/leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: form.name.trim(),
+        phone: form.phone,
+        source: "BAYAR_OTOMATIS",
+      }),
+    }).catch(() => {
+      // Navigasi ke Mayar adalah aksi utama — kegagalan lead tidak perlu
+      // mengganggu pembeli (Admin tetap melihat transaksi di dasbor Mayar).
+    });
+    toast.success("Membuka halaman pembayaran Mayar…");
+  };
 
   return (
     <main className="flex min-h-screen flex-col bg-zinc-50">
@@ -291,7 +284,11 @@ export function CheckoutClient() {
               Cukup 2 data — dipakai Admin untuk aktivasi lisensi Anda.
             </p>
 
-            <form onSubmit={handleSubmit} noValidate className="mt-4 space-y-3.5">
+            <form
+              onSubmit={(event) => event.preventDefault()}
+              noValidate
+              className="mt-4 space-y-3.5"
+            >
               {/* Nama Lengkap */}
               <div className="space-y-1.5 text-left">
                 <Label
@@ -311,7 +308,6 @@ export function CheckoutClient() {
                   placeholder="Nama Anda / Nama Kost"
                   value={form.name}
                   onChange={(e) => setField("name")(e.target.value)}
-                  disabled={submitting}
                   aria-invalid={Boolean(fieldErrors.name)}
                   aria-describedby={
                     fieldErrors.name ? "checkout-name-error" : undefined
@@ -350,7 +346,6 @@ export function CheckoutClient() {
                   placeholder="08123456789"
                   value={form.phone}
                   onChange={(e) => setField("phone")(e.target.value)}
-                  disabled={submitting}
                   aria-invalid={Boolean(fieldErrors.phone)}
                   aria-describedby={
                     fieldErrors.phone
@@ -379,31 +374,40 @@ export function CheckoutClient() {
 
               {/* Dua aksi seimbang: checkout otomatis & manual via WA */}
               <div className="grid grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2">
-                <Button
-                  type="submit"
-                  disabled={submitting}
-                  className="h-auto min-h-12 whitespace-normal px-3 py-2.5 text-[13px] font-bold leading-snug"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2
-                        className="size-4 shrink-0 animate-spin"
-                        strokeWidth={1.75}
-                        aria-hidden="true"
-                      />
-                      Memproses…
-                    </>
-                  ) : (
-                    <>
-                      <Wallet
+                {mayarCheckoutUrl ? (
+                  <Button
+                    asChild
+                    className="h-auto min-h-12 whitespace-normal px-3 py-2.5 text-[13px] font-bold leading-snug"
+                  >
+                    <a
+                      href={mayarCheckoutUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={handleAutoPay}
+                      aria-label="Bayar otomatis via Mayar — QRIS, Virtual Account, atau E-Wallet (tab baru)"
+                    >
+                      <CreditCard
                         className="size-4 shrink-0"
                         strokeWidth={1.75}
                         aria-hidden="true"
                       />
                       Bayar Otomatis (QRIS / VA / E-Wallet)
-                    </>
-                  )}
-                </Button>
+                    </a>
+                  </Button>
+                ) : (
+                  <Button
+                    disabled
+                    title="URL checkout Mayar belum dikonfigurasi — gunakan tombol WhatsApp di sebelah."
+                    className="h-auto min-h-12 whitespace-normal px-3 py-2.5 text-[13px] font-bold leading-snug"
+                  >
+                    <CreditCard
+                      className="size-4 shrink-0"
+                      strokeWidth={1.75}
+                      aria-hidden="true"
+                    />
+                    Bayar Otomatis (QRIS / VA / E-Wallet)
+                  </Button>
+                )}
                 <Button
                   asChild
                   variant="outline"

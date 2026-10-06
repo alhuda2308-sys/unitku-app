@@ -64,17 +64,19 @@ export const MAYAR_CHECKOUT_URL =
   process.env.NEXT_PUBLIC_MAYAR_CHECKOUT_URL ?? "";
 
 /**
- * ▶ MASUKKAN LINK CHECKOUT MAYAR DI SINI — slot link hard-coded (fallback
- *    terakhir tombol "Bayar Otomatis" di gerbang lisensi "Akses UnitKu Belum
- *    Aktif"), mis. "https://mayar.id/l/xxxxx".
+ * ▶ LINK CHECKOUT MAYAR RESMI (slot hard-coded) — dipakai tombol "Bayar
+ *    Otomatis (QRIS / VA / E-Wallet)" di gerbang lisensi "Akses UnitKu Belum
+ *    Aktif" DAN halaman /checkout (tab baru).
  * Urutan prioritas URL gerbang lisensi:
  *   1. API server (getMayarCheckoutUrl → NEXT_PUBLIC_MAYAR_CHECKOUT_URL /
  *      MAYAR_CHECKOUT_URL)
  *   2. env client NEXT_PUBLIC_MAYAR_CHECKOUT_URL
- *   3. konstanta ini — SEMUA kosong → tombol Mayar disembunyikan (jalur
- *      transfer BCA + konfirmasi WA tetap tampil).
+ *   3. konstanta ini — SEMUA kosong → gerbang menyembunyikan tombol Mayar
+ *      (jalur transfer BCA + konfirmasi WA tetap tampil).
+ * Ganti link cukup di SATU tempat ini (atau override via env tanpa deploy).
  */
-export const MAYAR_CHECKOUT_URL_FALLBACK = "";
+export const MAYAR_CHECKOUT_URL_FALLBACK =
+  "https://elvin-digital.myr.id/pl/lisensi-lifetime-unitku";
 
 // ── Gerbang lisensi (layar gembok) — pembayaran & konfirmasi manual ─────────
 
