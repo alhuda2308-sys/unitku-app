@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "@/lib/toast";
 import { BRAND_WA_LINE } from "@/lib/brand";
+import { sessionIdentityLabel } from "@/lib/auth/phone-email";
 import {
   getLeadsAlertServerSnapshot,
   getLeadsAlertSnapshot,
@@ -524,7 +525,8 @@ function SectionCard({
 
 /* ── Tab 1: Profil Saya ────────────────────────────────────────────────────── */
 
-/** Kartu "Akun & Sesi" — email sesi auth aktif + tombol keluar. */
+/** Kartu "Akun & Sesi" — identitas akun aktif (Nomor WhatsApp utk akun berbasis
+ *  WA; email asli hanya utk akun lama/admin) + tombol keluar. */
 function AccountCard() {
   const [info, setInfo] = useState<Awaited<ReturnType<typeof getAuthInfo>> | null>(null);
   /** Jumlah pendaftar baru belum ditinjau — badge merah tombol Panel Super Admin */
@@ -552,10 +554,10 @@ function AccountCard() {
     window.location.href = "/login";
   };
 
-  const emailText = info
+  const identityText = info
     ? info.demo
-      ? "demo@unitku.id"
-      : (info.user?.email ?? "Tidak diketahui")
+      ? "Akun Demo"
+      : sessionIdentityLabel(info.user?.email, "Tidak diketahui")
     : "Memuat…";
 
   const modeText = info
@@ -572,7 +574,7 @@ function AccountCard() {
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate text-[13px] font-medium text-zinc-900">{emailText}</p>
+            <p className="truncate text-[13px] font-medium text-zinc-900">{identityText}</p>
             {info?.demo && (
               <Badge className="border-transparent bg-amber-100 text-[12.5px] font-medium text-amber-800">
                 Mode Demo
@@ -636,20 +638,20 @@ function ProfilSayaTab({
   isDemoMode?: boolean;
 }) {
   const [nama, setNama] = useState(owner.nama);
-  const [email, setEmail] = useState(owner.email);
   const [wa, setWa] = useState(owner.whatsapp);
   const [saving, setSaving] = useState(false);
 
-  const dirty = nama.trim() !== owner.nama || email.trim() !== owner.email || wa.trim() !== owner.whatsapp;
+  // Email pengelola dipertahankan apa adanya (dipakai internal sinkronisasi
+  // lintas perangkat) — UI profil 100% Nomor WhatsApp tanpa input email.
+  const dirty = nama.trim() !== owner.nama || wa.trim() !== owner.whatsapp;
 
   const waDigits = wa.replace(/[^0-9]/g, "");
-  const emailValid = /\S+@\S+\.\S+/.test(email);
-  const valid = nama.trim().length >= 2 && emailValid && waDigits.length >= 9;
+  const valid = nama.trim().length >= 2 && waDigits.length >= 9;
 
   const save = async () => {
     if (!valid || saving) return;
     setSaving(true);
-    const ok = await onSave({ nama: nama.trim(), email: email.trim(), whatsapp: wa.trim() });
+    const ok = await onSave({ nama: nama.trim(), email: owner.email, whatsapp: wa.trim() });
     setSaving(false);
     toastSaveResult(
       ok,
@@ -675,22 +677,7 @@ function ProfilSayaTab({
                 placeholder="cth. Hendra Wijaya"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="st-me-email" className="text-[12.5px] text-zinc-600">Email</Label>
-              <Input
-                id="st-me-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className={cn(inputCls, !emailValid && email.length > 0 && "border-red-300 focus-visible:ring-red-900/10")}
-                placeholder="nama@email.com"
-                aria-invalid={!emailValid && email.length > 0}
-              />
-              {!emailValid && email.length > 0 && (
-                <p className="text-xs text-red-500">Format email belum valid.</p>
-              )}
-            </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="st-me-wa" className="text-[12.5px] text-zinc-600">Nomor WhatsApp Pengelola</Label>
               <Input
                 id="st-me-wa"
@@ -722,7 +709,7 @@ function ProfilSayaTab({
           busy={saving}
           hint={
             !valid && dirty
-              ? "Lengkapi nama, email valid, dan nomor WA (min. 9 digit)."
+              ? "Lengkapi nama dan nomor WA pengelola (min. 9 digit)."
               : dirty
                 ? "Ada perubahan yang belum disimpan."
                 : undefined

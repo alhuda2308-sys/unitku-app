@@ -3,16 +3,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // AdminPanel — Panel Super Admin UnitKu (client)
 //
-// • Tabel seluruh pengguna/owner: Nama, Email, Tanggal Daftar, Properti/Kost,
-//   Status Lisensi (badge), Sumber Lisensi, Aksi.
-// • "+ Tambah Pengguna Manual (Bypass Mayar)" — buat akun + properti + lisensi
-//   lifetime, lalu tampilkan kredensial siap-copy utk dikirim via WA/Email.
-// • Aksi cepat per baris: saklar lisensi instan, reset password cepat,
-//   hapus akun (dengan konfirmasi).
+// • Tabel seluruh pengguna/owner: Nama, Nomor WhatsApp (identitas utama),
+//   Tanggal Daftar, Properti/Kost, Status Lisensi (badge), Sumber Lisensi, Aksi.
+//   100% berbasis WhatsApp — email autentikasi internal tidak pernah dipamerkan.
+// • "+ Tambah Pengguna Manual (Bypass Mayar)" — buat akun dari Nomor WhatsApp
+//   + properti + lisensi lifetime, lalu tampilkan kredensial siap-copy utk
+//   dikirim via WhatsApp.
+// • Aksi cepat per baris: Kirim & Salin Pesan Akses WA (template aktivasi
+//   resmi), saklar lisensi instan, reset password cepat, hapus akun.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -34,10 +37,18 @@ import {
 import { toast } from "@/lib/toast";
 import { useLeadsAlerts } from "@/hooks/use-leads-alerts";
 import {
+  formatWaDisplay,
+  phoneEmailToPhone,
+  phoneToEmail,
+  sessionIdentityLabel,
+} from "@/lib/auth/phone-email";
+import { normalizeWaPhone } from "@/lib/checkout-validation";
+import {
   formatJamDaftar,
   formatTanggalDaftar,
   timestampLengkap,
 } from "@/lib/waktu-daftar";
+import { WaIcon } from "@/components/kost/wa-icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,12 +100,15 @@ interface AdminUserRow {
   isSuperAdmin: boolean;
 }
 
-/** Label baris utk toast/dialog — email, atau fallback Nama (No. WA).
- *  (formatWaDisplay adalah function declaration — hoisted, aman dipanggil di sini.) */
+/** Identitas baris utk toast/dialog — Nama (No. WA) bila tersedia; email
+ *  asli hanya sebagai fallback akun lama tanpa nomor. (formatWaDisplay
+ *  adalah function export — aman dipanggil di sini.) */
 function rowLabel(row: AdminUserRow): string {
+  const wa = row.phone ? formatWaDisplay(row.phone) : null;
+  if (row.name && wa) return `${row.name} (${wa})`;
+  if (wa) return wa;
   if (row.email) return row.email;
-  const wa = row.phone ? formatWaDisplay(row.phone) : "tanpa nomor";
-  return row.name ? `${row.name} (${wa})` : wa;
+  return row.name ?? "(tanpa identitas)";
 }
 
 interface Credentials {
@@ -107,15 +121,8 @@ const SOURCE_LABEL: Record<"mayar" | "manual", string> = {
   manual: "Manual Super Admin",
 };
 
-/** Tampilan nomor rapi — "6281234567890" → "+62 812-3456-7890" */
-function formatWaDisplay(phone: string): string {
-  if (phone.startsWith("62")) {
-    const local = phone.slice(2);
-    const match = local.match(/^(\d{3})(\d{4})(\d+)$/);
-    return match ? `+62 ${match[1]}-${match[2]}-${match[3]}` : `+62 ${local}`;
-  }
-  return `+${phone}`;
-}
+/** Tampilan nomor rapi — "6281234567890" → "+62 812-3456-7890"
+ *  (implementasi hidup di src/lib/auth/phone-email.ts — dibagikan lintas UI). */
 
 /** Password acak url-safe 16 char (browser crypto) — setara server */
 function randomPassword(): string {
@@ -149,12 +156,63 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/* ── Pesan Aktivasi WA — template resmi kirim akses ke pengguna ────────────
+ * [NAMA]     → nama pengguna (kosong → sapaan "Kak" saja)
+ * [NOMOR_WA] → nomor WhatsApp pengguna terkait (tampilan rapi)
+ * Tombol aksi tabel membuka wa.me dengan draft ini + menyediakan Salin Pesan. */
+
+/** No. WA valid (62…, 9–15 digit) — syarat tombol Pesan Aktivasi tampil */
+function hasValidWa(row: AdminUserRow): boolean {
+  return /^62[0-9]{8,13}$/.test(row.phone ?? "");
+}
+
+function buildWaActivationMessage(row: AdminUserRow): string {
+  const nama = row.name?.trim() ?? "";
+  const nomor = row.phone ? formatWaDisplay(row.phone) : "";
+  return [
+    `Halo ${nama ? `Kak ${nama}` : "Kak"}, akun UnitKu Kakak sudah resmi aktif! 🎉`,
+    "",
+    "Berikut detail akses login Kakak:",
+    "- Link Login: https://unitku.my.id/login",
+    `- Nomor WhatsApp: ${nomor}`,
+    "- Status Lisensi: Aktif Seumur Hidup (Lifetime)",
+    "",
+    "Langkah awal:",
+    "1. Buka link di atas, lalu masuk menggunakan nomor WhatsApp Kakak.",
+    "2. Masukkan data kamar/unit sewa pertama Kakak di menu Properti.",
+    "3. Siap kirim tagihan sewa otomatis ke penyewa via WhatsApp!",
+    "",
+    "Jika ada kendala saat setting kamar atau butuh bantuan penggunaan, silakan langsung balas chat ini ya Kak. Selamat menggunakan UnitKu! 🚀",
+  ].join("\n");
+}
+
+/** Link wa.me dengan draft pesan aktivasi terisi — nomor tanpa “+”/tanda baca */
+function waActivationLink(row: AdminUserRow): string {
+  return `https://wa.me/${row.phone}?text=${encodeURIComponent(buildWaActivationMessage(row))}`;
+}
+
+/** Salin pesan aktivasi + toast feedback (dipakai tombol Kirim & Salin Pesan) */
+async function copyActivationMessage(row: AdminUserRow): Promise<void> {
+  const ok = await copyText(buildWaActivationMessage(row));
+  if (ok) {
+    toast.success("Pesan aktivasi WA berhasil disalin!", {
+      description: `Tempel ke chat WhatsApp ${formatWaDisplay(row.phone ?? "")} lalu kirim.`,
+    });
+  } else {
+    toast.error("Gagal menyalin pesan", {
+      description: "Coba lagi atau salin manual dari pesan aktivasi.",
+    });
+  }
+}
+
 function credentialsMessage(c: Credentials): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
+  // Akun berbasis WA → tampilkan nomor (identitas login), BUKAN email sintetis.
+  const phone = phoneEmailToPhone(c.email);
   return [
     "Akses Dashboard UnitKu",
     `URL Masuk: ${origin}/login`,
-    `Email: ${c.email}`,
+    phone ? `Nomor WhatsApp: ${phone}` : `Email: ${c.email}`,
     `Password: ${c.password}`,
   ].join("\n");
 }
@@ -169,7 +227,7 @@ function CredentialsView({ credentials }: { credentials: Credentials }) {
     if (ok) {
       setCopied(true);
       toast.success("Kredensial disalin", {
-        description: "Tempel & kirimkan ke pengguna via WhatsApp atau Email.",
+        description: "Tempel & kirimkan ke pengguna via WhatsApp.",
       });
       setTimeout(() => setCopied(false), 2000);
     } else {
@@ -186,8 +244,12 @@ function CredentialsView({ credentials }: { credentials: Credentials }) {
       </div>
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-zinc-50 px-3 py-2">
-          <span className="text-[12.5px] text-zinc-500">Email</span>
-          <span className="truncate font-mono text-[12.5px] font-medium text-zinc-900">{credentials.email}</span>
+          <span className="text-[12.5px] text-zinc-500">
+            {phoneEmailToPhone(credentials.email) ? "Nomor WhatsApp" : "Email"}
+          </span>
+          <span className="truncate font-mono text-[12.5px] font-medium text-zinc-900">
+            {sessionIdentityLabel(credentials.email)}
+          </span>
         </div>
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-zinc-50 px-3 py-2">
           <span className="text-[12.5px] text-zinc-500">Password</span>
@@ -200,7 +262,7 @@ function CredentialsView({ credentials }: { credentials: Credentials }) {
         ) : (
           <Copy className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
         )}
-        Salin Kredensial (WhatsApp/Email)
+        Salin Kredensial (WhatsApp)
       </Button>
     </div>
   );
@@ -218,7 +280,7 @@ function AddUserDialog({
   onCreated: () => void;
 }) {
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [propertyName, setPropertyName] = useState("");
   const [lifetime, setLifetime] = useState(true);
@@ -228,7 +290,7 @@ function AddUserDialog({
 
   const reset = () => {
     setName("");
-    setEmail("");
+    setPhone("");
     setPassword("");
     setPropertyName("");
     setLifetime(true);
@@ -241,9 +303,12 @@ function AddUserDialog({
     onOpenChange(v);
   };
 
-  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  // Identitas 100% WhatsApp: nomor dinormalisasi ke 62…, email autentikasi
+  // disintesis server-side (62…@user.unitku.my.id) — admin tidak melihat email.
+  const phoneNorm = normalizeWaPhone(phone);
+  const phoneValid = /^62[0-9]{8,13}$/.test(phoneNorm);
   const valid =
-    name.trim().length >= 2 && emailValid && propertyName.trim().length >= 2 && password.length >= 6;
+    name.trim().length >= 2 && phoneValid && propertyName.trim().length >= 2 && password.length >= 6;
 
   const submit = async () => {
     if (!valid || busy) return;
@@ -255,7 +320,9 @@ function AddUserDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          email: email.trim(),
+          phone: phoneNorm,
+          // Kompatibel server lama: email sintetis ikut dikirim dari nomor.
+          email: phoneToEmail(phoneNorm),
           password,
           propertyName: propertyName.trim(),
           lifetime,
@@ -324,16 +391,29 @@ function AddUserDialog({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="adm-email" className="text-[12.5px] text-zinc-600">Alamat Email</Label>
+                <Label htmlFor="adm-wa" className="text-[12.5px] text-zinc-600">Nomor WhatsApp Owner</Label>
                 <Input
-                  id="adm-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="owner@email.com"
-                  className="h-9 text-[13px]"
+                  id="adm-wa"
+                  type="tel"
+                  inputMode="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="08xxxxxxxxxx / 62xxxxxxxxxx"
+                  className={cn(
+                    "h-9 text-[13px]",
+                    !phoneValid && phone.length > 0 && "border-red-300 focus-visible:ring-red-900/10",
+                  )}
+                  aria-invalid={!phoneValid && phone.length > 0}
                   autoComplete="off"
                 />
+                {!phoneValid && phone.length > 0 && (
+                  <p className="text-xs text-red-500">
+                    Nomor WhatsApp belum sesuai — mulai dengan 08 atau 62 ya.
+                  </p>
+                )}
+                <p className="text-[12.5px] text-zinc-500">
+                  Dipakai sebagai identitas login pengguna — akun dibuat otomatis dari nomor ini.
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="adm-pass" className="text-[12.5px] text-zinc-600">Password Awal</Label>
@@ -441,7 +521,7 @@ function ResetPasswordDialog({
       if (res.ok && data.credentials) {
         setCredentials(data.credentials);
         toast.success("Password diperbarui", {
-          description: `Password baru untuk ${target.email} sudah aktif.`,
+          description: `Password baru untuk ${rowLabel(target)} sudah aktif.`,
         });
       } else {
         setError(data.error ?? "Gagal mengganti password.");
@@ -477,7 +557,10 @@ function ResetPasswordDialog({
               <DialogTitle className="text-[15px]">Reset Password Cepat</DialogTitle>
               <DialogDescription className="text-[12.5px]">
                 Set password baru untuk{" "}
-                <span className="font-medium text-zinc-700">{target?.email ?? "(tanpa email)"}</span> langsung via Admin API.
+                <span className="font-medium text-zinc-700">
+                  {target ? rowLabel(target) : "(memuat)"}
+                </span>{" "}
+                langsung via Admin API.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
@@ -781,7 +864,7 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Cari nama, email, atau properti…"
+            placeholder="Cari nama, nomor WhatsApp, atau properti…"
             className="h-9 w-full max-w-xs text-[13px]"
           />
           <Button
@@ -816,17 +899,16 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
               </p>
               <p className="max-w-sm text-[12.5px] text-zinc-500">
                 {query
-                  ? "Coba kata kunci lain — pencarian mencakup nama, email, dan properti."
+                  ? "Coba kata kunci lain — pencarian mencakup nama, nomor WhatsApp, dan properti."
                   : "Akun pembeli dari webhook Mayar dan pengguna manual akan tampil di sini."}
               </p>
             </div>
           ) : (
             <div className="scrollbar-thin max-h-[560px] overflow-auto">
-              <Table className="min-w-[1020px]">
+              <Table className="min-w-[960px]">
                 <TableHeader className="sticky top-0 z-10 bg-zinc-50 [&_tr]:border-b">
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="h-9 pl-4 text-[12.5px] font-medium text-zinc-500">Nama</TableHead>
-                    <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">Email</TableHead>
                     <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">Nomor WhatsApp</TableHead>
                     <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">Tanggal Daftar</TableHead>
                     <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">Properti/Kost</TableHead>
@@ -851,22 +933,13 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                         </div>
                       </TableCell>
                       <TableCell className="py-2.5">
-                        {row.email ? (
-                          <span className="block max-w-[220px] truncate text-[12.5px] text-zinc-600">{row.email}</span>
-                        ) : (
-                          <span className="block max-w-[220px] truncate text-[12.5px] italic text-zinc-400" title="Lead tanpa email — form checkout zero-friction (Nama + No. WhatsApp)">
-                            (Tanpa Email)
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="py-2.5">
                         {row.phone ? (
                           <a
                             href={`https://wa.me/${row.phone}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium text-emerald-700 underline-offset-2 hover:bg-emerald-50 hover:text-emerald-800 hover:underline"
-                            aria-label={`Chat WhatsApp ${formatWaDisplay(row.phone)} (${row.email ?? "tanpa email"})`}
+                            aria-label={`Chat WhatsApp ${formatWaDisplay(row.phone)}`}
                             title={`Follow-up via WhatsApp — ${formatWaDisplay(row.phone)}`}
                           >
                             <MessageCircle className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
@@ -928,7 +1001,7 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                         )}
                       </TableCell>
                       <TableCell className="py-2.5 pr-4">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5">
                           {/* Saklar lisensi instan */}
                           <div className="flex items-center gap-1.5">
                             <Switch
@@ -940,9 +1013,38 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                                   ? `Cabut lisensi ${rowLabel(row)}`
                                   : `Aktifkan lisensi ${rowLabel(row)}`
                               }
-                              title={row.email ? undefined : "Lisensi dikelola per akun email — lead tanpa email belum bisa diaktifkan"}
+                              title={row.email ? undefined : "Lisensi dikelola per akun — lead tanpa akun belum bisa diaktifkan"}
                             />
                           </div>
+                          {/* Kirim & Salin Pesan Akses WA — template aktivasi resmi */}
+                          {hasValidWa(row) && (
+                            <>
+                              <Button variant="ghost" size="icon" asChild
+                                className="size-7 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                              >
+                                <a
+                                  href={waActivationLink(row)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={() => void copyActivationMessage(row)}
+                                  aria-label={`Kirim pesan akses WA ke ${rowLabel(row)}`}
+                                  title="Kirim & Salin Pesan Akses WA"
+                                >
+                                  <WaIcon className="size-4" />
+                                </a>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => void copyActivationMessage(row)}
+                                className="size-7 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                                aria-label={`Salin pesan akses WA untuk ${rowLabel(row)}`}
+                                title="Salin Pesan Aktivasi"
+                              >
+                                <Copy className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+                              </Button>
+                            </>
+                          )}
                           {/* Reset password cepat — hanya utk baris ber-email */}
                           {row.email && (
                             <Button
@@ -982,7 +1084,7 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
         <p className="mt-3 flex items-start gap-1.5 text-[12.5px] text-zinc-500">
           <ShieldOff className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
           Menghapus pengguna membersihkan data auth, lisensi, profil, dan lead calon pembeli; data properti
-          (kamar, tagihan, kas) dipertahankan tanpa pemilik. Sesi admin aktif: <span className="font-medium text-zinc-700">{adminEmail}</span>.
+          (kamar, tagihan, kas) dipertahankan tanpa pemilik. Sesi Super Admin aktif.
         </p>
       </div>
 

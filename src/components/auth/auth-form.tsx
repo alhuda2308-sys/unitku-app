@@ -9,9 +9,9 @@
 //               dibuat otomatis server dari nomor WA (62…@user.unitku.my.id —
 //               lihat src/lib/auth/phone-email.ts); pengguna tidak pernah
 //               menyentuh input email.
-//   • Masuk   : satu kolom identitas — email (akun lama) ATAU nomor WhatsApp
-//               (akun baru) + kata sandi. Resolver di server yang mengenali
-//               keduanya.
+//   • Masuk   : satu kolom "Nomor WhatsApp" + kata sandi. UI 100% berbasis
+//               WhatsApp; email asli akun lama TETAP diterima diam-diam oleh
+//               resolver server (kompatibilitas tanpa membingungkan UI).
 // Nomor WA & Nama tersimpan di metadata Supabase (raw_user_meta_data) & lead
 // Admin. Validasi klien: nama ≥2, format WA 62…, password ≥6. Semua logika
 // sesi diambil dari kontrak src/lib/auth/client — komponen ini hanya UI +
@@ -63,7 +63,7 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
-  const [identity, setIdentity] = useState(""); // email ATAU nomor WhatsApp (mode Masuk)
+  const [identity, setIdentity] = useState(""); // nomor WhatsApp (atau email akun lama — diterima diam-diam)
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,12 +101,13 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
         return;
       }
     } else {
-      // Mode Masuk: identitas boleh email ATAU nomor WhatsApp — server yang
-      // mengubah nomor menjadi email autentik akun.
+      // Mode Masuk: UI murni Nomor WhatsApp, namun email akun lama TETAP
+      // diterima diam-diam — server resolver yang mengenali keduanya.
       const value = identity.trim();
       const isPhone = WA_RE.test(normalizeWaPhone(value));
-      if (!EMAIL_RE.test(value) && !isPhone) {
-        setError("Masukkan email atau nomor WhatsApp yang valid.");
+      const looksEmail = EMAIL_RE.test(value); // akun lama — tanpa perlu disebut di UI
+      if (!isPhone && !looksEmail) {
+        setError("Masukkan nomor WhatsApp yang terdaftar (contoh: 0812xxxxxxx).");
         return;
       }
     }
@@ -262,17 +263,22 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
           ) : (
             <div>
               <Label htmlFor="auth-identity" className="mb-1.5 text-[12.5px] font-medium text-zinc-700">
-                Email atau Nomor WhatsApp
+                Nomor WhatsApp
               </Label>
               <Input
                 id="auth-identity"
+                type="tel"
+                inputMode="tel"
                 autoComplete="username"
-                placeholder="nama@email.com / 08xxxxxxxxxx"
+                placeholder="08xxxxxxxxxx / 62xxxxxxxxxx"
                 value={identity}
                 onChange={(e) => setIdentity(e.target.value)}
                 disabled={busy}
                 className="h-10 text-[13px]"
               />
+              <p className="mt-1 text-[12.5px] text-zinc-500">
+                Gunakan nomor WhatsApp yang Anda daftarkan di UnitKu.
+              </p>
             </div>
           )}
 

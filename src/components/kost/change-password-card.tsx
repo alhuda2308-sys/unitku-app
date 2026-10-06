@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getAuthInfo, updatePassword, type AuthInfo } from "@/lib/auth/client";
+import { sessionIdentityLabel } from "@/lib/auth/phone-email";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
@@ -95,7 +96,7 @@ export function ChangePasswordCard() {
         <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-700">Ganti Password</h3>
         <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-zinc-500">
           <KeyRound className="size-3" strokeWidth={1.75} aria-hidden="true" />
-          Akun {info?.demo ? "demo" : info?.user?.email ?? "pengelola"}
+          Akun {info?.demo ? "demo" : sessionIdentityLabel(info?.user?.email, "pengelola")}
         </span>
       </div>
 

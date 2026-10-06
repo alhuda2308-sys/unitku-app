@@ -19,7 +19,13 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { db } from "@/lib/prisma";
 import { getAuthMode } from "@/lib/auth/config";
 import { hashPassword } from "@/lib/auth/local";
+import {
+  isPhoneEmail,
+  phoneEmailToPhone,
+  phoneToEmail,
+} from "@/lib/auth/phone-email";
 import { isSuperAdminEmail, requireSuperAdminUser } from "@/lib/auth/super-admin";
+import { normalizeWaPhone } from "@/lib/checkout-validation";
 import { generateSecurePassword, normalizeEmail } from "@/lib/billing/license";
 import {
   findSupabaseUserIdByEmail,
@@ -279,6 +285,7 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const emailRaw = typeof body.email === "string" ? body.email.trim() : "";
+  const phoneRaw = typeof body.phone === "string" ? body.phone.trim() : "";
   const propertyName = typeof body.propertyName === "string" ? body.propertyName.trim() : "";
   const passwordInput = typeof body.password === "string" ? body.password.trim() : "";
   const generate = body.generate === true;
@@ -287,10 +294,25 @@ export async function POST(request: NextRequest) {
   if (name.length < 2 || name.length > 80) {
     return NextResponse.json({ error: "Nama lengkap owner wajib diisi (2–80 karakter)." }, { status: 400 });
   }
-  const email = normalizeEmail(emailRaw);
-  if (!EMAIL_RE.test(email)) {
-    return NextResponse.json({ error: "Format email tidak valid." }, { status: 400 });
+
+  // ── Identitas 100% berbasis WhatsApp: nomor WA adalah identitas utama.
+  // Email autentikasi bisa berupa email asli (akun lama) ATAU email sintetis
+  // 62…@user.unitku.my.id yang disintesis dari nomor WA.
+  const phone = phoneRaw ? normalizeWaPhone(phoneRaw) : "";
+  if (phone && !/^62[0-9]{8,13}$/.test(phone)) {
+    return NextResponse.json(
+      { error: "Nomor WhatsApp tidak valid — gunakan format 08… atau 62… (9–15 digit)." },
+      { status: 400 },
+    );
   }
+  // Email kosong + nomor WA tersedia → sintesis email dari nomor (zero email).
+  const emailInput = emailRaw || (phone ? phoneToEmail(phone) : "");
+  const email = normalizeEmail(emailInput);
+  if (!EMAIL_RE.test(email)) {
+    return NextResponse.json({ error: "Nomor WhatsApp atau email tidak valid." }, { status: 400 });
+  }
+  // Phone final: dari body, atau turunan email sintetis (kompatibel client lama).
+  const identityPhone = phone || (isPhoneEmail(email) ? phoneEmailToPhone(email) ?? "" : "");
   if (propertyName.length < 2 || propertyName.length > 80) {
     return NextResponse.json({ error: "Nama kost/properti awal wajib diisi (2–80 karakter)." }, { status: 400 });
   }
@@ -315,7 +337,11 @@ export async function POST(request: NextRequest) {
       email,
       password,
       email_confirm: true,
-      user_metadata: { full_name: name, source: "manual-super-admin" },
+      user_metadata: {
+        full_name: name,
+        ...(identityPhone ? { phone: identityPhone } : {}),
+        source: "manual-super-admin",
+      },
     });
     if (error) {
       const detail = `${error.code ?? ""} ${error.message}`.toLowerCase();
@@ -361,11 +387,18 @@ export async function POST(request: NextRequest) {
           email,
           userId,
           name,
+          phone: identityPhone || null,
           isLifetimeLicensed: true,
           licensedAt: new Date(),
           paymentRef: null,
         },
-        update: { isLifetimeLicensed: true, licensedAt: new Date(), ...(name ? { name } : {}), userId },
+        update: {
+          isLifetimeLicensed: true,
+          licensedAt: new Date(),
+          ...(name ? { name } : {}),
+          ...(identityPhone ? { phone: identityPhone } : {}),
+          userId,
+        },
       });
       await db.licensePurchase.create({
         data: {
@@ -384,8 +417,16 @@ export async function POST(request: NextRequest) {
       // Profil lisensi tetap dibuat (status terkunci) agar muncul rapi di panel
       await db.licenseAccount.upsert({
         where: { email },
-        create: { email, userId, name, isLifetimeLicensed: false, licensedAt: null, paymentRef: null },
-        update: { name, userId },
+        create: {
+          email,
+          userId,
+          name,
+          phone: identityPhone || null,
+          isLifetimeLicensed: false,
+          licensedAt: null,
+          paymentRef: null,
+        },
+        update: { name, ...(identityPhone ? { phone: identityPhone } : {}), userId },
       });
     }
 
