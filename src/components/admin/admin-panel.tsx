@@ -33,6 +33,11 @@ import {
 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { useLeadsAlerts } from "@/hooks/use-leads-alerts";
+import {
+  formatJamDaftar,
+  formatTanggalDaftar,
+  timestampLengkap,
+} from "@/lib/waktu-daftar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,19 +106,6 @@ const SOURCE_LABEL: Record<"mayar" | "manual", string> = {
   mayar: "Mayar Webhook",
   manual: "Manual Super Admin",
 };
-
-const dateFmt = new Intl.DateTimeFormat("id-ID", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-});
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return "—";
-  return dateFmt.format(new Date(ms));
-}
 
 /** Tampilan nomor rapi — "6281234567890" → "+62 812-3456-7890" */
 function formatWaDisplay(phone: string): string {
@@ -885,7 +877,22 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                         )}
                       </TableCell>
                       <TableCell className="py-2.5 text-[12.5px] tabular-nums text-zinc-600">
-                        {formatDate(row.registeredAt)}
+                        {row.registeredAt && !Number.isNaN(Date.parse(row.registeredAt)) ? (
+                          // Dua baris: tanggal + jam — zona waktu mengikuti
+                          // LOKAL perangkat admin (dinamis, bukan hardcode);
+                          // hover (title) memunculkan timestamp lengkap id-ID.
+                          <div
+                            className="leading-tight"
+                            title={timestampLengkap(row.registeredAt)}
+                          >
+                            <div>{formatTanggalDaftar(row.registeredAt)}</div>
+                            <div className="text-xs font-medium text-slate-400">
+                              {formatJamDaftar(row.registeredAt)}
+                            </div>
+                          </div>
+                        ) : (
+                          "—"
+                        )}
                       </TableCell>
                       <TableCell className="py-2.5">
                         {row.properties.length === 0 ? (

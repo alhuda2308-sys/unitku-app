@@ -143,7 +143,8 @@ async function buildAdminUserList(): Promise<{
   // yang sudah ada — jangan biarkan satu tabel opsional mematikan GET (500).
   let leads: Awaited<ReturnType<typeof db.licenseLead.findMany>> = [];
   try {
-    leads = await db.licenseLead.findMany({ orderBy: { updatedAt: "desc" } });
+    // Urut created_at (waktu daftar) terbaru dulu — kolom waktu tampil konsisten.
+    leads = await db.licenseLead.findMany({ orderBy: { createdAt: "desc" } });
   } catch (err) {
     console.error(
       "[api/admin/users GET] license_leads belum tersedia (tabel belum dibuat / query gagal) — lanjut TANPA data lead:",
@@ -234,6 +235,10 @@ async function buildAdminUserList(): Promise<{
     }),
     ...emaillessLeads,
   ].sort((a, b) => {
+    // Default sorting tabel: paling baru → paling lama (created_at DESC).
+    // Date.parse memakai timestamp penuh ISO — presisi sampai detik/ms,
+    // bukan sekadar tanggal — jadi pendaftar jam 10:31 selalu di atas
+    // pendaftar jam 10:30 di hari yang sama. Tiebreaker email utk stabilitas.
     const ta = a.registeredAt ? Date.parse(a.registeredAt) : 0;
     const tb = b.registeredAt ? Date.parse(b.registeredAt) : 0;
     return tb - ta || (a.email ?? "").localeCompare(b.email ?? "");
