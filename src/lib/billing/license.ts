@@ -289,16 +289,33 @@ export async function upsertLicenseLead(input: {
   /** Nomor WhatsApp TERNORMALISASI 62xxxxxxxxxx (normalizeWaPhone) — kunci upsert */
   phone: string;
   source: LicenseLeadSource;
-}): Promise<void> {
+}): Promise<{ created: boolean }> {
   await ensureLicenseLeadTable();
   const email = input.email ? normalizeEmail(input.email) : null;
-  await prisma.licenseLead.upsert({
+  // Deteksi lead BARU vs pembaruan kontak lama — dipakai notifikasi admin
+  // (WA/Telegram) agar HP tidak ke-spam tiap pengunjung lama submit ulang.
+  const existing = await prisma.licenseLead.findUnique({
     where: { phone: input.phone },
-    create: { email, name: input.name, phone: input.phone, source: input.source },
-    update: {
+    select: { id: true },
+  });
+  if (!existing) {
+    try {
+      await prisma.licenseLead.create({
+        data: { email, name: input.name, phone: input.phone, source: input.source },
+      });
+      return { created: true };
+    } catch {
+      // Race sesama request (phone sama masuk bersamaan, P2002 unique) —
+      // perlakukan sebagai pembaruan, bukan lead baru.
+    }
+  }
+  await prisma.licenseLead.update({
+    where: { phone: input.phone },
+    data: {
       name: input.name,
       source: input.source,
       ...(email ? { email } : {}),
     },
   });
+  return { created: false };
 }

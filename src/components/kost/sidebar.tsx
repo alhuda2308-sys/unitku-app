@@ -1,7 +1,8 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import Image from "next/image";
-import { ChevronsUpDown, DatabaseBackup, LayoutGrid, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Smartphone, Users, Wallet, Wrench } from "lucide-react";
+import { ChevronsUpDown, DatabaseBackup, LayoutGrid, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, ShieldCheck, Smartphone, Users, Wallet, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STAFF_ROLE_META, type StaffAccessRole } from "@/lib/staff-access";
 import { CloudSyncBadge } from "@/components/kost/cloud-sync-badge";
@@ -16,6 +17,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PROPERTY_TYPE_META, type PropertyEntry } from "@/lib/app-settings";
 import { BRAND_NAME, BRAND_TAGLINE } from "@/lib/brand";
+import {
+  getLeadsAlertServerSnapshot,
+  getLeadsAlertSnapshot,
+  subscribeLeadsAlert,
+} from "@/lib/leads-alert-store";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -41,6 +47,9 @@ interface SidebarProps {
   /** Indikator status sinkron cloud di kaki sidebar — disembunyikan di mode
    *  demo (sesi demo tidak pernah menyentuh Supabase, hijau/merah akan bohong) */
   showSyncStatus?: boolean;
+  /** true = sesi Super Admin → tampilkan nav "Panel Super Admin" + badge
+   *  merah jumlah pendaftar baru yang belum ditinjau */
+  showSuperAdminNav?: boolean;
 }
 
 const NAV_ITEMS: { key: string; label: string; icon: typeof LayoutGrid }[] = [
@@ -71,9 +80,16 @@ export function Sidebar({
   staffSession,
   onStaffLogout,
   showSyncStatus = true,
+  showSuperAdminNav = false,
 }: SidebarProps) {
   const isStaff = staffSession != null;
   const staffMeta = staffSession ? STAFF_ROLE_META[staffSession.role] : null;
+  /** Jumlah pendaftar baru belum ditinjau (badge merah nav Super Admin) */
+  const leadsAlert = useSyncExternalStore(
+    subscribeLeadsAlert,
+    getLeadsAlertSnapshot,
+    getLeadsAlertServerSnapshot,
+  );
   /** Penjaga: hanya denah + komplain + pengaturan; admin operasional: semua */
   const allowedKeys = isStaff && staffSession.role === "PENJAGA_TEKNISI"
     ? ["denah", "komplain", "pengaturan"]
@@ -254,6 +270,42 @@ export function Sidebar({
               </button>
             );
           })}
+
+          {/* Panel Super Admin — hanya untuk sesi Super Admin (bukan staf);
+              badge merah = pendaftar baru yang belum ditinjau */}
+          {showSuperAdminNav && (
+            <>
+              <div aria-hidden="true" className="my-1 border-t border-border" />
+              <a
+                href="/admin"
+                title={collapsed ? "Panel Super Admin" : undefined}
+                className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+              >
+                <span className="relative shrink-0">
+                  <ShieldCheck className="size-[18px]" strokeWidth={1.75} />
+                  {collapsed && leadsAlert.unread > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -right-1 -top-1 size-2.5 rounded-full bg-red-500 ring-2 ring-white"
+                    />
+                  )}
+                </span>
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 text-left">Panel Super Admin</span>
+                    {leadsAlert.unread > 0 && (
+                      <span
+                        aria-label={`${leadsAlert.unread} pendaftar baru belum ditinjau`}
+                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold tabular-nums text-white"
+                      >
+                        {leadsAlert.unread > 9 ? "9+" : leadsAlert.unread}
+                      </span>
+                    )}
+                  </>
+                )}
+              </a>
+            </>
+          )}
         </nav>
 
         {/* Footer: sync cloud + data management + profile + collapse */}

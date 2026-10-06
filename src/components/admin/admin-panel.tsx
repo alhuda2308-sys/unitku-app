@@ -32,6 +32,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { useLeadsAlerts } from "@/hooks/use-leads-alerts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -575,6 +576,16 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Realtime pendaftar baru: polling + Supabase Realtime → suara + toast +
+  // TABEL AUTO-REFRESH (silent) tanpa menekan "Muat Ulang". autoMarkSeen:
+  // admin sedang meninjau panel — badge/PWA dibersihkan tiap data terbaru.
+  useLeadsAlerts({
+    enabled: true,
+    pollMs: 20_000,
+    autoMarkSeen: true,
+    onNewLead: () => void load(true),
+  });
 
   const refresh = async () => {
     setRefreshing(true);

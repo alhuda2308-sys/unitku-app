@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Sidebar } from "@/components/kost/sidebar";
 import { CloudSyncBadge } from "@/components/kost/cloud-sync-badge";
+import { LeadsAlertWatcher } from "@/components/admin/leads-alert-watcher";
 import { TopBar } from "@/components/kost/topbar";
 import { MobileBottomBar } from "@/components/kost/mobile-bottombar";
 import { PwaInstallBanner } from "@/components/kost/pwa-install";
@@ -266,6 +267,11 @@ export default function IndoKostPage() {
   /** Owner & Admin Operasional boleh mengubah data; Penjaga hanya melihat */
   const canManageRooms = !staffSession || staffSession.role === "ADMIN_OPERASIONAL";
 
+  // ── Notifikasi pendaftar baru (Super Admin saja) ──
+  /** Sesi Super Admin? (dari /api/auth/me) — mengaktifkan watcher realtime,
+   *  badge merah nav & PWA app badge. Sesi demo/staf tidak pernah true. */
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+
   const handleStaffLogout = () => {
     clearStaffSession();
     setView("denah");
@@ -470,6 +476,8 @@ export default function IndoKostPage() {
         return; // /api/auth/me gagal — middleware sudah menangani sesi
       }
       if (!alive || !info?.user) return;
+      // Tandai sesi Super Admin — mengaktifkan notifikasi pendaftar baru
+      setIsSuperAdmin(info.isSuperAdmin === true);
       // Sesi demo (CTA landing /demo) → tampilkan banner demo interaktif;
       // tanpa gerbang lisensi & tanpa redirect onboarding.
       if (info.demo) {
@@ -2291,6 +2299,7 @@ export default function IndoKostPage() {
         staffSession={staffSession ? { name: staffSession.name, role: staffSession.role } : null}
         onStaffLogout={handleStaffLogout}
         showSyncStatus={!isDemoVisitor}
+        showSuperAdminNav={isSuperAdmin && !isDemoVisitor}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -2555,12 +2564,17 @@ export default function IndoKostPage() {
           onThemeChange={handleThemeChange}
           onRefresh={isDemoVisitor ? undefined : () => void handleRefreshCloud()}
           refreshing={refreshingCloud}
+          showSuperAdminNav={isSuperAdmin && !isDemoVisitor}
         />
 
         {/* Banner PWA "Pasang Aplikasi" — bottom sheet ramah jempol, bisa ditutup
             ( disembunyikan di mode demo — tak relevan sebelum membeli & mencegah
             tumpang-tindih dengan DemoConvertBar ) */}
         {!isDemoVisitor && <PwaInstallBanner />}
+
+        {/* Watcher notifikasi pendaftar baru — hanya Super Admin; murni efek
+            samping (polling+realtime → toast/suara/badge/PWA), merender null */}
+        <LeadsAlertWatcher enabled={isSuperAdmin && !isDemoVisitor} />
 
         {/* Sticky conversion bar mode demo — tombol memicu modal checkout +
             event custom Meta Pixel ClickCTA_Beli (InitiateCheckout baru saat

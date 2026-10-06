@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Menu, Palette, Plus, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Check, ChevronDown, Menu, Palette, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +14,11 @@ import { cn } from "@/lib/utils";
 import { THEME_KEYS, THEME_META, type ThemeKey } from "@/lib/app-settings";
 import type { RoomStatus } from "@/lib/kost-data";
 import { FILTER_OPTIONS } from "@/components/kost/topbar";
+import {
+  getLeadsAlertServerSnapshot,
+  getLeadsAlertSnapshot,
+  subscribeLeadsAlert,
+} from "@/lib/leads-alert-store";
 
 interface MobileBottomBarProps {
   query: string;
@@ -31,6 +36,8 @@ interface MobileBottomBarProps {
   onRefresh?: () => void;
   /** true selama re-fetch berlangsung — ikon berputar & tombol disabled */
   refreshing?: boolean;
+  /** true = sesi Super Admin → tombol Panel Super Admin + badge merah */
+  showSuperAdminNav?: boolean;
 }
 
 /**
@@ -51,9 +58,16 @@ export function MobileBottomBar({
   onThemeChange,
   onRefresh,
   refreshing = false,
+  showSuperAdminNav = false,
 }: MobileBottomBarProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  /** Jumlah pendaftar baru belum ditinjau (badge merah tombol Super Admin) */
+  const leadsAlert = useSyncExternalStore(
+    subscribeLeadsAlert,
+    getLeadsAlertSnapshot,
+    getLeadsAlertServerSnapshot,
+  );
 
   // Fokuskan input saat panel pencarian dibuka
   useEffect(() => {
@@ -178,6 +192,30 @@ export function MobileBottomBar({
                 className={cn("size-5", refreshing && "animate-spin")}
                 strokeWidth={1.75}
               />
+            </button>
+          )}
+
+          {/* 4b. Panel Super Admin — sesi Super Admin; badge merah pendaftar baru */}
+          {showSuperAdminNav && (
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = "/admin";
+              }}
+              aria-label={
+                leadsAlert.unread > 0
+                  ? `Panel Super Admin — ${leadsAlert.unread} pendaftar baru`
+                  : "Panel Super Admin"
+              }
+              title="Panel Super Admin"
+              className="barbtn relative flex size-11 items-center justify-center rounded-full text-zinc-700 transition-colors hover:bg-zinc-100 active:bg-zinc-200"
+            >
+              <ShieldCheck className="size-5" strokeWidth={1.75} />
+              {leadsAlert.unread > 0 && (
+                <span className="absolute right-1 top-1 flex size-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold tabular-nums leading-none text-white ring-2 ring-white">
+                  {leadsAlert.unread > 9 ? "9+" : leadsAlert.unread}
+                </span>
+              )}
             </button>
           )}
 

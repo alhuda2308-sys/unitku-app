@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "@/lib/toast";
 import { BRAND_WA_LINE } from "@/lib/brand";
+import {
+  getLeadsAlertServerSnapshot,
+  getLeadsAlertSnapshot,
+  subscribeLeadsAlert,
+} from "@/lib/leads-alert-store";
 import {
   BedDouble,
   Building2,
@@ -522,6 +527,12 @@ function SectionCard({
 /** Kartu "Akun & Sesi" — email sesi auth aktif + tombol keluar. */
 function AccountCard() {
   const [info, setInfo] = useState<Awaited<ReturnType<typeof getAuthInfo>> | null>(null);
+  /** Jumlah pendaftar baru belum ditinjau — badge merah tombol Panel Super Admin */
+  const leadsAlert = useSyncExternalStore(
+    subscribeLeadsAlert,
+    getLeadsAlertSnapshot,
+    getLeadsAlertServerSnapshot,
+  );
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -582,6 +593,14 @@ function AccountCard() {
             <Link href="/admin">
               <ShieldCheck className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
               🛡️ Panel Super Admin
+              {leadsAlert.unread > 0 && (
+                <span
+                  aria-label={`${leadsAlert.unread} pendaftar baru belum ditinjau`}
+                  className="ml-0.5 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-red-500 px-1 text-[10.5px] font-bold tabular-nums leading-none text-white"
+                >
+                  {leadsAlert.unread > 9 ? "9+" : leadsAlert.unread}
+                </span>
+              )}
             </Link>
           </Button>
         )}

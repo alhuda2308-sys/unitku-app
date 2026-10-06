@@ -12,10 +12,11 @@
 // pembayaran. Juga dipakai /api/auth/register (source REGISTER).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 
 import { upsertLicenseLead, type LicenseLeadSource } from "@/lib/billing/license";
 import { parseBuyerInput } from "@/lib/checkout-validation";
+import { notifyAdminLeadAlert } from "@/lib/notifications/admin-lead-alert";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,7 +43,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await upsertLicenseLead({ ...parsed.data, source });
+    const result = await upsertLicenseLead({ ...parsed.data, source });
+    // Lead benar-benar baru → notifikasi instan ke HP Admin via after()
+    // (respons tetap kilat; kontak lama submit ulang tidak memicu alert)
+    if (result.created) {
+      after(() =>
+        notifyAdminLeadAlert({
+          name: parsed.data.name,
+          phone: parsed.data.phone,
+          email: parsed.data.email,
+          source,
+          registeredAt: new Date(),
+        }),
+      );
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error(

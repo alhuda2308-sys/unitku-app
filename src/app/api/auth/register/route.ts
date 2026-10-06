@@ -17,7 +17,7 @@
 // Email lama (body.email) tetap diterima untuk kompatibilitas klien lama.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { db } from "@/lib/prisma";
 import { upsertLicenseLead } from "@/lib/billing/license";
 import { normalizeWaPhone } from "@/lib/checkout-validation";
@@ -25,6 +25,7 @@ import { getAuthMode, SESSION_COOKIE } from "@/lib/auth/config";
 import { createSessionToken, hashPassword, sessionCookieOptions } from "@/lib/auth/local";
 import { isPhoneEmail, phoneToEmail } from "@/lib/auth/phone-email";
 import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
+import { notifyAdminLeadAlert } from "@/lib/notifications/admin-lead-alert";
 
 export const dynamic = "force-dynamic";
 
@@ -65,16 +66,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Password minimal 6 karakter." }, { status: 400 });
   }
 
-  /** Simpan lead kontak (source REGISTER) — kegagalan DB tidak memblokir daftar */
-  const saveLead = async (): Promise<void> => {
+  /** Simpan lead kontak (source REGISTER) — kegagalan DB tidak memblokir daftar.
+   *  Return: true = lead BENAR-BENAR baru (insert), false = pembaruan kontak lama. */
+  const saveLead = async (): Promise<boolean> => {
     try {
-      await upsertLicenseLead({ name, email, phone, source: "REGISTER" });
+      const result = await upsertLicenseLead({ name, email, phone, source: "REGISTER" });
+      return result.created;
     } catch (leadError) {
       console.error(
         "[api/auth/register] Gagal menyimpan lead:",
         leadError instanceof Error ? leadError.message : leadError,
       );
+      return false;
     }
+  };
+
+  /** Notifikasi instan ke HP Admin (WA gateway / Telegram / webhook) —
+   *  via after(): respons registrasi TIDAK menunggu pengiriman notifikasi. */
+  const queueLeadAlert = (leadCreated: boolean): void => {
+    if (!leadCreated) return; // kontak lama submit ulang — jangan spam admin
+    after(() =>
+      notifyAdminLeadAlert({ name, phone, email, source: "REGISTER", registeredAt: new Date() }),
+    );
   };
 
   if (getAuthMode() === "supabase") {
@@ -104,7 +117,7 @@ export async function POST(request: NextRequest) {
       applyCookies(failed); // cookie pembersihan/refresh parsial tetap diteruskan
       return failed;
     }
-    await saveLead();
+    await saveLead().then(queueLeadAlert);
     const response = NextResponse.json({
       ok: true,
       needsEmailConfirmation: !data.session,
@@ -130,7 +143,7 @@ export async function POST(request: NextRequest) {
     const account = await db.ownerAccount.create({
       data: { email, passwordHash: hashPassword(password) },
     });
-    await saveLead();
+    await saveLead().then(queueLeadAlert);
     const response = NextResponse.json({
       ok: true,
       needsEmailConfirmation: false,

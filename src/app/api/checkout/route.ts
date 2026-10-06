@@ -25,11 +25,12 @@
 //   LICENSE_REDIRECT_URL opsional — default {origin}/payment/success
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 
 import { upsertLicenseLead } from "@/lib/billing/license";
 import { parseBuyerInput } from "@/lib/checkout-validation";
 import { LICENSE_AMOUNT_IDR } from "@/lib/landing-config";
+import { notifyAdminLeadAlert } from "@/lib/notifications/admin-lead-alert";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,7 +75,20 @@ export async function POST(request: NextRequest) {
   // Kegagalan penyimpanan TIDAK memblokir checkout (cukup dicatat di log).
   // Payload tanpa email (hanya nama + WA) WAJIB tetap tersimpan (email null).
   try {
-    await upsertLicenseLead({ name, email, phone, source: "BAYAR_OTOMATIS" });
+    const leadResult = await upsertLicenseLead({ name, email, phone, source: "BAYAR_OTOMATIS" });
+    // Lead benar-benar baru → notifikasi instan ke HP Admin via after()
+    // (respons checkout tetap kilat; kontak lama tidak memicu alert ulang)
+    if (leadResult.created) {
+      after(() =>
+        notifyAdminLeadAlert({
+          name,
+          phone,
+          email,
+          source: "BAYAR_OTOMATIS",
+          registeredAt: new Date(),
+        }),
+      );
+    }
   } catch (leadError) {
     console.error(
       "[UnitKu Checkout] Gagal menyimpan lead:",
