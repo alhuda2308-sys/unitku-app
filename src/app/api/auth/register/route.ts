@@ -1,14 +1,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/auth/register — Daftar akun owner baru
+// POST /api/auth/register — Daftar akun owner baru (TANPA email)
 //
-// Mode Supabase: supabase.auth.signUp (metadata full_name + phone untuk tabel
-//                Admin) — bila verifikasi email aktif di dashboard Supabase,
-//                sesi null → needsEmailConfirmation=true.
+// Zero friction (selaras form checkout): cukup Nama Lengkap + No. WhatsApp +
+// Kata Sandi. Supabase Auth mewajibkan format email → email sintetis dibuat
+// otomatis dari nomor WhatsApp (lihat src/lib/auth/phone-email.ts):
+//   62xxxxxxxxxx → 62xxxxxxxxxx@user.unitku.my.id
+// Nomor asli & Nama tetap tersimpan di metadata Supabase (raw_user_meta_data:
+// full_name + phone) dan tabel lead Admin — email sintetis tidak pernah
+// diminta ke pengguna.
+// Mode Supabase: supabase.auth.signUp — bila verifikasi email aktif di
+//                dashboard Supabase, sesi null → needsEmailConfirmation=true.
 // Mode lokal   : akun disimpan di owner_accounts (scrypt) + sesi langsung.
-// Kontak       : Nama Lengkap + No. WhatsApp wajib (selaras form checkout) —
-//                tersimpan sebagai lead license_leads (source REGISTER) agar
+// Kontak       : tersimpan sebagai lead license_leads (source REGISTER) agar
 //                Panel Super Admin selalu punya data kontak akun.
-// Validasi     : nama ≥2, format WA 62…, format email, password minimal 6.
+// Validasi     : nama ≥2, format WA 62…, password minimal 6.
+// Email lama (body.email) tetap diterima untuk kompatibilitas klien lama.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -17,6 +23,7 @@ import { upsertLicenseLead } from "@/lib/billing/license";
 import { normalizeWaPhone } from "@/lib/checkout-validation";
 import { getAuthMode, SESSION_COOKIE } from "@/lib/auth/config";
 import { createSessionToken, hashPassword, sessionCookieOptions } from "@/lib/auth/local";
+import { isPhoneEmail, phoneToEmail } from "@/lib/auth/phone-email";
 import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
 
 export const dynamic = "force-dynamic";
@@ -25,31 +32,34 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const password = typeof body.password === "string" ? body.password : "";
 
-  // Nama + No. WhatsApp wajib bila dikirim (selaras form checkout) — profil
-  // akun selalu lengkap. Field lama tanpa profil tetap diterima (kompatibel).
+  // Nama + No. WhatsApp wajib — profil akun selalu lengkap (identitas login WA).
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const phone = normalizeWaPhone(typeof body.phone === "string" ? body.phone : "");
-  const profileRequired = typeof body.name === "string" || typeof body.phone === "string";
 
-  if (profileRequired) {
-    if (name.length < 2 || name.length > 100) {
-      return NextResponse.json(
-        { error: "Nama lengkap wajib diisi (2–100 karakter)." },
-        { status: 400 },
-      );
+  // Email tidak lagi diminta di UI — bila ada (klien lama) hormati, selain itu
+  // buat otomatis dari nomor WhatsApp.
+  const rawEmail = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  let email = phoneToEmail(phone);
+  if (rawEmail) {
+    if (!EMAIL_RE.test(rawEmail)) {
+      return NextResponse.json({ error: "Format email tidak valid." }, { status: 400 });
     }
-    if (!/^62[0-9]{8,13}$/.test(phone)) {
-      return NextResponse.json(
-        { error: "Nomor WhatsApp tidak valid — gunakan format 08… atau 62… (9–15 digit)." },
-        { status: 400 },
-      );
-    }
+    email = rawEmail;
   }
-  if (!EMAIL_RE.test(email)) {
-    return NextResponse.json({ error: "Format email tidak valid." }, { status: 400 });
+
+  if (name.length < 2 || name.length > 100) {
+    return NextResponse.json(
+      { error: "Nama lengkap wajib diisi (2–100 karakter)." },
+      { status: 400 },
+    );
+  }
+  if (!/^62[0-9]{8,13}$/.test(phone)) {
+    return NextResponse.json(
+      { error: "Nomor WhatsApp tidak valid — gunakan format 08… atau 62… (9–15 digit)." },
+      { status: 400 },
+    );
   }
   if (password.length < 6) {
     return NextResponse.json({ error: "Password minimal 6 karakter." }, { status: 400 });
@@ -57,7 +67,6 @@ export async function POST(request: NextRequest) {
 
   /** Simpan lead kontak (source REGISTER) — kegagalan DB tidak memblokir daftar */
   const saveLead = async (): Promise<void> => {
-    if (!profileRequired) return;
     try {
       await upsertLicenseLead({ name, email, phone, source: "REGISTER" });
     } catch (leadError) {
@@ -75,10 +84,9 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      // Metadata ikut ke auth.users — kolom Nama/No. WhatsApp tabel Admin terisi
-      options: profileRequired
-        ? { data: { full_name: name, phone } }
-        : undefined,
+      // Metadata ikut ke auth.users (raw_user_meta_data) — kolom Nama/No.
+      // WhatsApp tabel Admin terisi & identitas asli pemilik terjaga.
+      options: { data: { full_name: name, phone } },
     });
     if (error) {
       console.error("[api/auth/register] Supabase signUp gagal:", error.message);
@@ -86,7 +94,9 @@ export async function POST(request: NextRequest) {
       const failed = NextResponse.json(
         {
           error: duplicate
-            ? "Email sudah terdaftar. Silakan masuk."
+            ? isPhoneEmail(email)
+              ? "Nomor WhatsApp sudah terdaftar. Silakan masuk."
+              : "Email sudah terdaftar. Silakan masuk."
             : error.message,
         },
         { status: duplicate ? 409 : 400 },
@@ -109,7 +119,11 @@ export async function POST(request: NextRequest) {
     const existing = await db.ownerAccount.findUnique({ where: { email } });
     if (existing) {
       return NextResponse.json(
-        { error: "Email sudah terdaftar. Silakan masuk." },
+        {
+          error: isPhoneEmail(email)
+            ? "Nomor WhatsApp sudah terdaftar. Silakan masuk."
+            : "Email sudah terdaftar. Silakan masuk.",
+        },
         { status: 409 },
       );
     }

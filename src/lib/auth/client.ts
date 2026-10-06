@@ -43,11 +43,13 @@ function errorOf(data: Record<string, unknown>, fallback: string): string {
   return typeof data.error === "string" && data.error ? data.error : fallback;
 }
 
-/** Masuk dengan email + password (Supabase Auth atau mode lokal) */
-export async function signIn(email: string, password: string): Promise<AuthResult> {
+/** Masuk dengan identitas (email ATAU nomor WhatsApp) + password.
+ *  Server (src/lib/auth/phone-email.ts) yang mengubah nomor WA menjadi email
+ *  sintetis akun — klien tidak perlu tahu format internal. */
+export async function signIn(identity: string, password: string): Promise<AuthResult> {
   try {
-    const { status, data } = await postAuth("/api/auth/login", { email, password });
-    if (status !== 200) return { ok: false, error: errorOf(data, "Email atau password salah.") };
+    const { status, data } = await postAuth("/api/auth/login", { email: identity, password });
+    if (status !== 200) return { ok: false, error: errorOf(data, "Email/No. WhatsApp atau kata sandi salah.") };
     return { ok: true };
   } catch (cause) {
     if (isTimeoutError(cause)) {
@@ -57,25 +59,25 @@ export async function signIn(email: string, password: string): Promise<AuthResul
   }
 }
 
-/** Profil kontak opsional yang diminta saat pendaftaran (Nama + No. WhatsApp) */
+/** Profil wajib pendaftaran tanpa email — Nama Lengkap + No. WhatsApp
+ *  (TERNORMALISASI 62xxxxxxxxxx via normalizeWaPhone) sebagai identitas */
 export interface SignUpProfile {
   name: string;
-  /** Nomor WhatsApp TERNORMALISASI 62xxxxxxxxxx (normalizeWaPhone) */
   phone: string;
 }
 
-/** Daftar akun owner baru — needsEmailConfirmation bila Supabase meminta verifikasi email.
- *  Profil (Nama + No. WhatsApp) diteruskan ke server utk metadata akun & lead Admin. */
-export async function signUp(
-  email: string,
-  password: string,
-  profile?: SignUpProfile,
-): Promise<SignUpResult> {
+/** Daftar akun owner baru TANPA email — server membuat email sintetis dari
+ *  nomor WhatsApp (62…@user.unitku.my.id) lalu mendaftarkan ke Supabase Auth
+ *  / mode lokal. needsEmailConfirmation=true bila Supabase meminta verifikasi
+ *  (verifikasi email sebaiknya dimatikan utk alur tanpa email ini).
+ *  Profil (Nama + No. WhatsApp) diteruskan ke server utk metadata akun & lead
+ *  Admin. */
+export async function signUp(profile: SignUpProfile, password: string): Promise<SignUpResult> {
   try {
     const { status, data } = await postAuth("/api/auth/register", {
-      email,
+      name: profile.name,
+      phone: profile.phone,
       password,
-      ...(profile ? { name: profile.name, phone: profile.phone } : {}),
     });
     if (status !== 200) return { ok: false, error: errorOf(data, "Gagal mendaftarkan akun.") };
     return { ok: true, needsEmailConfirmation: data.needsEmailConfirmation === true };

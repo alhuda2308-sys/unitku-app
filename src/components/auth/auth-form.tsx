@@ -3,12 +3,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Form autentikasi terpusat (dipakai /login dan /register)
 //
-// Satu kartu dengan tab Masuk / Daftar Akun Baru. Mode Daftar meminta NAMA
-// LENGKAP + NOMOR WHATSAPP + EMAIL (input selaras dengan form checkout —
-// validasi shared di src/lib/checkout-validation.ts) sehingga data kontak akun
-// selalu lengkap untuk follow-up Admin & aktivasi lisensi.
-// Semua logika sesi diambil dari kontrak src/lib/auth/client — komponen ini
-// hanya UI + validasi klien.
+// Satu kartu dengan tab Masuk / Daftar Akun Baru — TANPA EMAIL (zero friction,
+// selaras form checkout):
+//   • Daftar  : Nama Lengkap + Nomor WhatsApp + Kata Sandi. Email autentikasi
+//               dibuat otomatis server dari nomor WA (62…@user.unitku.my.id —
+//               lihat src/lib/auth/phone-email.ts); pengguna tidak pernah
+//               menyentuh input email.
+//   • Masuk   : satu kolom identitas — email (akun lama) ATAU nomor WhatsApp
+//               (akun baru) + kata sandi. Resolver di server yang mengenali
+//               keduanya.
+// Nomor WA & Nama tersimpan di metadata Supabase (raw_user_meta_data) & lead
+// Admin. Validasi klien: nama ≥2, format WA 62…, password ≥6. Semua logika
+// sesi diambil dari kontrak src/lib/auth/client — komponen ini hanya UI +
+// validasi klien.
 // CATATAN: memakai useSearchParams → halaman pemakai wajib membungkus dengan
 // <Suspense>.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,6 +36,8 @@ import {
   signUp,
 } from "@/lib/auth/client";
 import { normalizeWaPhone } from "@/lib/checkout-validation";
+import { SUPPORT_WA_LINK } from "@/lib/landing-config";
+import { toast } from "@/lib/toast";
 
 type Mode = "login" | "register";
 type Pending = null | "form";
@@ -45,6 +54,7 @@ const COPY: Record<Mode, { title: string; subtitle: string }> = {
 };
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
+const WA_RE = /^62[0-9]{8,13}$/;
 
 export function AuthForm({ initialMode }: { initialMode: Mode }) {
   const router = useRouter();
@@ -53,7 +63,7 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
+  const [identity, setIdentity] = useState(""); // email ATAU nomor WhatsApp (mode Masuk)
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,25 +89,33 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
     if (busy) return;
 
     setAwaitConfirm(false);
-    if (mode === "register" && fullName.trim().length < 2) {
-      setError("Nama lengkap wajib diisi (minimal 2 karakter).");
-      return;
+    if (mode === "register") {
+      if (fullName.trim().length < 2) {
+        setError("Nama lengkap wajib diisi (minimal 2 karakter).");
+        return;
+      }
+      if (!WA_RE.test(normalizeWaPhone(phone))) {
+        setError(
+          "Nomor WhatsApp tidak valid — gunakan format 08… atau 62… (9–15 digit).",
+        );
+        return;
+      }
+    } else {
+      // Mode Masuk: identitas boleh email ATAU nomor WhatsApp — server yang
+      // mengubah nomor menjadi email autentik akun.
+      const value = identity.trim();
+      const isPhone = WA_RE.test(normalizeWaPhone(value));
+      if (!EMAIL_RE.test(value) && !isPhone) {
+        setError("Masukkan email atau nomor WhatsApp yang valid.");
+        return;
+      }
     }
-    if (
-      mode === "register" &&
-      !/^62[0-9]{8,13}$/.test(normalizeWaPhone(phone))
-    ) {
+    if (password.length < 6) {
       setError(
-        "Nomor WhatsApp tidak valid — gunakan format 08… atau 62… (9–15 digit).",
+        mode === "register"
+          ? "Kata sandi minimal 6 karakter."
+          : "Kata sandi wajib diisi.",
       );
-      return;
-    }
-    if (!EMAIL_RE.test(email.trim())) {
-      setError("Format email tidak valid.");
-      return;
-    }
-    if (mode === "register" && password.length < 6) {
-      setError("Password minimal 6 karakter.");
       return;
     }
 
@@ -105,26 +123,29 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
     setPending("form");
     try {
       if (mode === "login") {
-        const res = await signIn(email.trim(), password);
+        const res = await signIn(identity.trim(), password);
         if (!res.ok) {
           setError(res.error);
           return;
         }
         await redirectAfterAuth();
       } else {
-        const res = await signUp(email.trim(), password, {
-          name: fullName.trim(),
-          phone: normalizeWaPhone(phone),
-        });
+        const res = await signUp(
+          { name: fullName.trim(), phone: normalizeWaPhone(phone) },
+          password,
+        );
         if (!res.ok) {
           setError(res.error);
           return;
         }
         if (res.needsEmailConfirmation) {
-          // Tidak redirect — tunggu owner konfirmasi email terlebih dahulu.
+          // Edge case (verifikasi email aktif di dashboard Supabase): akun
+          // dibuat tanpa sesi — email konfirmasi terkirim ke alamat otomatis
+          // nomor WA yang tidak punya inbox, jadi arahkan lewat Admin.
           setAwaitConfirm(true);
           return;
         }
+        toast.success("Pendaftaran berhasil — selamat datang di UnitKu! 🎉");
         await redirectAfterAuth();
       }
     } catch {
@@ -177,18 +198,29 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
           </Alert>
         )}
 
-        {/* Info tunggu konfirmasi email (register, Supabase) */}
+        {/* Info tunggu aktivasi akun (register, Supabase dgn verifikasi aktif) */}
         {awaitConfirm && (
           <Alert className="mt-4 border-amber-200 bg-amber-50 [&>svg]:text-amber-600">
             <MailCheck strokeWidth={1.75} />
             <AlertDescription className="text-[12.5px] text-amber-800">
-              Pendaftaran berhasil — periksa email Anda untuk konfirmasi sebelum masuk.
+              Akun berhasil dibuat — aktivasi diperlukan sebelum masuk. Hubungi
+              Admin via{" "}
+              <a
+                href={SUPPORT_WA_LINK}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold underline underline-offset-2"
+              >
+                WhatsApp
+              </a>{" "}
+              untuk aktivasi cepat, lalu masuk dengan Nomor WhatsApp &amp; kata
+              sandi Anda.
             </AlertDescription>
           </Alert>
         )}
 
         <form onSubmit={onSubmit} className="mt-4 space-y-4" noValidate>
-          {mode === "register" && (
+          {mode === "register" ? (
             <>
               <div>
                 <Label htmlFor="auth-name" className="mb-1.5 text-[12.5px] font-medium text-zinc-700">
@@ -223,35 +255,39 @@ export function AuthForm({ initialMode }: { initialMode: Mode }) {
                   className="h-10 text-[13px]"
                 />
                 <p className="mt-1 text-[12.5px] text-zinc-500">
-                  Untuk notifikasi tagihan &amp; follow-up support.
+                  Dipakai untuk masuk ke akun &amp; notifikasi tagihan.
                 </p>
               </div>
             </>
+          ) : (
+            <div>
+              <Label htmlFor="auth-identity" className="mb-1.5 text-[12.5px] font-medium text-zinc-700">
+                Email atau Nomor WhatsApp
+              </Label>
+              <Input
+                id="auth-identity"
+                autoComplete="username"
+                placeholder="nama@email.com / 08xxxxxxxxxx"
+                value={identity}
+                onChange={(e) => setIdentity(e.target.value)}
+                disabled={busy}
+                className="h-10 text-[13px]"
+              />
+            </div>
           )}
-
-          <div>
-            <Label htmlFor="auth-email" className="mb-1.5 text-[12.5px] font-medium text-zinc-700">
-              Email
-            </Label>
-            <Input
-              id="auth-email"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              placeholder="nama@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={busy}
-              className="h-10 text-[13px]"
-            />
-          </div>
 
           <div>
             <Label
               htmlFor="auth-password"
               className="mb-1.5 text-[12.5px] font-medium text-zinc-700"
             >
-              Kata Sandi
+              Kata Sandi{" "}
+              {mode === "register" && (
+                <>
+                  <span aria-hidden="true" className="text-red-600">*</span>
+                  <span className="sr-only">(wajib)</span>
+                </>
+              )}
             </Label>
             <Input
               id="auth-password"
