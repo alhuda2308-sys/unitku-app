@@ -70,14 +70,14 @@ export interface Room {
   id: string; // "101", "A-01", "Paviliun Barat"
   floor: number;
   type: string; // "Tipe A - AC"
-  price: number; // monthly rent, IDR
+  price: number; // monthly rent, IDR (sewa harian utk properti Villa/Homestay)
   status: RoomStatus;
   facilities?: string[];
   operational?: OperationalStatus; // undefined = "siap"
   tenant?: Tenant;
   invoice?: Invoice;
   contract?: {
-    duration: "Bulanan" | "Per 3 Bulan" | "Tahunan";
+    duration: "Harian" | "Bulanan" | "Per 3 Bulan" | "Tahunan";
     startDate: string;
     /** Kontrak berakhir — undefined = rolling (auto-renew bulanan). Used by Data Penghuni. */
     endDate?: string;
@@ -228,6 +228,35 @@ export function addMonths(date: Date, months: number): Date {
   const d = new Date(date);
   d.setMonth(d.getMonth() + months);
   return d;
+}
+
+/** ISO "yyyy-mm-dd" → Date lokal tengah malam (deterministik lintas timezone) */
+export function parseIsoDate(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Jarak hari antara dua tanggal ISO (b intact — check-out minus check-in).
+ * "2026-10-01" → "2026-10-03" = 2 (dua malam menginap).
+ */
+export function diffNights(checkInISO: string, checkOutISO: string): number {
+  const a = parseIsoDate(checkInISO);
+  const b = parseIsoDate(checkOutISO);
+  if (!a || !b) return 0;
+  return Math.round((b.getTime() - a.getTime()) / 86_400_000);
+}
+
+/** ISO "yyyy-mm-dd" + n hari → ISO "yyyy-mm-dd" — default Tanggal Check-out */
+export function addDaysISO(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  const dt = new Date(y, m - 1, d + days);
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${dt.getFullYear()}-${mm}-${dd}`;
 }
 
 /** Today as ISO "yyyy-mm-dd" (local time) — default tanggal untuk input transaksi/penyewa baru */

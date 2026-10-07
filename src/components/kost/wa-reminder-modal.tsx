@@ -16,6 +16,7 @@ import { formatIDR, initialsOf, waLink } from "@/lib/kost-data";
 import {
   buildBillingWaMessage,
   buildReceiptWaMessage,
+  isDailyStay,
   isInvoiceUnpaid,
   type Invoice,
   type WaBillingContext,
@@ -42,6 +43,8 @@ function WaModalBody({
   onSent: (inv: Invoice) => void;
 }) {
   const receipt = !isInvoiceUnpaid(invoice);
+  /** Sewa harian (Villa/Homestay) — penerima pesan disebut "Tamu" */
+  const recipientTerm = isDailyStay(invoice) ? "Tamu" : "Penyewa";
   const [message, setMessage] = useState(() =>
     receipt ? buildReceiptWaMessage(invoice, context) : buildBillingWaMessage(invoice, context),
   );
@@ -62,7 +65,7 @@ function WaModalBody({
     toast.success(
       receipt ? `Kwitansi ditandai terkirim — Kamar ${invoice.roomId}` : `Pengingat ditandai terkirim — Kamar ${invoice.roomId}`,
       {
-        description: `${invoice.tenantName ?? "Penyewa"} · ${formatIDR(invoice.total)}`,
+        description: `${invoice.tenantName ?? recipientTerm} · ${formatIDR(invoice.total)}`,
       },
     );
   };

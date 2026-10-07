@@ -227,6 +227,11 @@ model Invoice {
   dayOffset   Int? // H+n = overdue, H-n = due in n days
   paidAt      DateTime?
   total       Int       @default(0)
+  // ── Sewa harian (Villa/Homestay) — terisi bila invoice lahir dari check-in
+  // harian: rentang menginap & durasi menjadi rincian tagihan/kwitansi WA.
+  checkIn     DateTime?
+  checkOut    DateTime?
+  nights      Int?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

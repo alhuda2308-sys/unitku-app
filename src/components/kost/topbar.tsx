@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { STATUS_META, type RoomStatus } from "@/lib/kost-data";
-import { THEME_KEYS, THEME_META, type ThemeKey } from "@/lib/app-settings";
+import { THEME_KEYS, THEME_META, isVillaType, type ThemeKey } from "@/lib/app-settings";
 
 interface TopBarProps {
   property: string;
@@ -26,6 +26,8 @@ interface TopBarProps {
   /** false = peran tanpa izin check-in (Penjaga) — tombol disembunyikan */
   canCheckIn?: boolean;
   onOpenMobileNav: () => void;
+  /** Tipe properti aktif — Villa/Homestay → tombol "Check-in Tamu" */
+  propertyType?: string;
   /** Tema aktif (sinkron Pengaturan → Tema & Tampilan) */
   theme: ThemeKey;
   onThemeChange: (t: ThemeKey) => void;
@@ -54,6 +56,7 @@ export function TopBar({
   onCheckIn,
   canCheckIn = true,
   onOpenMobileNav,
+  propertyType,
   theme,
   onThemeChange,
   onRefresh,
@@ -208,11 +211,11 @@ export function TopBar({
         {canCheckIn && (
         <Button
           onClick={onCheckIn}
-          aria-label="Check-in Penghuni Baru"
+          aria-label={isVillaType(propertyType) ? "Check-in Tamu Baru" : "Check-in Penghuni Baru"}
           className="h-9 bg-[var(--ik-accent)] px-2.5 text-[13px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)] sm:px-3"
         >
           <Plus className="size-4" strokeWidth={2} />
-          <span className="hidden sm:inline">Check-in Penghuni</span>
+          <span className="hidden sm:inline">{isVillaType(propertyType) ? "Check-in Tamu" : "Check-in Penghuni"}</span>
         </Button>
         )}
       </div>

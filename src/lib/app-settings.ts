@@ -28,7 +28,7 @@ export const ACTIVE_THEME_KEY = "unitku_active_theme";
 
 /* ── Tipe Properti ─────────────────────────────────────────────────────────── */
 
-export const PROPERTY_TYPES = ["kost", "kontrakan", "rusun"] as const;
+export const PROPERTY_TYPES = ["kost", "kontrakan", "rusun", "villa"] as const;
 export type PropertyType = (typeof PROPERTY_TYPES)[number];
 
 export const PROPERTY_TYPE_META: Record<
@@ -50,7 +50,25 @@ export const PROPERTY_TYPE_META: Record<
     unit: "Unit",
     hint: "Rumah susun — unit apartemen sederhana dengan layanan bulanan.",
   },
+  villa: {
+    label: "Villa / Homestay",
+    unit: "Unit",
+    hint: "Villa, homestay, atau guesthouse — mendukung sewa harian dengan check-in & check-out.",
+  },
 };
+
+/** Apakah tipe properti berbasis sewa harian (Villa/Homestay/Guesthouse)? */
+export function isVillaType(tipe: string | null | undefined): boolean {
+  return tipe === "villa";
+}
+
+/**
+ * Sebutan orang yang menghuni unit sesuai konteks — Villa/Homestay atau
+ * transaksi sewa harian → "Tamu / Penyewa", selain itu "Penyewa".
+ */
+export function tenantTermFor(tipe: string | null | undefined, harian = false): string {
+  return isVillaType(tipe) || harian ? "Tamu / Penyewa" : "Penyewa";
+}
 
 export interface PropertyEntry {
   id: string;

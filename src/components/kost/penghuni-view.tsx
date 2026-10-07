@@ -27,6 +27,7 @@ import {
   waLink,
   type Room,
 } from "@/lib/kost-data";
+import { tenantTermFor } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
 
 interface PenghuniViewProps {
@@ -39,6 +40,8 @@ interface PenghuniViewProps {
   onCheckout: (room: Room, payload: CheckoutPayload) => void;
   /** Nama properti — tampil pada QR & tautan portal penyewa */
   propertyName: string;
+  /** Tipe properti aktif — Villa/Homestay → sebutan "Tamu / Penyewa" */
+  propertyType?: string;
 }
 
 type DirTab = "semua" | "aktif" | "keluar";
@@ -127,7 +130,9 @@ function MobileTenantCard({
         <p className="flex items-center gap-1.5 text-[12.5px] font-medium tabular-nums text-zinc-800">
           <Wallet className="size-3.5 shrink-0 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
           {formatIDR(room.price)}
-          <span className="font-normal text-zinc-700">/bulan</span>
+          <span className="font-normal text-zinc-700">
+            {room.contract?.duration === "Harian" ? "/hari" : "/bulan"}
+          </span>
           {end && (
             <span
               className={cn(
@@ -197,7 +202,7 @@ function MobileTenantCard({
   );
 }
 
-export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, onCheckout, propertyName }: PenghuniViewProps) {
+export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, onCheckout, propertyName, propertyType }: PenghuniViewProps) {
   const [tab, setTab] = useState<DirTab>("semua");
   const [detailRoomId, setDetailRoomId] = useState<string | null>(null);
   const [renewRoomId, setRenewRoomId] = useState<string | null>(null);
@@ -232,10 +237,13 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
     return list;
   }, [tenants, tab, q]);
 
+  /** Sebutan orang menghuni — Villa/Homestay → "Tamu / Penyewa" */
+  const tenantTerm = tenantTermFor(propertyType);
+
   const tabs: SegmentedTabItem<DirTab>[] = [
-    { value: "semua", label: "Semua Penghuni", count: counts.semua },
+    { value: "semua", label: tenantTerm === "Penyewa" ? "Semua Penghuni" : `Semua ${tenantTerm}`, count: counts.semua },
     { value: "aktif", label: "Aktif", count: counts.aktif },
-    { value: "keluar", label: "Akan Keluar / Habis Kontrak", count: counts.keluar },
+    { value: "keluar", label: tenantTerm === "Penyewa" ? "Akan Keluar / Habis Kontrak" : "Akan Check-out", count: counts.keluar },
   ];
 
   /** Status pembayaran bulan berjalan per kamar (untuk badge kartu mobile) */
@@ -256,9 +264,11 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-zinc-900">Direktori Penghuni</h1>
+          <h1 className="text-lg font-bold tracking-tight text-zinc-900">
+            {tenantTerm === "Penyewa" ? "Direktori Penghuni" : "Direktori Tamu / Penyewa"}
+          </h1>
           <p className="mt-0.5 text-[12.5px] text-zinc-700">
-            {tenants.length} penghuni terdaftar dari {rooms.length} kamar · data per 26 Sep 2026
+            {tenants.length} {tenantTerm === "Penyewa" ? "penghuni" : "tamu/penyewa"} terdaftar dari {rooms.length} kamar · data per 26 Sep 2026
           </p>
         </div>
         {/* Search */}
@@ -296,7 +306,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
           <caption className="sr-only">Direktori penghuni kost</caption>
           <thead className="sticky top-0 z-10">
             <tr>
-              <th className={`${HEAD_CELL} pl-4 text-left`}>Nama Penghuni</th>
+              <th className={`${HEAD_CELL} pl-4 text-left`}>Nama {tenantTerm === "Penyewa" ? "Penghuni" : "Tamu"}</th>
               <th className={`${HEAD_CELL} text-left`}>No. Kamar</th>
               <th className={`${HEAD_CELL} text-left`}>No. WhatsApp</th>
               <th className={`${HEAD_CELL} text-left`}>Tanggal Masuk</th>
@@ -428,7 +438,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
             <span className="flex size-10 items-center justify-center rounded-full bg-zinc-100 text-zinc-700">
               <UserX className="size-5" strokeWidth={1.5} aria-hidden="true" />
             </span>
-            <p className="text-[13px] font-semibold text-zinc-700">Tidak ada penghuni yang cocok</p>
+            <p className="text-[13px] font-semibold text-zinc-700">Tidak ada {tenantTerm === "Penyewa" ? "penghuni" : "tamu"} yang cocok</p>
             <p className="max-w-[280px] text-[12.5px] leading-5 text-zinc-700">
               {q
                 ? `Tidak ditemukan hasil untuk "${query}". Coba kata kunci lain.`
@@ -445,7 +455,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
             <span className="flex size-10 items-center justify-center rounded-full bg-zinc-100 text-zinc-700">
               <UserX className="size-5" strokeWidth={1.5} aria-hidden="true" />
             </span>
-            <p className="text-[13px] font-semibold text-zinc-700">Tidak ada penghuni yang cocok</p>
+            <p className="text-[13px] font-semibold text-zinc-700">Tidak ada {tenantTerm === "Penyewa" ? "penghuni" : "tamu"} yang cocok</p>
             <p className="max-w-[280px] text-[12.5px] leading-5 text-zinc-700">
               {q
                 ? `Tidak ditemukan hasil untuk "${query}". Coba kata kunci lain.`

@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { formatIDRShort, OPERATIONAL_META, type Room } from "@/lib/kost-data";
+import { isVillaType } from "@/lib/app-settings";
 import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { StatusBadge, STATUS_SKIN } from "./status-badge";
 
@@ -107,7 +108,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
           </span>
           {isVacant ? (
             <span className="ik-num ml-auto text-xs font-bold tabular-nums whitespace-nowrap">
-              {formatIDRShort(room.price)}/bln
+              {formatIDRShort(room.price)}{isVillaType(propertyType) ? "/hari" : "/bln"}
             </span>
           ) : (
             <span className="ik-num ml-auto truncate text-xs font-semibold tabular-nums whitespace-nowrap">
@@ -173,7 +174,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
           {isVacant && op === "siap" && onCheckin && (
             <DropdownMenuItem onClick={() => onCheckin(room)} className="text-[13px]">
               <UserPlus className="size-3.5 text-zinc-700" strokeWidth={1.75} />
-              Check-in Penghuni
+              {isVillaType(propertyType) ? "Check-in Tamu" : "Check-in Penghuni"}
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />

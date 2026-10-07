@@ -67,10 +67,12 @@ import type { IncomeDraft } from "@/components/kost/income-modal";
 import type { IssueDraft } from "@/components/kost/report-issue-drawer";
 import {
   addMonths,
+  diffNights,
   formatDateLabel,
   formatIDR,
   MONTH_NAMES,
   newPortalToken,
+  parseIsoDate,
   ROOMS,
   waLink,
   dateToLabel,
@@ -1222,6 +1224,8 @@ export default function IndoKostPage() {
 
   const handleCheckinSubmit = (p: CheckinPayload) => {
     const moveInLabel = formatDateLabel(p.tanggalMasuk);
+    const isHarian = p.siklus === "Harian";
+    const nights = isHarian ? diffNights(p.tanggalMasuk, p.tanggalCheckout ?? "") : 0;
 
     // MODE DEMO: check-in murni di state lokal — replika persis logika server
     // (penghuni + token portal, kontrak & deposit terkunci, invoice pertama
@@ -1233,20 +1237,30 @@ export default function IndoKostPage() {
         toast.info(`Kamar ${p.roomId} tidak ada di denah saat ini.`);
         return;
       }
+      if (isHarian && (!p.tanggalCheckout || nights < 1 || !p.totalTagihan)) {
+        toast.error("Rentang menginap belum valid", {
+          description: "Tanggal check-out harus minimal 1 malam setelah check-in.",
+        });
+        return;
+      }
       const [yy, mm, dd] = p.tanggalMasuk.split("-").map(Number);
       const moveIn = new Date(yy, (mm ?? 1) - 1, dd ?? 1);
+      const checkOutLabel = isHarian ? formatDateLabel(p.tanggalCheckout!) : "";
       const months = p.siklus === "Per 3 Bulan" ? 3 : p.siklus === "Tahunan" ? 12 : 1;
-      const contractEnd = addMonths(moveIn, months);
+      const contractEnd = isHarian
+        ? parseIsoDate(p.tanggalCheckout ?? "") ?? moveIn
+        : addMonths(moveIn, months);
       const monthName = MONTH_NAMES[moveIn.getMonth()];
       const lastDay = new Date(moveIn.getFullYear(), moveIn.getMonth() + 1, 0).getDate();
       const periodKey = `${moveIn.getFullYear()}-${String(moveIn.getMonth() + 1).padStart(2, "0")}`;
       const phoneDisplay = `+62 ${formatPhone(p.phone.replace(/\D/g, ""))}`;
       const todayLabel = dateToLabel(new Date());
+      const invoiceTotal = isHarian ? Math.round(p.totalTagihan ?? 0) : Math.round(p.totalPerBulan);
 
       const updatedRoom: Room = {
         ...room,
         status: "lunas",
-        price: Math.round(p.totalPerBulan),
+        price: Math.round(isHarian ? p.hargaSewa : p.totalPerBulan),
         tenant: {
           name: p.nama,
           phone: phoneDisplay,
@@ -1258,14 +1272,16 @@ export default function IndoKostPage() {
           portalToken: newPortalToken(p.roomId),
         },
         invoice: {
-          amount: Math.round(p.totalPerBulan),
-          periodLabel: `Sewa ${monthName} ${moveIn.getFullYear()}`,
+          amount: invoiceTotal,
+          periodLabel: isHarian
+            ? `Check-in ${moveInLabel} – ${checkOutLabel}`
+            : `Sewa ${monthName} ${moveIn.getFullYear()}`,
           dueLabel: `Tempo: ${moveInLabel.replace(/\s\d{4}$/, "")}`,
         },
         contract: {
           duration: p.siklus,
           startDate: moveInLabel,
-          endDate: dateToLabel(contractEnd),
+          endDate: isHarian ? checkOutLabel : dateToLabel(contractEnd),
           deposit: p.deposit,
           depositHeld: true,
         },
@@ -1276,16 +1292,23 @@ export default function IndoKostPage() {
         tenantName: p.nama,
         tenantPhone: phoneDisplay,
         roomType: room.type,
-        periodLabel: `1 ${monthName} – ${lastDay} ${monthName} ${moveIn.getFullYear()}`,
+        periodLabel: isHarian
+          ? `${moveInLabel} – ${checkOutLabel} (${nights} Malam)`
+          : `1 ${monthName} – ${lastDay} ${monthName} ${moveIn.getFullYear()}`,
         periodKey,
         dueDate: moveInLabel,
-        lines: [
-          { label: "Sewa Kamar", amount: Math.round(p.hargaSewa) },
-          ...p.addons.map((a) => ({ label: a, amount: DEMO_ADDON_PRICE[a] ?? 0 })),
-        ],
-        total: Math.round(p.totalPerBulan),
+        lines: isHarian
+          ? [{ label: "Sewa Harian", amount: Math.round(p.hargaSewa) }]
+          : [
+              { label: "Sewa Kamar", amount: Math.round(p.hargaSewa) },
+              ...p.addons.map((a) => ({ label: a, amount: DEMO_ADDON_PRICE[a] ?? 0 })),
+            ],
+        total: invoiceTotal,
         status: "lunas",
         paidAt: todayLabel,
+        ...(isHarian
+          ? { checkIn: moveInLabel, checkOut: checkOutLabel, nights }
+          : {}),
       };
       updateRooms((prev) => prev.map((r) => (r.id === p.roomId ? updatedRoom : r)));
       updateInvoices((prev) =>
@@ -1294,8 +1317,10 @@ export default function IndoKostPage() {
           : [invoice, ...prev],
       );
       const addons = p.addons.length > 0 ? ` · Add-on: ${p.addons.join(", ")}` : "";
-      toast.success(`${p.nama} check-in ke Kamar ${p.roomId}`, {
-        description: `${formatIDR(p.totalPerBulan)}/bln · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${dateToLabel(contractEnd)}${addons} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+      toast.success(`${p.nama} check-in ke ${isHarian ? "Unit" : "Kamar"} ${p.roomId}`, {
+        description: isHarian
+          ? `${formatIDR(invoiceTotal)} · ${nights} malam (${formatIDR(p.hargaSewa)}/hari) · check-out ${checkOutLabel} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`
+          : `${formatIDR(p.totalPerBulan)}/bln · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${dateToLabel(contractEnd)}${addons} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
       });
       return;
     }
@@ -1313,15 +1338,24 @@ export default function IndoKostPage() {
         deposit: p.deposit,
         addons: p.addons,
         totalPerBulan: p.totalPerBulan,
+        ...(isHarian
+          ? {
+              tanggalCheckout: p.tanggalCheckout ?? "",
+              durasiHari: nights,
+              totalTagihan: p.totalTagihan ?? 0,
+            }
+          : {}),
       })
       .then(({ room, invoice }) => {
         updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
         updateInvoices((prev) => [invoice, ...prev]);
         const addons = p.addons.length > 0 ? ` · Add-on: ${p.addons.join(", ")}` : "";
-        toast.success(`${p.nama} check-in ke Kamar ${p.roomId}`, {
-          description: `${formatIDR(p.totalPerBulan)}/bln · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${
-            room.contract?.endDate ?? moveInLabel
-          }${addons} · tersimpan ke cloud.`,
+        toast.success(`${p.nama} check-in ke ${isHarian ? "Unit" : "Kamar"} ${p.roomId}`, {
+          description: isHarian
+            ? `${formatIDR(p.totalTagihan ?? 0)} · ${nights} malam (${formatIDR(p.hargaSewa)}/hari) · check-out ${p.tanggalCheckout ? formatDateLabel(p.tanggalCheckout) : "—"} · tersimpan ke cloud.`
+            : `${formatIDR(p.totalPerBulan)}/bln · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${
+                room.contract?.endDate ?? moveInLabel
+              }${addons} · tersimpan ke cloud.`,
         });
       })
       .catch((err: unknown) =>
@@ -2300,6 +2334,7 @@ export default function IndoKostPage() {
         onStaffLogout={handleStaffLogout}
         showSyncStatus={!isDemoVisitor}
         showSuperAdminNav={isSuperAdmin && !isDemoVisitor}
+        activePropertyType={settings.propertyProfile.tipe}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -2318,6 +2353,7 @@ export default function IndoKostPage() {
           onCheckIn={() => openCheckin()}
           canCheckIn={!isPenjaga}
           onOpenMobileNav={() => setMobileOpen(true)}
+          propertyType={settings.propertyProfile.tipe}
           theme={settings.theme}
           onThemeChange={handleThemeChange}
           onRefresh={isDemoVisitor ? undefined : () => void handleRefreshCloud()}
@@ -2410,6 +2446,7 @@ export default function IndoKostPage() {
                 onRenew={handleRenew}
                 onCheckout={handleCheckout}
                 propertyName={property}
+                propertyType={settings.propertyProfile.tipe}
               />
               )
             ) : view === "kas" ? (
@@ -2560,6 +2597,7 @@ export default function IndoKostPage() {
           onCheckIn={() => openCheckin()}
           canCheckIn={!isPenjaga}
           onOpenMobileNav={() => setMobileOpen(true)}
+          propertyType={settings.propertyProfile.tipe}
           theme={settings.theme}
           onThemeChange={handleThemeChange}
           onRefresh={isDemoVisitor ? undefined : () => void handleRefreshCloud()}
@@ -2618,6 +2656,7 @@ export default function IndoKostPage() {
         vacantRooms={vacantRooms}
         preselectRoomId={checkinPreselect}
         onSubmit={handleCheckinSubmit}
+        propertyType={settings.propertyProfile.tipe}
       />
 
       <RoomAddModal

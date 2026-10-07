@@ -38,7 +38,7 @@ function nextPropertyId(): string {
   return `prop_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
 
-const PROPERTY_TIPE_VALUES = ["kost", "kontrakan", "rusun"];
+const PROPERTY_TIPE_VALUES = ["kost", "kontrakan", "rusun", "villa"];
 
 function normalizeOperational(v: string | undefined): string | null {
   if (v === "perbaikan" || v === "nonaktif") return v;

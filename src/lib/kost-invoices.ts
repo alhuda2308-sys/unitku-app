@@ -24,6 +24,11 @@ export function isInvoiceUnpaid(inv: Invoice): boolean {
   return inv.status === "belumBayar" || inv.status === "jatuhTempo" || inv.status === "menunggak";
 }
 
+/** Sewa harian (Villa/Homestay) — invoice berisi rentang check-in → check-out */
+export function isDailyStay(inv: Invoice): boolean {
+  return typeof inv.nights === "number" && inv.nights > 0 && !!inv.checkIn && !!inv.checkOut;
+}
+
 export interface InvoiceLine {
   label: string;
   amount: number;
@@ -44,6 +49,10 @@ export interface Invoice {
   /** menunggak = H+n (overdue), jatuhTempo = H-n (due in n days) */
   dayOffset?: number;
   paidAt?: string;
+  // ── Sewa harian (Villa/Homestay) — terisi bila invoice lahir dari check-in harian
+  checkIn?: string; // label "1 Okt 2026"
+  checkOut?: string; // label "3 Okt 2026"
+  nights?: number; // total durasi menginap (malam/hari)
 }
 
 export const CURRENT_PERIOD_KEY = "2026-09"; // periode dataset seed
@@ -242,9 +251,45 @@ export interface WaBillingContext {
  * rekening dan header tautan menjadi "Kwitansi & Scan QRIS:".
  */
 export function buildBillingWaMessage(inv: Invoice, ctx: WaBillingContext): string {
+  const nama = inv.tenantName ?? "Penyewa";
+  const unitLabel = `Unit/Villa: *${inv.roomId}*${inv.roomType ? ` — ${inv.roomType}` : ""}`;
+
+  // ── Sewa harian (Villa/Homestay) — rincian check-in/check-out & durasi ────
+  if (isDailyStay(inv)) {
+    const perDay = inv.lines.find((l) => l.label === "Sewa Harian")?.amount ?? 0;
+    const nights = inv.nights ?? 0;
+    return [
+      `Halo Kak ${nama}, salam dari manajemen ${ctx.propertyName}. 🙏`,
+      ``,
+      `Berikut rincian tagihan sewa untuk masa menginap Anda:`,
+      `- ${unitLabel}`,
+      `- Tanggal Check-in: *${inv.checkIn}*`,
+      `- Tanggal Check-out: *${inv.checkOut}*`,
+      `- Total Durasi: *${nights} Malam/Hari*`,
+      ...(perDay > 0
+        ? [`- Biaya Sewa: Rp ${waAmount(perDay)}/hari × ${nights} hari`]
+        : []),
+      `- *Total Tagihan: Rp ${waAmount(inv.total)}*`,
+      ``,
+      `Pembayaran dapat ditransfer ke:`,
+      `Bank: *${ctx.bank.bank}*`,
+      `No. Rekening: *${ctx.bank.number}*`,
+      `A/N: *${ctx.bank.holder}*`,
+      ...(ctx.qrisAvailable
+        ? [`(Tersedia juga pembayaran via QRIS pada tautan kwitansi di bawah)`]
+        : []),
+      ``,
+      ctx.qrisAvailable ? `Kwitansi & Scan QRIS:` : `Kwitansi & rincian digital dapat diakses di:`,
+      ctx.portalUrl,
+      ``,
+      `Mohon konfirmasi dan kirimkan bukti transfer setelah melakukan pembayaran. Terima kasih!`,
+      ``,
+      BRAND_WA_FOOTER,
+    ].join("\n");
+  }
+
   const sewa = inv.lines.find((l) => l.label === "Sewa Kamar")?.amount ?? inv.total;
   const addons = inv.lines.filter((l) => l.label !== "Sewa Kamar");
-  const nama = inv.tenantName ?? "Penyewa";
   const addonLines = addons.map((l) => `- ${l.label}: Rp ${waAmount(l.amount)}`).join("\n");
   return [
     `Halo Kak ${nama}, salam dari manajemen ${ctx.propertyName}. 🙏`,
@@ -276,6 +321,33 @@ export function buildBillingWaMessage(inv: Invoice, ctx: WaBillingContext): stri
 /** Pesan kwitansi LUNAS — pengganti tombol tagihan setelah pembayaran diterima */
 export function buildReceiptWaMessage(inv: Invoice, ctx: WaBillingContext): string {
   const nama = inv.tenantName ?? "Penyewa";
+  const unitLabel = `Unit/Villa: *${inv.roomId}*${inv.roomType ? ` — ${inv.roomType}` : ""}`;
+
+  // ── Sewa harian (Villa/Homestay) — kwitansi memuat check-in/out & durasi ──
+  if (isDailyStay(inv)) {
+    return [
+      `Halo Kak ${nama}, salam dari manajemen ${ctx.propertyName}. 🙏`,
+      ``,
+      `Pembayaran sewa untuk masa menginap Anda telah kami terima. ✅`,
+      ``,
+      `Berikut rincian kwitansi digital:`,
+      `- ${unitLabel}`,
+      `- Tanggal Check-in: *${inv.checkIn}*`,
+      `- Tanggal Check-out: *${inv.checkOut}*`,
+      `- Total Durasi: *${inv.nights} Malam/Hari*`,
+      `- *Total Dibayar: Rp ${waAmount(inv.total)}*`,
+      `- Tanggal Pembayaran: *${inv.paidAt ?? "hari ini"}*`,
+      `- Status: *LUNAS*`,
+      ``,
+      `Kwitansi & rincian digital dapat diakses di:`,
+      ctx.portalUrl,
+      ``,
+      `Terima kasih telah menginap. Selamat beristirahat! 🙏`,
+      ``,
+      BRAND_WA_FOOTER,
+    ].join("\n");
+  }
+
   return [
     `Halo Kak ${nama}, salam dari manajemen ${ctx.propertyName}. 🙏`,
     ``,

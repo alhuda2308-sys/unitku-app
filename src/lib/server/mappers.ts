@@ -38,6 +38,10 @@ export function toClientInvoice(
     status: invoice.status as InvoiceStatus,
     dayOffset: invoice.dayOffset ?? undefined,
     paidAt: invoice.paidAt ? dateToLabel(invoice.paidAt) : undefined,
+    // Sewa harian (Villa/Homestay) — rentang menginap & durasi utk kwitansi WA
+    checkIn: invoice.checkIn ? dateToLabel(invoice.checkIn) : undefined,
+    checkOut: invoice.checkOut ? dateToLabel(invoice.checkOut) : undefined,
+    nights: invoice.nights ?? undefined,
   };
 }
 

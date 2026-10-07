@@ -809,7 +809,7 @@ function ProfilPropertiTab({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="st-lantai" className="text-[12.5px] text-zinc-600">
-                Jumlah Lantai{draft.tipe === "kontrakan" ? "/Petak" : draft.tipe === "rusun" ? "/Tower" : ""}
+                Jumlah Lantai{draft.tipe === "kontrakan" ? "/Petak" : draft.tipe === "rusun" ? "/Tower" : draft.tipe === "villa" ? "/Blok" : ""}
               </Label>
               <Input id="st-lantai" type="number" min={1} max={50} value={draft.lantai} onChange={(e) => set({ lantai: e.target.value })} className={cn(inputCls, "tabular-nums")} />
             </div>

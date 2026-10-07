@@ -16,7 +16,7 @@ import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientInvoice, toClientRoom } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
 import { getOwnedPropertyIds, unauthorized } from "@/lib/auth/ownership";
-import { MONTH_NAMES, newPortalToken, parseDateLabel, addMonths } from "@/lib/kost-data";
+import { MONTH_NAMES, newPortalToken, parseDateLabel, addMonths, diffNights, formatDateLabel } from "@/lib/kost-data";
 
 export const dynamic = "force-dynamic";
 
@@ -46,11 +46,15 @@ interface CheckinBody {
   emergencyName?: unknown;
   emergencyPhone?: unknown;
   tanggalMasuk?: unknown; // "yyyy-mm-dd"
-  siklus?: unknown; // Bulanan | Per 3 Bulan | Tahunan
+  siklus?: unknown; // Harian | Bulanan | Per 3 Bulan | Tahunan
   hargaSewa?: unknown;
   deposit?: unknown;
   addons?: unknown; // string[]
   totalPerBulan?: unknown;
+  // ── Sewa harian (siklus Harian)
+  tanggalCheckout?: unknown; // "yyyy-mm-dd"
+  durasiHari?: unknown; // jumlah malam (verifikasi dari klien, dihitung ulang server)
+  totalTagihan?: unknown; // harga per hari × durasi
 }
 
 const ADDON_PRICE: Record<string, number> = {
@@ -72,12 +76,25 @@ export async function POST(request: NextRequest) {
     const hargaSewa = Number(body.hargaSewa);
     const totalPerBulan = Number(body.totalPerBulan);
     const deposit = Number.isFinite(Number(body.deposit)) ? Math.max(0, Math.round(Number(body.deposit))) : 0;
-    const siklus = body.siklus === "Per 3 Bulan" || body.siklus === "Tahunan" ? body.siklus : "Bulanan";
+    const siklus =
+      body.siklus === "Harian" || body.siklus === "Per 3 Bulan" || body.siklus === "Tahunan"
+        ? body.siklus
+        : "Bulanan";
     const moveIn = typeof body.tanggalMasuk === "string" ? parseIsoDate(body.tanggalMasuk) : null;
+    const isHarian = siklus === "Harian";
+    const checkOut = isHarian && typeof body.tanggalCheckout === "string"
+      ? parseIsoDate(body.tanggalCheckout)
+      : null;
 
     if (!roomId || !name || !moveIn) {
       return NextResponse.json(
         { error: "Kamar, nama penyewa, dan tanggal masuk wajib diisi." },
+        { status: 400 },
+      );
+    }
+    if (isHarian && (!checkOut || checkOut.getTime() <= moveIn.getTime())) {
+      return NextResponse.json(
+        { error: "Tanggal check-out harus minimal 1 malam setelah tanggal check-in." },
         { status: 400 },
       );
     }
@@ -100,14 +117,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Kontrak: Harian → berakhir di tanggal check-out; periodik → months bulan
+    const nights = isHarian
+      ? Math.max(1, diffNights(String(body.tanggalMasuk), String(body.tanggalCheckout)))
+      : 0;
+    const totalHarian = isHarian ? Math.round(hargaSewa) * nights : 0;
     const months = siklus === "Bulanan" ? 1 : siklus === "Per 3 Bulan" ? 3 : 12;
-    const contractEnd = addMonths(moveIn, months);
+    const contractEnd = isHarian ? checkOut! : addMonths(moveIn, months);
     const monthName = MONTH_NAMES[moveIn.getMonth()];
     const lastDay = new Date(moveIn.getFullYear(), moveIn.getMonth() + 1, 0).getDate();
     const phoneDisplay = formatPhoneDisplay(phoneDigits || "000");
-    const addons = Array.isArray(body.addons)
-      ? (body.addons.filter((a): a is string => typeof a === "string"))
-      : [];
+    const addons = isHarian
+      ? [] // add-on rutin berorientasi bulanan — tidak berlaku utk sewa harian
+      : Array.isArray(body.addons)
+        ? (body.addons.filter((a): a is string => typeof a === "string"))
+        : [];
 
     // 1) Penghuni + token portal unik
     const tenant = await db.tenant.create({
@@ -126,11 +150,12 @@ export async function POST(request: NextRequest) {
     });
 
     // 2) Kunci kontrak di kamar + status lunas (pembayaran pertama diterima)
+    // Harian: harga kamar tersimpan = tarif per hari (Villa/Homestay).
     const updatedRoom = await db.room.update({
       where: { id: room.id },
       data: {
         status: "lunas",
-        price: Math.round(totalPerBulan),
+        price: Math.round(isHarian ? hargaSewa : totalPerBulan),
         contractDuration: siklus,
         contractStart: moveIn,
         contractEnd,
@@ -144,20 +169,29 @@ export async function POST(request: NextRequest) {
     // Satu invoice per kamar per periode (@@unique roomId+periodKey): bila kamar
     // sudah punya invoice periode sama (arsip penyewa sebelumnya), perbarui
     // invoice itu menjadi milik penyewa baru; jika belum ada, buat dengan ID unik.
+    // Harian: rincian check-in/check-out & durasi (malam) ikut tersimpan agar
+    // template tagihan/kwitansi WA menampilkannya secara otomatis.
     const periodKey = `${moveIn.getFullYear()}-${String(moveIn.getMonth() + 1).padStart(2, "0")}`;
-    const invoiceLines = [
-      { label: "Sewa Kamar", amount: Math.round(hargaSewa) },
-      ...addons.map((a) => ({ label: a, amount: ADDON_PRICE[a] ?? 0 })),
-    ];
+    const invoiceLines = isHarian
+      ? [{ label: "Sewa Harian", amount: Math.round(hargaSewa) }]
+      : [
+          { label: "Sewa Kamar", amount: Math.round(hargaSewa) },
+          ...addons.map((a) => ({ label: a, amount: ADDON_PRICE[a] ?? 0 })),
+        ];
     const invoiceData = {
       tenantName: name,
       tenantPhone: phoneDisplay,
       roomType: room.type,
-      periodLabel: `1 ${monthName} – ${lastDay} ${monthName} ${moveIn.getFullYear()}`,
+      periodLabel: isHarian
+        ? `${formatDateLabel(String(body.tanggalMasuk))} – ${formatDateLabel(String(body.tanggalCheckout))} (${nights} Malam)`
+        : `1 ${monthName} – ${lastDay} ${monthName} ${moveIn.getFullYear()}`,
       dueDate: moveIn,
       status: "lunas",
       paidAt: new Date(),
-      total: Math.round(totalPerBulan),
+      total: isHarian ? totalHarian : Math.round(totalPerBulan),
+      checkIn: isHarian ? moveIn : null,
+      checkOut: isHarian ? checkOut : null,
+      nights: isHarian ? nights : null,
     };
     const reused = await db.invoice.findUnique({
       where: { roomId_periodKey: { roomId: room.id, periodKey } },

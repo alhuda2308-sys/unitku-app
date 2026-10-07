@@ -97,7 +97,11 @@ export async function POST(request: NextRequest) {
     });
     const billedRooms = new Set(existing.map((i) => i.roomId));
     const existingIds = new Set(existing.map((i) => i.id));
-    const pendingRooms = occupiedRooms.filter((r) => !billedRooms.has(r.id));
+    // Kamar kontrak Harian (Villa/Homestay) ditagih di muka saat check-in —
+    // bukan bagian dari siklus tagihan bulanan.
+    const pendingRooms = occupiedRooms.filter(
+      (r) => !billedRooms.has(r.id) && r.contractDuration !== "Harian",
+    );
 
     // 3) Riwayat invoice terakhir per kamar milik owner — sumber Sewa Pokok & add-on
     const history = await db.invoice.findMany({

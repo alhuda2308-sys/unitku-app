@@ -15,7 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PROPERTY_TYPE_META, type PropertyEntry } from "@/lib/app-settings";
+import { PROPERTY_TYPE_META, isVillaType, type PropertyEntry } from "@/lib/app-settings";
 import { BRAND_NAME, BRAND_TAGLINE } from "@/lib/brand";
 import {
   getLeadsAlertServerSnapshot,
@@ -50,6 +50,9 @@ interface SidebarProps {
   /** true = sesi Super Admin → tampilkan nav "Panel Super Admin" + badge
    *  merah jumlah pendaftar baru yang belum ditinjau */
   showSuperAdminNav?: boolean;
+  /** Tipe properti AKTIF (Profil Properti) — Villa/Homestay → nav "Data Tamu / Penyewa".
+   *  Fallback: tipe pada daftar cabang dengan nama yang cocok. */
+  activePropertyType?: string;
 }
 
 const NAV_ITEMS: { key: string; label: string; icon: typeof LayoutGrid }[] = [
@@ -81,6 +84,7 @@ export function Sidebar({
   onStaffLogout,
   showSyncStatus = true,
   showSuperAdminNav = false,
+  activePropertyType,
 }: SidebarProps) {
   const isStaff = staffSession != null;
   const staffMeta = staffSession ? STAFF_ROLE_META[staffSession.role] : null;
@@ -95,6 +99,12 @@ export function Sidebar({
     ? ["denah", "komplain", "pengaturan"]
     : NAV_ITEMS.map((n) => n.key);
   const visibleNav = NAV_ITEMS.filter((n) => allowedKeys.includes(n.key));
+  /** Tipe properti aktif — Villa/Homestay → nav "Data Penghuni" jadi "Data Tamu / Penyewa" */
+  const activePropertyTypeResolved =
+    activePropertyType ?? properties.find((p) => p.name === property)?.type;
+  const isVilla = isVillaType(activePropertyTypeResolved);
+  const navLabel = (key: string, label: string): string =>
+    key === "penghuni" && isVilla ? "Data Tamu / Penyewa" : label;
   /** Nama tampilan sesi aktif — staf dari sesi, owner dari profil Pengaturan */
   const displayName = isStaff ? staffSession.name : ownerName.trim() || "Owner";
   const userInitial = displayName
@@ -237,10 +247,11 @@ export function Sidebar({
           {visibleNav.map((item) => {
             const Icon = item.icon;
             const active = activeKey === item.key;
+            const label = navLabel(item.key, item.label);
             return (
               <button
                 key={item.key}
-                title={collapsed ? item.label : undefined}
+                title={collapsed ? label : undefined}
                 onClick={() => onNavigate(item.key)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
@@ -254,7 +265,7 @@ export function Sidebar({
                 <Icon className="size-[18px] shrink-0" strokeWidth={1.75} />
                 {!collapsed && (
                   <>
-                    <span className="flex-1 text-left">{item.label}</span>
+                    <span className="flex-1 text-left">{label}</span>
                     {item.key === "tagihan" && invoiceAlerts > 0 && (
                       <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1 text-xs font-semibold tabular-nums text-amber-700">
                         {invoiceAlerts}

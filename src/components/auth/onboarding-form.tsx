@@ -300,7 +300,7 @@ export function OnboardingForm() {
                   <Label className="mb-1.5 text-[12.5px] font-medium text-zinc-700">
                     Tipe Properti
                   </Label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {PROPERTY_TYPES.map((t) => {
                       const meta = PROPERTY_TYPE_META[t];
                       const active = tipe === t;
@@ -334,7 +334,13 @@ export function OnboardingForm() {
                   </Label>
                   <Input
                     id="onb-name"
-                    placeholder={tipe === "kontrakan" ? "Kontrakan Bahagia" : "Kost Bahagia"}
+                    placeholder={
+                      tipe === "kontrakan"
+                        ? "Kontrakan Bahagia"
+                        : tipe === "villa"
+                          ? "Villa Bahagia"
+                          : "Kost Bahagia"
+                    }
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     maxLength={80}

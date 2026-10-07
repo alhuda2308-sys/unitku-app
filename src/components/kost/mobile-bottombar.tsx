@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { THEME_KEYS, THEME_META, type ThemeKey } from "@/lib/app-settings";
+import { THEME_KEYS, THEME_META, isVillaType, type ThemeKey } from "@/lib/app-settings";
 import type { RoomStatus } from "@/lib/kost-data";
 import { FILTER_OPTIONS } from "@/components/kost/topbar";
 import {
@@ -28,6 +28,8 @@ interface MobileBottomBarProps {
   onCheckIn: () => void;
   /** false = peran tanpa izin check-in (Penjaga) — FAB disembunyikan */
   canCheckIn?: boolean;
+  /** Tipe properti aktif — Villa/Homestay → a11y "Check-in Tamu Baru" */
+  propertyType?: string;
   onOpenMobileNav: () => void;
   /** Tema aktif (sinkron TopBar & Pengaturan → Tema & Tampilan) */
   theme: ThemeKey;
@@ -53,6 +55,7 @@ export function MobileBottomBar({
   onStatusChange,
   onCheckIn,
   canCheckIn = true,
+  propertyType,
   onOpenMobileNav,
   theme,
   onThemeChange,
@@ -168,7 +171,7 @@ export function MobileBottomBar({
           <button
             type="button"
             onClick={onCheckIn}
-            aria-label="Check-in Penghuni Baru"
+            aria-label={isVillaType(propertyType) ? "Check-in Tamu Baru" : "Check-in Penghuni Baru"}
             className="flex size-14 -translate-y-4 shrink-0 items-center justify-center rounded-full bg-[var(--ik-accent)] text-[var(--ik-accent-fg)] shadow-[0_10px_24px_rgba(15,23,42,0.28)] transition-transform hover:bg-[var(--ik-accent-hover)] active:scale-95"
           >
             <Plus className="size-6" strokeWidth={2.25} aria-hidden="true" />

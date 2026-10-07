@@ -251,6 +251,10 @@ export const api = {
     deposit: number;
     addons: string[];
     totalPerBulan: number;
+    // ── Sewa harian (siklus Harian / Villa-Homestay)
+    tanggalCheckout?: string; // yyyy-mm-dd
+    durasiHari?: number; // jumlah malam
+    totalTagihan?: number; // harga per hari × durasi
   }) =>
     request<{ room: ClientRoom; invoice: ClientInvoice }>("/api/tenants", {
       method: "POST",

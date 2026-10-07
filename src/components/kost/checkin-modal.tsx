@@ -21,11 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatIDR, todayISO, type Room } from "@/lib/kost-data";
+import { formatIDR, diffNights, todayISO, addDaysISO, type Room } from "@/lib/kost-data";
+import { isVillaType, tenantTermFor } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
 import { RupiahInput } from "./rupiah-input";
 
-export type BillingCycle = "Bulanan" | "Per 3 Bulan" | "Tahunan";
+export type BillingCycle = "Harian" | "Bulanan" | "Per 3 Bulan" | "Tahunan";
 
 export interface CheckinPayload {
   roomId: string;
@@ -35,12 +36,16 @@ export interface CheckinPayload {
   emergencyName: string;
   emergencyPhone: string;
   ktpFileName?: string;
-  tanggalMasuk: string; // ISO yyyy-mm-dd
+  tanggalMasuk: string; // ISO yyyy-mm-dd — check-in (sewa harian) / tanggal masuk (kontrak)
   siklus: BillingCycle;
-  hargaSewa: number;
+  hargaSewa: number; // per bulan (kontrak) / per hari (Harian)
   deposit: number;
   addons: string[];
-  totalPerBulan: number;
+  totalPerBulan: number; // sewa pokok + add-on per bulan (kontrak); harga per hari bila Harian
+  // ── Sewa harian (Villa/Homestay / siklus Harian)
+  tanggalCheckout?: string; // ISO yyyy-mm-dd
+  durasiHari?: number; // jumlah malam menginap (check-out − check-in)
+  totalTagihan?: number; // harga per hari × durasi
 }
 
 interface CheckinModalProps {
@@ -50,6 +55,8 @@ interface CheckinModalProps {
   /** Room preselected (e.g. opened from a vacant room card / drawer) */
   preselectRoomId?: string | null;
   onSubmit: (payload: CheckinPayload) => void;
+  /** Tipe properti aktif — Villa/Homestay → label "Tamu / Penyewa" + default siklus Harian */
+  propertyType?: string;
 }
 
 const ADDONS: { label: string; price: number }[] = [
@@ -58,7 +65,7 @@ const ADDONS: { label: string; price: number }[] = [
   { label: "Orang Kedua", price: 200_000 },
 ];
 
-const CYCLES: BillingCycle[] = ["Bulanan", "Per 3 Bulan", "Tahunan"];
+const CYCLES: BillingCycle[] = ["Harian", "Bulanan", "Per 3 Bulan", "Tahunan"];
 
 const inputCls =
   "h-9 border-zinc-200 bg-white text-[13px] text-zinc-900 placeholder:text-zinc-600 focus-visible:ring-zinc-900/5";
@@ -78,10 +85,12 @@ export function CheckinModal({
   vacantRooms,
   preselectRoomId,
   onSubmit,
+  propertyType,
 }: CheckinModalProps) {
   const [ktpFile, setKtpFile] = useState<{ name: string; url: string } | null>(null);
   const [tanggalMasuk, setTanggalMasuk] = useState(todayISO);
-  const [siklus, setSiklus] = useState<BillingCycle>("Bulanan");
+  const [tanggalCheckout, setTanggalCheckout] = useState(() => addDaysISO(todayISO(), 1));
+  const [siklus, setSiklus] = useState<BillingCycle>(isVillaType(propertyType) ? "Harian" : "Bulanan");
   const [rentTouched, setRentTouched] = useState(false);
   const [deposit, setDeposit] = useState(1_000_000);
   const [addons, setAddons] = useState<string[]>([]);
@@ -101,8 +110,15 @@ export function CheckinModal({
 
   const room = vacantRooms.find((r) => r.id === roomId);
 
+  const isHarian = siklus === "Harian";
+  /** Label orang yang menghuni — Villa/Homestay atau sewa harian → "Tamu / Penyewa" */
+  const tenantTerm = tenantTermFor(propertyType, isHarian);
+
   const addonTotal = addons.reduce((a, label) => a + (ADDONS.find((x) => x.label === label)?.price ?? 0), 0);
   const totalPerBulan = hargaSewa + addonTotal;
+  /** Durasi menginap — tgl 1 → tgl 3 = 2 malam/hari */
+  const durasiHari = isHarian ? Math.max(0, diffNights(tanggalMasuk, tanggalCheckout)) : 0;
+  const totalHarian = hargaSewa * durasiHari;
 
   const valid =
     !!roomId &&
@@ -110,7 +126,8 @@ export function CheckinModal({
     phone.replace(/\D/g, "").length >= 9 &&
     nik.replace(/\D/g, "").length === 16 &&
     !!tanggalMasuk &&
-    hargaSewa > 0;
+    hargaSewa > 0 &&
+    (!isHarian || durasiHari >= 1);
 
   const pickKtp = (file: File | undefined) => {
     if (!file) return;
@@ -132,8 +149,11 @@ export function CheckinModal({
       siklus,
       hargaSewa,
       deposit,
-      addons,
+      addons: isHarian ? [] : addons,
       totalPerBulan,
+      ...(isHarian
+        ? { tanggalCheckout, durasiHari, totalTagihan: totalHarian }
+        : {}),
     });
     if (ktpFile) URL.revokeObjectURL(ktpFile.url);
     onOpenChange(false);
@@ -145,10 +165,12 @@ export function CheckinModal({
         <DialogHeader className="z-10 shrink-0 border-b border-zinc-100 bg-white p-4">
           <DialogTitle className="flex items-center gap-2 text-[15px] font-bold tracking-tight text-zinc-900">
             <UserPlus className="size-4 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
-            Check-in Penghuni Baru
+            Check-in {tenantTerm === "Penyewa" ? "Penghuni Baru" : "Tamu Baru"}
           </DialogTitle>
           <DialogDescription className="text-[12.5px] text-zinc-700">
-            Daftarkan penyewa, kontrak, dan pembayaran deposit dalam satu langkah.
+            {isHarian
+              ? `Daftarkan tamu, rentang check-in/out, dan total tagihan menginap dalam satu langkah.`
+              : `Daftarkan ${tenantTerm.toLowerCase()}, kontrak, dan pembayaran deposit dalam satu langkah.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -173,7 +195,7 @@ export function CheckinModal({
                 )}
                 {vacantRooms.map((r) => (
                   <SelectItem key={r.id} value={r.id} className="text-[13px]">
-                    Kamar {r.id} — Lt {r.floor} · {r.type} · {formatIDR(r.price)}/bln
+                    {isVillaType(propertyType) ? "Unit" : "Kamar"} {r.id} — Lt {r.floor} · {r.type} · {formatIDR(r.price)}{isVillaType(propertyType) ? "/hari" : "/bln"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -186,9 +208,9 @@ export function CheckinModal({
             )}
           </section>
 
-          {/* ── Section 2: Data Penghuni ───────────────────────────────────────── */}
+          {/* ── Section 2: Data Penghuni / Tamu ───────────────────────────── */}
           <section className="rounded-lg border border-border bg-white p-4">
-            <SectionLabel icon={UserPlus}>Data Penghuni</SectionLabel>
+            <SectionLabel icon={UserPlus}>Data {tenantTerm}</SectionLabel>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="ck-nama" className="text-[12.5px] text-zinc-600">Nama Lengkap</Label>
@@ -300,10 +322,12 @@ export function CheckinModal({
 
           {/* ── Section 3: Detail Sewa & Keuangan ──────────────────────────────── */}
           <section className="rounded-lg border border-border bg-white p-4">
-            <SectionLabel icon={Wallet}>Detail Sewa &amp; Keuangan</SectionLabel>
+            <SectionLabel icon={Wallet}>{isHarian ? "Detail Menginap & Keuangan" : "Detail Sewa & Keuangan"}</SectionLabel>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="ck-masuk" className="text-[12.5px] text-zinc-600">Tanggal Masuk</Label>
+                <Label htmlFor="ck-masuk" className="text-[12.5px] text-zinc-600">
+                  {isHarian ? "Tanggal Check-in" : "Tanggal Masuk"}
+                </Label>
                 <div className="relative">
                   <CalendarDays
                     className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-700"
@@ -314,12 +338,49 @@ export function CheckinModal({
                     id="ck-masuk"
                     type="date"
                     value={tanggalMasuk}
-                    onChange={(e) => setTanggalMasuk(e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setTanggalMasuk(v);
+                      // Check-out ikut maju bila rentang menjadi tidak valid
+                      if (isHarian && v && diffNights(v, tanggalCheckout) < 1) {
+                        setTanggalCheckout(addDaysISO(v, 1));
+                      }
+                    }}
                     className={cn(inputCls, "tabular-nums")}
                   />
                 </div>
               </div>
-              <div className="space-y-1.5">
+              {isHarian && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="ck-checkout" className="text-[12.5px] text-zinc-600">Tanggal Check-out</Label>
+                  <div className="relative">
+                    <CalendarDays
+                      className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-700"
+                      strokeWidth={1.75}
+                      aria-hidden="true"
+                    />
+                    <Input
+                      id="ck-checkout"
+                      type="date"
+                      value={tanggalCheckout}
+                      min={addDaysISO(tanggalMasuk || todayISO(), 1)}
+                      onChange={(e) => setTanggalCheckout(e.target.value)}
+                      className={cn(inputCls, "tabular-nums")}
+                      aria-invalid={durasiHari < 1}
+                    />
+                  </div>
+                  {durasiHari >= 1 ? (
+                    <p className="text-xs text-zinc-700">
+                      Durasi menginap: <span className="font-semibold text-zinc-900">{durasiHari} malam</span> ({durasiHari} hari)
+                    </p>
+                  ) : (
+                    <p className="text-xs font-medium text-red-600">
+                      Check-out harus setelah tanggal check-in (min. 1 malam).
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className={cn("space-y-1.5", isHarian && "sm:col-span-2")}>
                 <Label className="text-[12.5px] text-zinc-600">Siklus Tagihan</Label>
                 <div className="inline-flex h-9 w-full items-center gap-0.5 rounded-md border border-border bg-zinc-50 p-0.5" role="group" aria-label="Siklus tagihan">
                   {CYCLES.map((c) => (
@@ -345,14 +406,14 @@ export function CheckinModal({
                 <Label htmlFor="ck-sewa" className="text-[12.5px] text-zinc-600">Harga Sewa Pokok</Label>
                 <RupiahInput
                   id="ck-sewa"
-                  ariaLabel="Harga sewa pokok per bulan"
+                  ariaLabel={isHarian ? "Harga sewa per hari" : "Harga sewa pokok per bulan"}
                   value={hargaSewa}
                   onChange={(v) => {
                     setRentTouched(true);
                     setHargaSewa(v);
                   }}
                 />
-                <p className="text-xs text-zinc-700">per bulan</p>
+                <p className="text-xs text-zinc-700">{isHarian ? "per hari" : "per bulan"}</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="ck-deposit" className="text-[12.5px] text-zinc-600">Uang Jaminan / Deposit</Label>
@@ -360,7 +421,8 @@ export function CheckinModal({
                 <p className="text-xs text-zinc-700">ditahan & dikembalikan saat check-out</p>
               </div>
 
-              {/* Add-ons */}
+              {/* Add-on Rutin — hanya utk kontrak periodik (harga add-on per bulan) */}
+              {!isHarian && (
               <div className="space-y-2 sm:col-span-2">
                 <Label className="text-[12.5px] text-zinc-600">Add-on Rutin</Label>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -392,19 +454,35 @@ export function CheckinModal({
                   })}
                 </div>
               </div>
+              )}
 
-              {/* Live total */}
-              <div className="flex items-center justify-between rounded-md border border-border bg-zinc-50 px-3 py-2 sm:col-span-2">
-                <span className="text-[12.5px] text-zinc-700">Total sewa per bulan</span>
-                <span className="text-[14px] font-bold tabular-nums text-zinc-900">{formatIDR(totalPerBulan)}</span>
-              </div>
+              {/* Live total — kontrak: per bulan · Harian: harga/hari × durasi */}
+              {isHarian ? (
+                <div className="flex items-center justify-between rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 sm:col-span-2">
+                  <span className="text-[12.5px] text-zinc-700">
+                    Total Tagihan ({durasiHari} malam × {formatIDR(hargaSewa)}/hari)
+                  </span>
+                  <span className="text-[14px] font-bold tabular-nums text-zinc-900">{formatIDR(totalHarian)}</span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between rounded-md border border-border bg-zinc-50 px-3 py-2 sm:col-span-2">
+                  <span className="text-[12.5px] text-zinc-700">Total sewa per bulan</span>
+                  <span className="text-[14px] font-bold tabular-nums text-zinc-900">{formatIDR(totalPerBulan)}</span>
+                </div>
+              )}
             </div>
           </section>
         </div>
 
         <DialogFooter className="z-10 flex flex-row shrink-0 items-center justify-end gap-3 border-t border-zinc-100 bg-white p-4">
           <p className="hidden text-[12.5px] text-zinc-700 sm:block">
-            {room ? `Kamar ${room.id} akan langsung berstatus terisi.` : "Pilih kamar terlebih dahulu."}
+            {isHarian
+              ? room
+                ? `${formatIDR(totalHarian)} · ${durasiHari} malam — Unit ${room.id} langsung berstatus terisi.`
+                : "Pilih unit terlebih dahulu."
+              : room
+                ? `Kamar ${room.id} akan langsung berstatus terisi.`
+                : "Pilih kamar terlebih dahulu."}
           </p>
           <div className="flex w-full gap-2 sm:w-auto">
             <Button
