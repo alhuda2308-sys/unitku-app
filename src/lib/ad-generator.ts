@@ -8,12 +8,16 @@
 //   2. "whatsapp"   — Status / Story WhatsApp (singkat, kasual, padat)
 //   3. "marketplace" — Deskripsi listing Marketplace (terstruktur, to the point)
 //
-// ADAPTIF TIPE PROPERTI (kost vs kontrakan/rumah sewa vs rusun):
+// ADAPTIF TIPE PROPERTI (kost vs kontrakan/rumah sewa vs rusun vs villa):
 //   - "kost"      → terminologi "Kamar" (template klasik kost)
 //   - "house"     → Kontrakan / Rumah Sewa / Petakan — terminologi "Rumah
 //                   Kontrakan / Unit Petakan", target keluarga kecil/pasutri,
 //                   fasilitas diprioritaskan (dapur, ruang tamu, parkir, dst.)
 //   - "unit"      → Rusun — terminologi "Unit Rusun", target pekerja/pasutri
+//   - "villa"     → Villa / Homestay / Guesthouse — terminologi staycation
+//                   ("Tamu", check-in/check-out, tarif per malam weekday &
+//                   weekend, kapasitas tamu) + PRESET CEPAT caption siap
+//                   pakai per platform (Instagram, Facebook Ads, WA Story)
 //
 // Setiap format punya 4 VARIASI GAYA (angle penulisan) agar tombol
 // "Buat Ulang Draf Otomatis" selalu menghasilkan teks yang berbeda:
@@ -35,15 +39,20 @@ export interface AdGeneratorInput {
   roomId: string;
   floor: number;
   type: string;
-  /** Harga sewa per bulan (IDR) */
+  /** Harga sewa (IDR) — per bulan (kost/kontrakan/rusun) atau per malam
+   *  (villa/homestay — sewa harian) */
   price: number;
   /** Daftar fasilitas aktif (dari checklist modal) */
   facilities: string[];
   /** Nomor WhatsApp owner (tampil mentah, dinormalisasi ke wa.me) */
   ownerWhatsapp: string;
-  /** Tipe properti aktif ("kost" | "kontrakan" | "rusun" / label bebas) —
-   *  menentukan terminologi & struktur draf iklan (Kamar vs Unit/Kontrakan) */
+  /** Tipe properti aktif ("kost" | "kontrakan" | "rusun" | "villa" / label
+   *  bebas) — menentukan terminologi & struktur draf iklan */
   propertyType?: string;
+  /** Villa/Homestay: kapasitas tamu per booking (opsional — input modal) */
+  capacity?: number | null;
+  /** Villa/Homestay: tarif akhir pekan (weekend) per malam (opsional) */
+  weekendPrice?: number | null;
 }
 
 /** Jumlah variasi gaya per format (urgensi/kenyamanan/hemat/santai) */
@@ -59,14 +68,23 @@ export const AD_STYLE_META: { label: string; description: string }[] = [
 
 // ── Adaptasi tipe properti (Kost vs Kontrakan / Rumah Sewa vs Rusun) ─────────
 
-export type AdPropertyScope = "kost" | "house" | "unit";
+export type AdPropertyScope = "kost" | "house" | "unit" | "villa";
 
 /** Petakan nilai tipe properti (string bebas) → scope template iklan.
- *  "kontrakan"/"rumah sewa"/"petakan"/"ruko" → house; "rusun"/"apartemen" →
- *  unit; kosong/tak dikenal → kost (perilaku lama). */
+ *  "villa"/"homestay"/"guesthouse"/"penginapan" → villa; "kontrakan"/"rumah
+ *  sewa"/"petakan"/"ruko" → house; "rusun"/"apartemen" → unit; kosong/tak
+ *  dikenal → kost (perilaku lama). */
 export function adPropertyScope(propertyType?: string): AdPropertyScope {
   const v = (propertyType ?? "").trim().toLowerCase();
   if (!v) return "kost";
+  if (
+    v.includes("villa") ||
+    v.includes("homestay") ||
+    v.includes("guest") ||
+    v.includes("penginapan")
+  ) {
+    return "villa";
+  }
   if (
     v.includes("kontra") ||
     v.includes("petak") ||
@@ -89,6 +107,7 @@ export function adUnitNoun(scope: AdPropertyScope): "Kamar" | "Unit" {
 export function adCtaLabel(scope: AdPropertyScope): string {
   if (scope === "house") return "Buat Iklan Kontrakan";
   if (scope === "unit") return "Buat Iklan Unit";
+  if (scope === "villa") return "Buat Iklan Villa";
   return "Buat Iklan Kamar";
 }
 
@@ -131,6 +150,52 @@ export function sortFacilitiesForHouse(facilities: string[]): string[] {
     .map((x) => x.f);
 }
 
+/** Prioritas fasilitas checklist/draf utk villa / homestay / guesthouse —
+ *  fasilitas liburan ditonjolkan duluan (kolam renang, dapur, view, BBQ…). */
+export const VILLA_FACILITY_PRIORITY = [
+  "Kolam Renang",
+  "Dapur",
+  "View / Pemandangan",
+  "Area BBQ",
+  "Ruang Keluarga",
+  "Kamar Mandi Dalam",
+  "Wifi",
+  "AC",
+  "Parkir Mobil",
+] as const;
+
+const VILLA_PRIORITY_KEYWORDS = [
+  "kolam",
+  "dapur",
+  "view",
+  "pemandangan",
+  "bbq",
+  "ruang keluarga",
+  "wifi",
+  "internet",
+  "kamar mandi",
+  "ac",
+  "parkir",
+  "balkon",
+  "teras",
+  "tv",
+  "karaoke",
+];
+
+/** Urutkan fasilitas draf iklan villa: item prioritas liburan dulu
+ *  (urutan daftar), sisanya mempertahankan urutan asal (stable sort). */
+export function sortFacilitiesForVilla(facilities: string[]): string[] {
+  const score = (f: string): number => {
+    const v = f.toLowerCase();
+    const idx = VILLA_PRIORITY_KEYWORDS.findIndex((k) => v.includes(k));
+    return idx === -1 ? VILLA_PRIORITY_KEYWORDS.length : idx;
+  };
+  return facilities
+    .map((f, i) => ({ f, i, s: score(f) }))
+    .sort((a, b) => (a.s !== b.s ? a.s - b.s : a.i - b.i))
+    .map((x) => x.f);
+}
+
 /** Terminologi & target penyewa utk scope non-kost */
 interface HouseCopy {
   /** Terminologi listing — headline FB & judul Marketplace */
@@ -157,6 +222,18 @@ function houseCopy(scope: "house" | "unit"): HouseCopy {
         target: "Cocok untuk keluarga kecil, pasutri baru, atau pekerja baik-baik.",
         targetShort: "Cocok untuk pasutri/keluarga kecil/pekerja.",
       };
+}
+
+/** Terminologi utk scope villa / homestay / guesthouse */
+interface VillaCopy {
+  /** Terminologi listing — headline FB & judul Marketplace */
+  listing: string;
+  /** Kata benda kasual utk teks singkat WA */
+  nounLower: string;
+}
+
+function villaCopy(): VillaCopy {
+  return { listing: "Villa / Homestay", nounLower: "villa" };
 }
 
 /** Pilih indeks variasi yang DIJAMIN BERBEDA dari yang sedang aktif. */
@@ -203,6 +280,36 @@ function detailBlock(ctx: AdContext, roomId: string, floor: number, bullet: stri
   ];
 }
 
+/** Blok "Detail Unit" villa — terminologi staycation: kapasitas tamu &
+ *  tarif per malam (weekday & weekend mengikuti input opsional modal). */
+function villaDetailBlock(
+  input: AdGeneratorInput,
+  ctx: AdContext,
+  bullet: string,
+): string[] {
+  const cap = input.capacity && input.capacity > 0 ? input.capacity : null;
+  const weekend =
+    input.weekendPrice && input.weekendPrice > 0 ? input.weekendPrice : null;
+  const lines = [
+    `${bullet} Unit/Villa: ${input.roomId}`,
+    `${bullet} Tipe: ${ctx.type}`,
+  ];
+  if (cap) {
+    lines.push(`${bullet} Kapasitas: ${cap} tamu — ideal untuk keluarga & gathering`);
+  }
+  if (weekend) {
+    lines.push(
+      `${bullet} Tarif Weekday (Sen–Kam): ${ctx.price}/malam`,
+      `${bullet} Tarif Weekend (Jum–Min): ${formatIDR(weekend)}/malam`,
+    );
+  } else {
+    lines.push(
+      `${bullet} Tarif sewa: ${ctx.price}/malam — booking harian & weekend`,
+    );
+  }
+  return lines;
+}
+
 /** Blok fasilitas — versi ada/tidak ada fasilitas tercentang */
 function facilityBlock(
   ctx: AdContext,
@@ -216,14 +323,11 @@ function facilityBlock(
   return [emptyNote, ""];
 }
 
-/**
- * Bangun draf iklan sesuai format + variasi gaya pilihan. Murni string
- * templating — cepat dan gratis (client-side). `style` di luar 0..3 tetap
- * aman (di-normalisasi modulo). Struktur teks otomatis menyesuaikan tipe
- * properti aktif (Kamar kost vs Rumah Kontrakan / Unit Rusun).
- */
-export function generateAd(format: AdFormatId, input: AdGeneratorInput, style = 0): string {
-  const s = ((Math.trunc(style) % AD_STYLE_COUNT) + AD_STYLE_COUNT) % AD_STYLE_COUNT;
+/** Konteks string turunan bersama — dipakai semua template & preset villa */
+function buildContext(input: AdGeneratorInput): {
+  scope: AdPropertyScope;
+  ctx: AdContext;
+} {
   const scope = adPropertyScope(input.propertyType);
   const ctx: AdContext = {
     prop: input.propertyName.trim() || "Kost & Kontrakan",
@@ -234,8 +338,30 @@ export function generateAd(format: AdFormatId, input: AdGeneratorInput, style = 
     facs: input.facilities.map((f) => f.trim()).filter(Boolean),
     unitWord: adUnitNoun(scope),
   };
-  // Fasilitas draf rumah: prioritas kontrakan dulu (dapur, ruang tamu, parkir…)
-  if (scope !== "kost") ctx.facs = sortFacilitiesForHouse(ctx.facs);
+  // Urutan fasilitas mengikuti prioritas tipe: kontrakan (dapur, ruang tamu,
+  // parkir…) / villa (kolam renang, dapur, view, BBQ…)
+  if (scope === "house" || scope === "unit") ctx.facs = sortFacilitiesForHouse(ctx.facs);
+  else if (scope === "villa") ctx.facs = sortFacilitiesForVilla(ctx.facs);
+  return { scope, ctx };
+}
+
+/**
+ * Bangun draf iklan sesuai format + variasi gaya pilihan. Murni string
+ * templating — cepat dan gratis (client-side). `style` di luar 0..3 tetap
+ * aman (di-normalisasi modulo). Struktur teks otomatis menyesuaikan tipe
+ * properti aktif (Kamar kost vs Rumah Kontrakan / Unit Rusun vs Unit Villa
+ * dengan terminologi staycation).
+ */
+export function generateAd(format: AdFormatId, input: AdGeneratorInput, style = 0): string {
+  const s = ((Math.trunc(style) % AD_STYLE_COUNT) + AD_STYLE_COUNT) % AD_STYLE_COUNT;
+  const { scope, ctx } = buildContext(input);
+
+  if (scope === "villa") {
+    const copy = villaCopy();
+    if (format === "facebook") return generateFacebookVilla(s, input, ctx, copy);
+    if (format === "whatsapp") return generateWhatsappVilla(s, input, ctx);
+    return generateMarketplaceVilla(s, input, ctx, copy);
+  }
 
   if (scope !== "kost") {
     const copy = houseCopy(scope);
@@ -639,5 +765,311 @@ function generateMarketplaceHouse(
     ...facs(),
     "Kondisi: siap huni, lingkungan aman, bersih & kondusif untuk keluarga kecil maupun pekerja.",
     ...contact("Tanya-tanya dulu juga boleh — hubungi via WhatsApp:"),
+  ].join("\n");
+}
+
+// ── Format 1: Grup Facebook / Komunitas (VILLA / HOMESTAY — staycation) ──────
+
+function generateFacebookVilla(
+  s: number,
+  input: AdGeneratorInput,
+  ctx: AdContext,
+  copy: VillaCopy,
+): string {
+  const cap = input.capacity && input.capacity > 0 ? input.capacity : null;
+  const detail = () => ["🏡 Detail Unit:", ...villaDetailBlock(input, ctx, "▪️"), ""];
+  const facs = () =>
+    facilityBlock(
+      ctx,
+      "✨ Fasilitas Villa:",
+      "✅ ",
+      "✨ Chat saja untuk info fasilitas lengkapnya (kolam renang, dapur, view, dll.).",
+    );
+  const contact = (intro: string) =>
+    ctx.contact ? [intro, `👉 ${ctx.contact}`, ""] : [];
+  const capLine = () =>
+    cap
+      ? [`Muat hingga ${cap} tamu — pas untuk keluarga besar maupun rombongan.`, ""]
+      : [];
+
+  if (s === 0) {
+    // Angle URGENSI — tanggal favorit cepat penuh
+    return [
+      `🏖️ TANGGAL LIBURAN CEPAT PENUH — ${copy.listing.toUpperCase()} DI ${ctx.prop.toUpperCase()} 🏖️`,
+      "",
+      `Weekend & tanggal favorit sering dibooking duluan! Unit kosong: ${input.roomId} — amankan tanggal staycation Anda sebelum keburu penuh. 🏃`,
+      "",
+      ...detail(),
+      ...facs(),
+      "",
+      ...capLine(),
+      "Cocok untuk staycation keluarga, gathering sahabat, atau healing weekend. 🌿",
+      "",
+      ...contact("📲 Cek ketersediaan tanggal & reservasi langsung via WhatsApp:"),
+      "Tanggal bagus cepat habis — booking sekarang! 🙏",
+    ].join("\n");
+  }
+
+  if (s === 1) {
+    // Angle KENYAMANAN — staycation nyaman untuk keluarga
+    return [
+      `🌿 STAYCATION NYAMAN UNTUK KELUARGA — ${ctx.prop}`,
+      "",
+      "Butuh healing tanpa jauh-jauh? Unit ini bersih, privat, dan siap menemani liburan Anda — datang sebagai tamu, pulang bawa cerita. ✨",
+      "",
+      ...detail(),
+      ...facs(),
+      "",
+      ...capLine(),
+      ...contact(
+        "📲 Tanya tanggal check-in / check-out & ketersediaan? Chat WhatsApp:",
+      ),
+      `Sampai jumpa di ${ctx.prop} — liburannya jangan cuma wacana! 🏡`,
+    ].join("\n");
+  }
+
+  if (s === 2) {
+    // Angle HEMAT — weekday rate spesial, tanpa biaya kejutan
+    return [
+      `💰 STAYCATION HEMAT — WEEKDAY RATE SPESIAL DI ${ctx.prop} 💰`,
+      "",
+      "Liburan nyaman nggak harus mahal. Booking Senin–Kamis dan nikmati tarif lebih ramah di kantong — harga di iklan = harga yang Anda bayar, tanpa biaya kejutan.",
+      "",
+      ...detail(),
+      ...(ctx.facs.length > 0
+        ? facilityBlock(ctx, "✨ Sudah termasuk fasilitas:", "✅ ", "")
+        : ["✨ Chat untuk info fasilitas lengkapnya.", ""]),
+      "",
+      ...capLine(),
+      ...contact("📲 Kunci tanggal hemat Anda & cek ketersediaan via WhatsApp:"),
+      "Weekday rate terbatas — makin cepat makin hemat! 💸",
+    ].join("\n");
+  }
+
+  // Angle SANTAI — reuni / gathering / arisan
+  return [
+    `👋 REUNI, GATHERING, ATAU HEALING BARENG? ADA UNIT KOSONG DI ${ctx.prop}!`,
+    "",
+    "Rencana kumpul keluarga besar atau staycation bareng sahabat? Unit ini siap jadi panggung kenangan baru — nyaman, privat, dan bebas drama. 😄",
+    "",
+    ...detail(),
+    ...facs(),
+    "",
+    ...capLine(),
+    ...contact("📲 Cek ketersediaan tanggal & reservasi via WhatsApp:"),
+    `Sampai ketemu di ${ctx.prop}! 🏡`,
+  ].join("\n");
+}
+
+// ── Format 2: Status / Story WhatsApp (VILLA / HOMESTAY — staycation) ────────
+
+function generateWhatsappVilla(
+  s: number,
+  input: AdGeneratorInput,
+  ctx: AdContext,
+): string {
+  const cap = input.capacity && input.capacity > 0 ? input.capacity : null;
+  const weekend =
+    input.weekendPrice && input.weekendPrice > 0 ? input.weekendPrice : null;
+  const head = () => [
+    `Unit ${input.roomId} · ${ctx.type}`,
+    ...(cap ? [`👨‍👩‍👧‍👦 Kapasitas ${cap} tamu`] : []),
+    `💸 ${ctx.priceShort}/malam`,
+    ...(weekend ? [`🌙 Weekend: ${formatIDRShort(weekend)}/malam`] : []),
+  ];
+  const facs = () => (ctx.facs.length > 0 ? [`✅ ${facilityInline(ctx.facs)}`] : []);
+  const cta = (label: string) => (ctx.contact ? [`${label}: ${ctx.contact}`] : []);
+
+  if (s === 0) {
+    // Angle URGENSI — tanggal favorit cepat penuh
+    return [
+      `🏖️ Weekend & tanggal favorit di ${ctx.prop} cepat penuh!`,
+      "",
+      ...head(),
+      ...facs(),
+      "",
+      "Cek tanggal kosong & booking check-in sekarang ⚡",
+      ...cta("Reservasi 📲"),
+    ].join("\n");
+  }
+
+  if (s === 1) {
+    // Angle KENYAMANAN — staycation keluarga
+    return [
+      `🌿 Staycation nyaman di ${ctx.prop} — pas buat keluarga!`,
+      "",
+      ...head(),
+      ...facs(),
+      "",
+      "Bersih & privat — datang sebagai tamu, pulang bawa cerita ✨",
+      ...cta("Cek tanggal & booking 📲"),
+    ].join("\n");
+  }
+
+  if (s === 2) {
+    // Angle HEMAT — weekday rate
+    return [
+      `💰 Weekday rate lebih hemat di ${ctx.prop}!`,
+      "",
+      ...head(),
+      ...facs(),
+      "",
+      "Booking Sen–Kam, tarif lebih ramah — tanpa biaya kejutan",
+      ...cta("Kunci tanggal hemat 📲"),
+    ].join("\n");
+  }
+
+  // Angle SANTAI — reuni / gathering
+  return [
+    `👋 Reuni / gathering? Ada unit kosong di ${ctx.prop}!`,
+    "",
+    ...head(),
+    ...facs(),
+    "",
+    "Nyaman & privat — cocok buat rombongan 🏡",
+    ...cta("Cek ketersediaan 📲"),
+  ].join("\n");
+}
+
+// ── Format 3: Marketplace (VILLA / HOMESTAY — staycation) ────────────────────
+
+function generateMarketplaceVilla(
+  s: number,
+  input: AdGeneratorInput,
+  ctx: AdContext,
+  copy: VillaCopy,
+): string {
+  const spec = (judul: string) => [
+    judul,
+    "",
+    "Spesifikasi:",
+    ...villaDetailBlock(input, ctx, "-"),
+    "",
+  ];
+  const facs = () =>
+    facilityBlock(ctx, "Fasilitas Villa:", "- ", "Fasilitas lengkap — silakan tanya via chat.");
+  const contact = (intro: string) =>
+    ctx.contact ? ["", intro, ctx.contact] : [];
+
+  if (s === 0) {
+    return [
+      ...spec(`Disewa Harian — ${copy.listing} di ${ctx.prop} (Tanggal Favorit Cepat Penuh)`),
+      ...facs(),
+      "Kondisi: bersih & siap ditempati. Booking harian / weekend — cek ketersediaan tanggal sebelum terlambat.",
+      ...contact("Cek ketersediaan & reservasi via WhatsApp:"),
+    ].join("\n");
+  }
+
+  if (s === 1) {
+    return [
+      ...spec(`Staycation Nyaman untuk Keluarga — ${ctx.prop}`),
+      ...facs(),
+      "Kondisi: bersih & terawat. Cocok untuk staycation keluarga, gathering sahabat, maupun reuni besar.",
+      ...contact("Tanya tanggal check-in & reservasi via WhatsApp:"),
+    ].join("\n");
+  }
+
+  if (s === 2) {
+    return [
+      ...spec(`${copy.listing} Hemat Tanpa Biaya Kejutan — ${ctx.prop}`),
+      ...facs(),
+      "Kondisi: harga transparan sesuai iklan — weekday rate lebih hemat, tanpa biaya kejutan.",
+      ...contact("Cek tarif & ketersediaan via WhatsApp:"),
+    ].join("\n");
+  }
+
+  return [
+    ...spec(`Unit untuk Reuni, Gathering & Staycation — ${ctx.prop}`),
+    ...facs(),
+    "Kondisi: siap ditempati, nyaman & privat untuk keluarga besar maupun rombongan.",
+    ...contact("Tanya-tanya dulu juga boleh — cek ketersediaan via WhatsApp:"),
+  ].join("\n");
+}
+
+// ── Preset Cepat Villa/Homestay — caption siap pakai per platform sosmed ─────
+
+export type VillaPresetId = "instagram" | "facebook-ads" | "wa-story";
+
+export interface VillaPresetMeta {
+  id: VillaPresetId;
+  label: string;
+  hint: string;
+}
+
+/** Preset caption khusus Villa/Homestay — tampil di modal sbg "Preset Cepat"
+ *  (klik → preview langsung terisi, tinggal edit & salin). */
+export const VILLA_PRESETS: VillaPresetMeta[] = [
+  { id: "instagram", label: "Instagram", hint: "Caption estetik + hashtag" },
+  { id: "facebook-ads", label: "Facebook Ads", hint: "Hook — benefit — CTA iklan" },
+  { id: "wa-story", label: "WhatsApp Story", hint: "Singkat, padat, langsung reservasi" },
+];
+
+/** Bangun caption preset villa dari data unit aktual. Kapasitas & tarif
+ *  weekend ikut masuk bila diisi; nomor WA kosong → CTA tanpa link. */
+export function buildVillaPreset(id: VillaPresetId, input: AdGeneratorInput): string {
+  const { ctx } = buildContext(input);
+  const cap = input.capacity && input.capacity > 0 ? input.capacity : null;
+  const weekend =
+    input.weekendPrice && input.weekendPrice > 0 ? input.weekendPrice : null;
+
+  if (id === "instagram") {
+    return [
+      `🏝️ STAYCATION ALERT — ${ctx.prop.toUpperCase()} ✨`,
+      "",
+      `Cocok buat healing weekend bareng keluarga atau sahabat! Nyaman, privat, dan siap jadi latar kenangan liburan Anda.${cap ? ` Muat hingga ${cap} tamu — pas untuk rombongan!` : ""}`,
+      "",
+      `🏡 ${ctx.prop} — Unit ${input.roomId}`,
+      `🛏️ Tipe: ${ctx.type}${cap ? ` · Kapasitas ${cap} tamu` : ""}`,
+      ...(ctx.facs.length > 0
+        ? ["🌊 Fasilitas Villa:", facilityLines(ctx.facs, "✅ "), ""]
+        : ["🌊 Chat untuk info fasilitas villa lengkapnya.", ""]),
+      ...(weekend
+        ? [
+            `💸 Tarif Weekday (Sen–Kam): ${ctx.price}/malam`,
+            `💸 Tarif Weekend (Jum–Min): ${formatIDR(weekend)}/malam`,
+          ]
+        : [`💸 Mulai ${ctx.price}/malam — booking harian & weekend`]),
+      "",
+      "📅 Cek ketersediaan tanggal & reservasi langsung:",
+      ...(ctx.contact
+        ? [`📲 ${ctx.contact}`]
+        : ["📲 Hubungi kami via WhatsApp — cek nomor di bio."]),
+      "",
+      "#staycation #villa #homestay #liburankeluarga #healing #weekendgetaway #penginapan #wisata",
+    ].join("\n");
+  }
+
+  if (id === "facebook-ads") {
+    return [
+      `🎒 LIBURAN GAK PERLU JAUH-JAUH — ${ctx.prop.toUpperCase()}`,
+      "",
+      `Butuh tempat menginap nyaman buat staycation keluarga, gathering, atau reunion?${cap ? ` Kapasitas hingga ${cap} tamu — pas untuk rombongan.` : ""}`,
+      "",
+      ...(ctx.facs.length > 0
+        ? ["✅ Fasilitas lengkap:", facilityLines(ctx.facs, "• "), ""]
+        : []),
+      ...(weekend
+        ? [`💸 ${ctx.price}/malam (weekday) · ${formatIDR(weekend)}/malam (weekend)`]
+        : [`💸 ${ctx.price}/malam — booking harian & weekend`]),
+      `📍 Unit ${input.roomId} · ${ctx.type}`,
+      "",
+      "📅 Tanggal favorit cepat penuh — cek ketersediaan & reservasi sekarang:",
+      ...(ctx.contact ? [`👉 ${ctx.contact}`] : []),
+      "",
+      "Reservasi hari ini, liburan besok! 🏡",
+    ].join("\n");
+  }
+
+  // wa-story — singkat, padat, langsung reservasi
+  return [
+    `🏖️ Staycation di ${ctx.prop}!`,
+    "",
+    `Unit ${input.roomId} · ${ctx.type}`,
+    ...(cap ? [`👨‍👩‍👧‍👦 Kapasitas ${cap} tamu`] : []),
+    ...(ctx.facs.length > 0 ? [`✅ ${facilityInline(ctx.facs)}`] : []),
+    `💸 ${ctx.priceShort}/malam${weekend ? ` · Weekend ${formatIDRShort(weekend)}/malam` : ""}`,
+    "",
+    "Cek tanggal kosong & reservasi:",
+    ...(ctx.contact ? [`📲 ${ctx.contact}`] : []),
   ].join("\n");
 }

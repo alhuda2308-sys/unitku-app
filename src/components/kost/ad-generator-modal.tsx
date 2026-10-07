@@ -1,29 +1,37 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UnitKu — Generator Iklan Kamar Siap Copas ke Sosmed (Dashboard)
+// UnitKu — Generator Iklan Unit Siap Copas ke Sosmed (Dashboard)
 //
-// Modal pembuat draf iklan promosi untuk kamar berstatus KOSONG:
-//   1. Data otomatis dari kamar terpilih (properti, no. kamar, harga,
+// Modal pembuat draf iklan promosi untuk unit berstatus KOSONG:
+//   1. Data otomatis dari unit terpilih (properti, no. unit, harga,
 //      fasilitas via checklist cepat, nomor WA owner dari Pengaturan).
 //   2. 3 format iklan otomatis (templating client-side, tanpa API):
 //      Grup Facebook / Komunitas · Status WhatsApp · Marketplace —
 //      masing-masing dengan 4 variasi gaya (urgensi/kenyamanan/hemat/santai);
 //      "Buat Ulang Draf Otomatis" memutar ke variasi berbeda + toast.
-//   3. Preview bisa diedit manual → "Salin Teks Iklan" (toast) →
+//   3. Villa/Homestay: PRESET CEPAT caption siap pakai per platform
+//      (Instagram, Facebook Ads, WhatsApp Story) + input opsional Data
+//      Staycation (kapasitas tamu & tarif weekend/malam) yang masuk
+//      otomatis ke iklan — terminologi staycation, bukan istilah anak kost.
+//   4. Preview bisa diedit manual → "Salin Teks Iklan" (toast) →
 //      "Buka WhatsApp" (draf terisi, tinggal pilih grup/kontak tujuan).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
+  CalendarDays,
   Check,
   Copy,
+  Facebook,
+  Instagram,
   Megaphone,
   RefreshCw,
   Smartphone,
   Sparkles,
   Store,
+  Users,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -39,15 +47,19 @@ import {
   AD_STYLE_COUNT,
   AD_STYLE_META,
   HOUSE_FACILITY_PRIORITY,
+  VILLA_FACILITY_PRIORITY,
+  VILLA_PRESETS,
   adContactLink,
   adModalTitle,
   adPropertyScope,
   adUnitNoun,
+  buildVillaPreset,
   generateAd,
   pickDifferentStyle,
   type AdFormatId,
   type AdGeneratorInput,
   type AdPropertyScope,
+  type VillaPresetId,
 } from "@/lib/ad-generator";
 import { FACILITY_OPTIONS, formatIDR, type Room } from "@/lib/kost-data";
 import type { FacilityItem } from "@/lib/app-settings";
@@ -64,8 +76,9 @@ interface AdGeneratorModalProps {
   ownerWhatsapp: string;
   /** Katalog master fasilitas unit (Pengaturan → Katalog Fasilitas) */
   facilityCatalog?: FacilityItem[];
-  /** Tipe properti aktif (kost / kontrakan / rusun) — menentukan label,
-   *  judul modal & struktur draf iklan (Kamar vs Unit Kontrakan) */
+  /** Tipe properti aktif (kost / kontrakan / rusun / villa) — menentukan
+   *  label, judul modal, struktur draf iklan & terminologi (Kamar vs Unit
+   *  Kontrakan vs terminologi staycation villa) */
   propertyType?: string;
 }
 
@@ -128,28 +141,42 @@ function AdModalBody({
   const [styleIdx, setStyleIdx] = useState(0);
   // Kunci animasi: naikkan tiap regenerate → textarea fade-in dgn teks baru
   const [flashKey, setFlashKey] = useState(0);
+  // Villa/Homestay: data staycation opsional (kapasitas tamu & tarif weekend
+  // per malam) — langsung mengalir ke draf iklan & preset tanpa disimpan.
+  const [capacityText, setCapacityText] = useState("");
+  const [weekendText, setWeekendText] = useState("");
 
-  /** Scope properti aktif — Kost (Kamar) vs Kontrakan/Rusun (Unit) */
+  /** Scope properti aktif — Kost (Kamar) vs Kontrakan/Rusun (Unit) vs
+   *  Villa/Homestay (terminologi staycation + preset cepat) */
   const scope: AdPropertyScope = useMemo(() => adPropertyScope(propertyType), [propertyType]);
   const unitWord = adUnitNoun(scope);
+  const isVilla = scope === "villa";
 
-  // Checklist cepat: fasilitas kamar + katalog master + opsi bawaan (dedup).
-  // Kontrakan/rusun: fasilitas prioritas rumah (dapur, ruang tamu, parkir, …)
-  // ditampilkan paling depan agar iklan langsung menonjolkan yang relevan.
+  const capacity = useMemo(() => {
+    const n = Number.parseInt(capacityText.replace(/[^0-9]/g, ""), 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [capacityText]);
+  const weekendPrice = useMemo(() => {
+    const n = Number.parseInt(weekendText.replace(/[^0-9]/g, ""), 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [weekendText]);
+
+  // Checklist cepat: fasilitas unit + katalog master + opsi bawaan (dedup).
+  // Kontrakan/rusun: fasilitas prioritas rumah dulu; Villa/homestay: fasilitas
+  // liburan (kolam renang, dapur, view, BBQ…) paling depan agar iklan
+  // langsung menonjolkan yang relevan utk tamu liburan.
   const quickFacilities = useMemo(() => {
+    const roomAndCatalog = [
+      ...(room.facilities ?? []),
+      ...(facilityCatalog ?? []).map((f) => f.label),
+      ...FACILITY_OPTIONS,
+    ];
     const pool =
       scope === "kost"
-        ? [
-            ...(room.facilities ?? []),
-            ...(facilityCatalog ?? []).map((f) => f.label),
-            ...FACILITY_OPTIONS,
-          ]
-        : [
-            ...HOUSE_FACILITY_PRIORITY,
-            ...(room.facilities ?? []),
-            ...(facilityCatalog ?? []).map((f) => f.label),
-            ...FACILITY_OPTIONS,
-          ];
+        ? roomAndCatalog
+        : scope === "villa"
+          ? [...VILLA_FACILITY_PRIORITY, ...roomAndCatalog]
+          : [...HOUSE_FACILITY_PRIORITY, ...roomAndCatalog];
     return Array.from(new Set(pool.filter((f) => f.trim().length > 0))).slice(0, 14);
   }, [scope, room.id, room.facilities, facilityCatalog]);
 
@@ -163,8 +190,22 @@ function AdModalBody({
       facilities: selected,
       ownerWhatsapp,
       propertyType,
+      capacity: isVilla ? capacity : null,
+      weekendPrice: isVilla ? weekendPrice : null,
     }),
-    [propertyName, room.id, room.floor, room.type, room.price, selected, ownerWhatsapp, propertyType],
+    [
+      propertyName,
+      room.id,
+      room.floor,
+      room.type,
+      room.price,
+      selected,
+      ownerWhatsapp,
+      propertyType,
+      isVilla,
+      capacity,
+      weekendPrice,
+    ],
   );
 
   // Draf awal + regenerasi otomatis saat ganti format / checklist fasilitas /
@@ -192,7 +233,7 @@ function AdModalBody({
   };
 
   /** Buat Ulang Draf Otomatis — putar ke variasi gaya BERBEDA dari yang
-   *  aktif (rotasi acak), bangun ulang draf dari data kamar aktual, lalu
+   *  aktif (rotasi acak), bangun ulang draf dari data unit aktual, lalu
    *  beri umpan balik toast + animasi fade di kotak preview. */
   const handleRegenerate = () => {
     const next = pickDifferentStyle(styleIdx, AD_STYLE_COUNT);
@@ -200,6 +241,16 @@ function AdModalBody({
     setFlashKey((k) => k + 1); // picu transisi fade-in pada preview
     toast.success("Draf baru berhasil digenerate!", {
       description: `Gaya ${AD_STYLE_META[next].label} — ${AD_STYLE_META[next].description}.`,
+    });
+  };
+
+  /** Preset Cepat Villa/Homestay — isi preview dgn caption siap pakai per
+   *  platform (Instagram / Facebook Ads / WhatsApp Story) dari data aktual. */
+  const applyPreset = (id: VillaPresetId, label: string) => {
+    setDraft(buildVillaPreset(id, input));
+    setFlashKey((k) => k + 1);
+    toast.success(`Preset ${label} diterapkan`, {
+      description: "Caption siap pakai — sesuaikan bila perlu, lalu salin.",
     });
   };
 
@@ -223,7 +274,9 @@ function AdModalBody({
           <span className="text-zinc-400" aria-hidden="true">·</span>
           <span>{unitWord} {room.id}</span>
           <span className="text-zinc-400" aria-hidden="true">·</span>
-          <span className="tabular-nums">{formatIDR(room.price)}/bln</span>
+          <span className="tabular-nums">
+            {formatIDR(room.price)}/{isVilla ? "malam" : "bln"}
+          </span>
         </div>
 
         {/* Pilihan format iklan */}
@@ -266,6 +319,92 @@ function AdModalBody({
             })}
           </div>
         </div>
+
+        {/* Preset Cepat Villa/Homestay — caption siap pakai per platform sosmed */}
+        {isVilla && (
+          <div>
+            <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-zinc-700">
+              Preset Cepat Villa / Homestay{" "}
+              <span className="font-medium normal-case tracking-normal text-zinc-500">
+                (klik utk isi caption siap pakai)
+              </span>
+            </p>
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+              {VILLA_PRESETS.map((p) => {
+                const Icon =
+                  p.id === "instagram" ? Instagram : p.id === "facebook-ads" ? Facebook : Smartphone;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => applyPreset(p.id, p.label)}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-2 text-left transition-colors",
+                      "hover:border-emerald-500 hover:bg-emerald-50",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60",
+                    )}
+                  >
+                    <Icon
+                      className="size-4 shrink-0 text-zinc-500"
+                      strokeWidth={1.75}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 leading-tight">
+                      <span className="block truncate text-[12.5px] font-bold text-zinc-900">
+                        {p.label}
+                      </span>
+                      <span className="block truncate text-[11px] text-zinc-500">{p.hint}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Data Staycation villa — opsional, masuk otomatis ke draf & preset */}
+        {isVilla && (
+          <div>
+            <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-zinc-700">
+              Data Staycation{" "}
+              <span className="font-medium normal-case tracking-normal text-zinc-500">
+                (opsional — langsung masuk ke iklan)
+              </span>
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-zinc-600">
+                  <Users className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                  Kapasitas Tamu
+                </span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={capacityText}
+                  onChange={(e) => setCapacityText(e.target.value)}
+                  placeholder="cth: 10"
+                  className="w-full rounded-lg border border-border bg-white px-2.5 py-1.5 text-[12.5px] tabular-nums text-zinc-800 placeholder:text-zinc-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  aria-label="Kapasitas tamu per booking (opsional)"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-zinc-600">
+                  <CalendarDays className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                  Tarif Weekend / Malam
+                </span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={weekendText}
+                  onChange={(e) => setWeekendText(e.target.value)}
+                  placeholder="cth: 500000"
+                  className="w-full rounded-lg border border-border bg-white px-2.5 py-1.5 text-[12.5px] tabular-nums text-zinc-800 placeholder:text-zinc-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  aria-label="Tarif akhir pekan per malam (opsional)"
+                />
+              </label>
+            </div>
+          </div>
+        )}
 
         {/* Checklist fasilitas cepat */}
         <div>
@@ -344,7 +483,7 @@ function AdModalBody({
         {!hasContact && (
           <p className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11.5px] font-medium leading-4 text-amber-800">
             Nomor WhatsApp Anda belum diisi — iklan tampil tanpa link chat.
-            Lengkapi di Pengaturan → Profil Saya agar calon penyewa bisa langsung chat.
+            Lengkapi di Pengaturan → Profil Saya agar {isVilla ? "calon tamu" : "calon penyewa"} bisa langsung chat.
           </p>
         )}
       </div>
