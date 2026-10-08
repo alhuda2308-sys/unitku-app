@@ -21,6 +21,7 @@ import { db } from "@/lib/prisma";
 import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientRoom } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
+import type { AuthUser } from "@/lib/auth/server";
 import {
   getActiveOwnedProperty,
   getOwnedPropertyIds,
@@ -28,6 +29,21 @@ import {
   unauthorized,
 } from "@/lib/auth/ownership";
 import type { OperationalStatus } from "@/lib/kost-data";
+
+/**
+ * Resolusi scope properti dari query ?propertyId= — bila diisi, id WAJIB
+ * milik owner (isolation multi-tenant); tanpa param → seluruh properti owner.
+ * Melempar NextResponse (404) bila id bukan milik owner — sengaja tidak bocor.
+ */
+async function resolvePropertyScope(
+  user: AuthUser,
+  requested: string | null,
+): Promise<string[] | NextResponse> {
+  const ownedIds = await getOwnedPropertyIds(user);
+  if (!requested) return ownedIds;
+  if (!ownedIds.includes(requested)) return notOwned("Properti tidak ditemukan.");
+  return [requested];
+}
 
 export const dynamic = "force-dynamic";
 
@@ -38,14 +54,17 @@ const ROOM_INCLUDE = {
 
 // ── GET ──────────────────────────────────────────────────────────────────────
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser();
     if (!user) return unauthorized();
     await ensureSeedForUser(user);
-    const propertyIds = await getOwnedPropertyIds(user);
+    // Scope opsional ?propertyId= — switcher properti dashboard memuat ulang
+    // kamar SESUAI cabang aktif; tanpa param = perilaku lama (semua properti).
+    const scope = await resolvePropertyScope(user, request.nextUrl.searchParams.get("propertyId")?.trim() || null);
+    if (scope instanceof NextResponse) return scope;
     const rooms = await db.room.findMany({
-      where: { propertyId: { in: propertyIds } },
+      where: { propertyId: { in: scope } },
       include: ROOM_INCLUDE,
       orderBy: [{ floor: "asc" }, { id: "asc" }],
     });
@@ -95,14 +114,28 @@ export async function POST(request: NextRequest) {
     const user = await getAuthUser();
     if (!user) return unauthorized();
     await ensureSeedForUser(user);
-    const property = await getActiveOwnedProperty(user);
-    if (!property) {
+    const body = (await request.json().catch(() => ({}))) as {
+      rooms?: IncomingRoom[];
+      propertyId?: unknown;
+    };
+    // Kamar baru masuk ke properti AKTIF yang sedang dikelola — bila klien
+    // mengirim propertyId (cabang terpilih di switcher), validasi kepemilikan;
+    // tanpa itu → properti aktif default cerdas (utamakan yang berdata).
+    const ownedIds = await getOwnedPropertyIds(user);
+    const requestedId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";
+    let targetId: string | null = null;
+    if (requestedId) {
+      if (!ownedIds.includes(requestedId)) return notOwned("Properti tidak ditemukan.");
+      targetId = requestedId;
+    } else {
+      targetId = (await getActiveOwnedProperty(user))?.id ?? null;
+    }
+    if (!targetId) {
       return NextResponse.json(
         { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
         { status: 400 },
       );
     }
-    const body = (await request.json().catch(() => ({}))) as { rooms?: IncomingRoom[] };
     const inputs = Array.isArray(body.rooms) ? body.rooms : [];
     if (inputs.length === 0) {
       return NextResponse.json({ error: "Data kamar baru tidak ditemukan." }, { status: 400 });
@@ -117,7 +150,7 @@ export async function POST(request: NextRequest) {
     for (const item of data) {
       try {
         const room = await db.room.create({
-          data: { ...item!, propertyId: property.id },
+          data: { ...item!, propertyId: targetId },
           include: ROOM_INCLUDE,
         });
         created.push(room);

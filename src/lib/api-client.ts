@@ -179,6 +179,27 @@ export interface PropertyPatchInput {
   qrisNmid?: string | null;
 }
 
+/** Ringkasan properti dari tabel `properties` (dipakai switcher dashboard) */
+export interface PropertySummary {
+  id: string;
+  name: string;
+  tipe: string;
+  alamat: string | null;
+  fotoUrl: string | null;
+  /** Jumlah kamar riil milik properti ini (dari tabel rooms) */
+  roomCount: number;
+  bankName: string | null;
+  bankAccountNo: string | null;
+  bankAccountName: string | null;
+  qrisImageUrl: string | null;
+  qrisNmid: string | null;
+}
+
+/** Sisipkan scope properti aktif sebagai query param (tanpa param = perilaku lama) */
+function scopedPropertyUrl(path: string, propertyId?: string | null): string {
+  return propertyId ? `${path}?propertyId=${encodeURIComponent(propertyId)}` : path;
+}
+
 export const api = {
   // /api/auth/me — info sesi (dengan timeout; user null bila belum masuk)
   getAuthMe: () =>
@@ -193,8 +214,10 @@ export const api = {
   getLicense: () =>
     request<{ licensed?: boolean; checkoutUrl?: string }>("/api/billing/license"),
 
-  // /api/properties — property null bila owner belum onboarding
-  getProperty: () => request<{ property: ClientProperty | null }>("/api/properties"),
+  // /api/properties — property null bila owner belum onboarding; properties =
+  // SELURUH daftar properti dari tabel properties (+ roomCount) utk switcher
+  getProperty: () =>
+    request<{ property: ClientProperty | null; properties?: PropertySummary[] }>("/api/properties"),
   updateProperty: (patch: PropertyPatchInput) =>
     request<{ property: ClientProperty }>("/api/properties", {
       method: "PUT",
@@ -209,8 +232,9 @@ export const api = {
       "/api/settings",
     ),
 
-  // /api/rooms
-  getRooms: () => request<{ rooms: ClientRoom[] }>("/api/rooms"),
+  // /api/rooms — propertyId opsional: muat kamar SESUAI cabang aktif (switcher)
+  getRooms: (propertyId?: string | null) =>
+    request<{ rooms: ClientRoom[] }>(scopedPropertyUrl("/api/rooms", propertyId)),
   addRooms: (
     rooms: {
       id: string;
@@ -220,10 +244,11 @@ export const api = {
       facilities?: string[];
       operational?: string;
     }[],
+    propertyId?: string | null,
   ) =>
     request<{ rooms: ClientRoom[] }>("/api/rooms", {
       method: "POST",
-      body: JSON.stringify({ rooms }),
+      body: JSON.stringify({ rooms, ...(propertyId ? { propertyId } : {}) }),
     }),
   patchRoom: (id: string, patch: Record<string, unknown>) =>
     request<{ rooms: ClientRoom[] }>("/api/rooms", {
@@ -271,13 +296,15 @@ export const api = {
       { method: "DELETE" },
     ),
 
-  // /api/invoices
-  getInvoices: () => request<{ invoices: ClientInvoice[] }>("/api/invoices"),
-  /** Generator tagihan bulanan — pindai kamar terisi, buat draft invoice periode terpilih */
-  generateInvoices: (periodKey: string) =>
+  // /api/invoices — propertyId opsional: tagihan SESUAI cabang aktif (switcher)
+  getInvoices: (propertyId?: string | null) =>
+    request<{ invoices: ClientInvoice[] }>(scopedPropertyUrl("/api/invoices", propertyId)),
+  /** Generator tagihan bulanan — pindai kamar terisi, buat draft invoice periode terpilih.
+   *  propertyId opsional: generator hanya memindai cabang yang sedang dikelola. */
+  generateInvoices: (periodKey: string, propertyId?: string | null) =>
     request<{ created: ClientInvoice[]; scanned: number; skipped: number }>("/api/invoices", {
       method: "POST",
-      body: JSON.stringify({ periodKey }),
+      body: JSON.stringify({ periodKey, ...(propertyId ? { propertyId } : {}) }),
     }),
   /** Perbarui rincian add-on sebelum tagihan dikirim ("Simpan & Siap Ditagih") */
   updateInvoiceLines: (
@@ -306,8 +333,9 @@ export const api = {
   cancelInvoice: (id: string) =>
     request<{ ok: true }>(`/api/invoices?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  // /api/cash
-  getCash: () => request<{ entries: ClientCashEntry[] }>("/api/cash"),
+  // /api/cash — propertyId opsional: buku kas SESUAI cabang aktif (switcher)
+  getCash: (propertyId?: string | null) =>
+    request<{ entries: ClientCashEntry[] }>(scopedPropertyUrl("/api/cash", propertyId)),
   addCash: (payload: {
     type: CashType;
     category: string;

@@ -10,6 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma";
+import { SEED_PROPERTY_ID } from "@/lib/server/seed";
 import type { AuthUser } from "./server";
 import type { Property } from "@prisma/client";
 
@@ -43,12 +44,46 @@ export async function getOwnedPropertyIds(user: AuthUser): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
-/** Properti aktif owner (pertama dibuat) — null bila belum onboarding */
-export async function getActiveOwnedProperty(user: AuthUser): Promise<Property | null> {
-  return db.property.findFirst({
+/** Baris properti + jumlah kamar (untuk pemilihan properti aktif & switcher) */
+export type PropertyWithRoomCount = Property & { _count: { rooms: number } };
+
+/** Daftar SELURUH properti milik owner + jumlah kamar (urutan dibuat) */
+export async function getOwnedPropertiesWithRoomCounts(
+  user: AuthUser,
+): Promise<PropertyWithRoomCount[]> {
+  return db.property.findMany({
     where: { ownerId: user.id },
     orderBy: { createdAt: "asc" },
+    include: { _count: { select: { rooms: true } } },
   });
+}
+
+/**
+ * Pilih properti AKTIF default dari daftar milik owner (pure, tanpa query):
+ *   1. Utamakan properti utama berdata — id seed "kgp" ("Kost Griya Pratama")
+ *      BILA milik owner ini dan punya kamar.
+ *   2. Lalu properti dengan kamar TERBANYAK (data asli pengguna).
+ *   3. Fallback terakhir: properti pertama dibuat (perilaku lama).
+ * Menjamin dashboard tidak menunjuk properti kosong hasil onboarding ketika
+ * data asli pemilik berada di properti lain.
+ */
+export function pickDefaultActiveProperty<T extends { id: string; createdAt: Date; _count: { rooms: number } }>(
+  rows: T[],
+): T | null {
+  if (rows.length === 0) return null;
+  const preferred = rows.find((p) => p.id === SEED_PROPERTY_ID) ?? null;
+  if (preferred && preferred._count.rooms > 0) return preferred;
+  const best = [...rows].sort(
+    (a, b) =>
+      b._count.rooms - a._count.rooms || a.createdAt.getTime() - b.createdAt.getTime(),
+  )[0]!;
+  return best._count.rooms > 0 ? best : (preferred ?? rows[0]!);
+}
+
+/** Properti aktif owner — DEFAULT CERDAS (lihat pickDefaultActiveProperty) */
+export async function getActiveOwnedProperty(user: AuthUser): Promise<Property | null> {
+  const rows = await getOwnedPropertiesWithRoomCounts(user);
+  return pickDefaultActiveProperty(rows);
 }
 
 /** Properti aktif owner — melempar Response 400 bila belum onboarding */

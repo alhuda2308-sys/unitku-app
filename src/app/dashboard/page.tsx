@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "@/lib/toast";
 import { api, getAuthMeOnce } from "@/lib/api-client";
+import type { PropertySummary } from "@/lib/api-client";
 import {
   applyDemoSnapshot,
   getDashboardSnapshot,
@@ -12,6 +13,7 @@ import {
   refreshDashboard,
   reloadDashboardData,
   rescueDemoIfLoading,
+  setDashboardPropertyScope,
   subscribeDashboard,
   updateCashEntries,
   updateInvoices,
@@ -136,6 +138,7 @@ import {
   subscribeSettings,
   updateStoredSettings,
   type IndoKostSettings,
+  type PropertyEntry,
   type PropertyProfile,
   type ThemeKey,
 } from "@/lib/app-settings";
@@ -182,6 +185,53 @@ const DEMO_ADDON_PRICE: Record<string, number> = {
   "Parkir Mobil": 150_000,
   "Orang Kedua": 200_000,
 };
+
+// ── Properti aktif multi-cabang (Task 124) ───────────────────────────────────
+// Pilihan cabang dipersist di localStorage agar login berikutnya langsung ke
+// properti yang sama. Default cerdas: properti TERSIMPAN (valid) → default
+// server (utamakan "kgp" berdata) → "kgp" → kamar terbanyak.
+
+const ACTIVE_PROPERTY_KEY = "unitku_active_property";
+
+function readStoredActivePropertyId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(ACTIVE_PROPERTY_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredActivePropertyId(id: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (id) window.localStorage.setItem(ACTIVE_PROPERTY_KEY, id);
+    else window.localStorage.removeItem(ACTIVE_PROPERTY_KEY);
+  } catch {
+    /* kuota penuh / private mode — pilihan tak persist, biarkan */
+  }
+}
+
+/** Pilih properti aktif dari daftar DATABASE (pure): pilihan tersimpan →
+ *  default server → utamakan id "kgp" → kamar terbanyak. null bila daftar kosong. */
+function chooseActivePropertyId(
+  list: PropertySummary[],
+  storedId: string | null,
+  serverActiveId: string | null | undefined,
+): PropertySummary | null {
+  if (list.length === 0) return null;
+  if (storedId) {
+    const hit = list.find((p) => p.id === storedId);
+    if (hit) return hit;
+  }
+  if (serverActiveId) {
+    const hit = list.find((p) => p.id === serverActiveId);
+    if (hit) return hit;
+  }
+  const kgp = list.find((p) => p.id === "kgp");
+  if (kgp) return kgp;
+  return [...list].sort((a, b) => b.roomCount - a.roomCount)[0] ?? null;
+}
 
 export default function IndoKostPage() {
   // ── Sesi demo interaktif (CTA landing "Coba Denah Kost Saya — Gratis") ─────
@@ -230,6 +280,13 @@ export default function IndoKostPage() {
   } | null>(null);
 
   const [isDemoSession, setIsDemoSession] = useState(false);
+
+  // ── Properti aktif multi-cabang (dari tabel properties via /api/properties) ─
+  const [dbProperties, setDbProperties] = useState<PropertySummary[]>([]);
+  const [activePropertyId, setActivePropertyId] = useState<string | null>(null);
+  /** Properti terpilih terakhir — dibaca ulang setelah applyRemoteSettings agar
+   *  sinkron cloud tidak menghidupkan kembali profil properti lama. */
+  const chosenPropertyRef = useRef<PropertySummary | null>(null);
 
   /** Aktifkan dataset simulasi utk sesi demo — dipanggil saat sesi demo
    *  terkonfirmasi (?demo=1 atau /api/auth/me → demo:true). Mock HANYA
@@ -309,6 +366,53 @@ export default function IndoKostPage() {
     updateStoredSettings(patch);
   }, []);
 
+  /** Simpan daftar properti DATABASE + tetapkan properti aktif (localStorage →
+   *  default server "utamakan kgp" → kamar terbanyak) dan set scope fetch
+   *  dashboard (kamar/tagihan/kas) ke propertyId terpilih. Dipakai bootstrap,
+   *  sinkron profil & refresh manual — idempoten, hasil murni dari input. */
+  const applyPropertyList = useCallback(
+    (list: PropertySummary[], serverActiveId: string | null | undefined) => {
+      setDbProperties(list);
+      const stored = readStoredActivePropertyId();
+      const chosen = chooseActivePropertyId(list, stored, serverActiveId);
+      chosenPropertyRef.current = chosen;
+      const scopeId = chosen?.id ?? null;
+      if (scopeId !== stored) writeStoredActivePropertyId(scopeId);
+      setActivePropertyId(scopeId);
+      setDashboardPropertyScope(scopeId);
+      return chosen;
+    },
+    [],
+  );
+
+  /** Terapkan identitas properti TERPILIH ke profil & rekening — dipanggil
+   *  setelah applyRemoteSettings agar nilai cloud basi (mis. nama properti
+   *  lama hasil default salah) tidak menimpa cabang yang sedang dikelola. */
+  const applyChosenPropertyToSettings = useCallback(() => {
+    const chosen = chosenPropertyRef.current;
+    if (!chosen) return;
+    pauseCloudSync(() =>
+      updateStoredSettings((s) => ({
+        propertyProfile: {
+          ...s.propertyProfile,
+          nama: chosen.name,
+          tipe: (chosen.tipe in PROPERTY_TYPE_META
+            ? chosen.tipe
+            : s.propertyProfile.tipe) as PropertyProfile["tipe"],
+          alamat: chosen.alamat || s.propertyProfile.alamat,
+          fotoUrl: chosen.fotoUrl ?? s.propertyProfile.fotoUrl,
+        },
+        rekening: {
+          bank: chosen.bankName ?? s.rekening.bank,
+          noRek: chosen.bankAccountNo ?? s.rekening.noRek,
+          atasNama: chosen.bankAccountName ?? s.rekening.atasNama,
+          qrisImageUrl: chosen.qrisImageUrl ?? s.rekening.qrisImageUrl,
+          qrisNmid: chosen.qrisNmid ?? s.rekening.qrisNmid,
+        },
+      })),
+    );
+  }, []);
+
   useEffect(() => {
     document.documentElement.dataset.ikTheme = settings.theme;
   }, [settings.theme]);
@@ -357,6 +461,9 @@ export default function IndoKostPage() {
         const res = await api.getProperty();
         if (!alive) return;
         clearTimeout(watchdog);
+        // Daftar properti DATABASE + properti aktif default cerdas (utamakan
+        // "kgp" berdata, BUKAN properti kosong hasil onboarding) + scope fetch.
+        applyPropertyList(res.properties ?? [], res.property?.id ?? null);
         if (res.property === null) {
           // ANTI PING-PONG: sebelum melempar ke wizard, pastikan ini BUKAN
           // sesi demo — wizard onboarding memantulkan demo balik ke
@@ -396,7 +503,7 @@ export default function IndoKostPage() {
       alive = false;
       clearTimeout(watchdog);
     };
-  }, [instantDemo]);
+  }, [instantDemo, applyPropertyList]);
 
   // ── Bootstrap tiket komplain dari database (cloud-first, fallback mock demo)
   useEffect(() => {
@@ -526,7 +633,10 @@ export default function IndoKostPage() {
       .getProperty()
       .then((res) => {
         if (!alive) return;
-        const p = res.property;
+        // Daftar & properti TERPILIH (multi-cabang) — konsisten dgn bootstrap;
+        // fallback ke res.property bila daftar tak tersedia (API lama/offline).
+        const p =
+          applyPropertyList(res.properties ?? [], res.property?.id ?? null) ?? res.property;
         // Belum onboarding (properti null) → guard onboarding yang menangani
         if (!p) return;
         // pauseCloudSync: nilai ini BERSUMBER dari server — jangan di-push balik
@@ -557,7 +667,7 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, [instantDemo]);
+  }, [instantDemo, applyPropertyList]);
 
   // ── Sinkron PENGATURAN owner dari cloud (Profil Saya, Staf, Template WA,
   // Fasilitas, Tema) — perbaikan data-reset: bagian pengaturan ini dulu HANYA
@@ -649,6 +759,9 @@ export default function IndoKostPage() {
           );
         }
         applyRemoteSettings(res.settings); // cloud menang atas cache lokal
+        // Profil properti kembali ke cabang TERPILIH — nilai cloud basi (dari
+        // sesi lama dgn default salah) tidak boleh menimpa pilihan aktif.
+        applyChosenPropertyToSettings();
         setSettingsCloudSync(true); // edit berikutnya otomatis di-push
       } catch (err: unknown) {
         // offline — pengaturan lokal (netral/owner asli) tetap dipakai;
@@ -663,7 +776,7 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, [instantDemo]);
+  }, [instantDemo, applyChosenPropertyToSettings]);
 
   // ── Anti-stuck akun baru: bila dashboard jatuh ke mode offline saat mount
   // (getProperty sempat menggantung), verifikasi properti SEKALI database
@@ -843,11 +956,16 @@ export default function IndoKostPage() {
         api.getTickets(),
         api.getAnnouncements(),
       ]);
+      // Daftar properti terbaru + properti TERPILIH (multi-cabang) — scope
+      // fetch dashboard diperbarui SEBELUM reload kamar/tagihan/kas.
+      const chosen =
+        applyPropertyList(propertyRes.properties ?? [], propertyRes.property?.id ?? null) ??
+        propertyRes.property;
       await Promise.all([
         reloadDashboardData(), // kamar + tagihan + kas (melempar bila gagal)
         (async () => {
-          // Profil properti & rekening — cloud menang atas cache lokal
-          const p = propertyRes.property;
+          // Profil properti & rekening cabang TERPILIH — cloud menang atas cache lokal
+          const p = chosen;
           if (p) {
             pauseCloudSync(() =>
               updateStoredSettings((s) => ({
@@ -874,6 +992,8 @@ export default function IndoKostPage() {
           // applyRemoteSettings menimpa cache localStorage dgn nilai cloud.
           if (!settingsRes.demo && settingsRes.settings) {
             applyRemoteSettings(settingsRes.settings);
+            // Profil kembali ke cabang TERPILIH setelah cloud menimpa cache
+            applyChosenPropertyToSettings();
           }
         })(),
       ]);
@@ -890,7 +1010,7 @@ export default function IndoKostPage() {
     } finally {
       setRefreshingCloud(false);
     }
-  }, [refreshingCloud, isDemoVisitor]);
+  }, [refreshingCloud, isDemoVisitor, applyPropertyList, applyChosenPropertyToSettings]);
 
   /** Id unik entri kas lokal (demo/offline) — hindari tabrakan KAS-… */
   const localCashId = () => `KAS-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1049,7 +1169,7 @@ export default function IndoKostPage() {
   /** Generator tagihan bulanan — pindai kamar terisi, terbitkan draft baru */
   const handleGenerateInvoices = async (periodKey: string) => {
     try {
-      const res = await api.generateInvoices(periodKey);
+      const res = await api.generateInvoices(periodKey, activePropertyId);
       if (res.created.length > 0) {
         updateInvoices((prev) => [...res.created, ...prev]);
         await refreshDashboard(); // sinkronkan pill status kamar dari server
@@ -1621,12 +1741,35 @@ export default function IndoKostPage() {
 
   // ── Pengaturan ─────────────────────────────────────────────────────────────
 
-  /** Ganti properti aktif dari pemilih sidebar — profil ikut tersinkron dari daftar properti */
-  const handleSwitchProperty = (name: string) => {
-    const entry = settings.properties.find((p) => p.name === name);
+  /** Daftar properti utk switcher (kartu atas & sidebar) — prioritas tabel
+   *  `properties` DATABASE (dgn jumlah kamar riil); fallback daftar Pengaturan
+   *  (sesi demo / offline). */
+  const switcherProperties: PropertyEntry[] = useMemo(
+    () =>
+      dbProperties.length > 0
+        ? dbProperties.map((p) => ({
+            id: p.id,
+            name: p.name,
+            type: (p.tipe in PROPERTY_TYPE_META ? p.tipe : "kost") as PropertyEntry["type"],
+            unitCount: p.roomCount,
+            address: p.alamat ?? "",
+            photoUrl: p.fotoUrl ?? undefined,
+          }))
+        : settings.properties,
+    [dbProperties, settings.properties],
+  );
+
+  /** Ganti properti aktif (dropdown kartu atas / pemilih sidebar) — kamar,
+   *  tagihan & buku kas dimuat ULANG dari database sesuai propertyId terpilih.
+   *  Menerima id ATAU nama (kompatibel pemanggil lama). */
+  const handleSwitchProperty = (idOrName: string) => {
+    const entry = switcherProperties.find((p) => p.id === idOrName || p.name === idOrName);
     if (!entry) return;
+    const dbBacked = dbProperties.some((p) => p.id === entry.id);
     updateSettings((s) => ({
-      properties: s.properties.map((p) => ({ ...p, aktif: p.id === entry.id })),
+      properties: s.properties.some((p) => p.id === entry.id)
+        ? s.properties.map((p) => ({ ...p, aktif: p.id === entry.id }))
+        : s.properties,
       propertyProfile: {
         ...s.propertyProfile,
         nama: entry.name,
@@ -1635,8 +1778,22 @@ export default function IndoKostPage() {
         fotoUrl: entry.photoUrl ?? s.propertyProfile.fotoUrl,
       },
     }));
-    if (name !== property) {
-      toast.info(`Beralih ke ${name}`, {
+    if (entry.name === property) return;
+    if (dbBacked) {
+      // Cabang database riil — persist pilihan + muat ulang data scoped
+      writeStoredActivePropertyId(entry.id);
+      setActivePropertyId(entry.id);
+      setDashboardPropertyScope(entry.id);
+      toast.info(`Beralih ke ${entry.name}`, {
+        description: `${entry.unitCount} ${PROPERTY_TYPE_META[entry.type].unit} · kamar, tagihan & kas cabang ini dimuat dari database.`,
+      });
+      reloadDashboardData().catch((err: unknown) =>
+        toast.error("Gagal memuat data properti", { description: errMsg(err) }),
+      );
+    } else {
+      // Entri hanya ada di daftar Pengaturan (belum jadi properti database /
+      // sesi demo) — data kamar cabang ini berupa dataset demo.
+      toast.info(`Beralih ke ${entry.name}`, {
         description: `${PROPERTY_TYPE_META[entry.type].label} · data kamar cabang ini berupa dataset demo.`,
       });
     }
@@ -1757,6 +1914,8 @@ export default function IndoKostPage() {
           facilities: r.facilities,
           operational: r.operational ?? "siap",
         })),
+        // Kamar baru masuk ke cabang yang SEDANG dikelola (switcher aktif)
+        activePropertyId,
       )
       .then(({ rooms: created }) => {
         updateRooms((prev) => [...prev, ...created]);
@@ -2320,9 +2479,9 @@ export default function IndoKostPage() {
         onMobileClose={() => setMobileOpen(false)}
         property={property}
         ownerName={settings.owner.nama}
-        properties={settings.properties}
-        onPropertyChange={(name) => {
-          handleSwitchProperty(name);
+        properties={switcherProperties}
+        onPropertyChange={(id) => {
+          handleSwitchProperty(id);
           setMobileOpen(false);
         }}
         invoiceAlerts={invoiceAlerts}
@@ -2503,6 +2662,9 @@ export default function IndoKostPage() {
                   onGantiFoto={handleGantiFotoProperti}
                   ownerName={staffSession?.name ?? settings.owner.nama}
                   ownerRole={staffSession ? staffRoleLabel(staffSession.role) : "Owner"}
+                  properties={switcherProperties}
+                  activePropertyId={activePropertyId}
+                  onSelectProperty={staffSession ? undefined : handleSwitchProperty}
                   onKelola={
                     staffSession
                       ? undefined

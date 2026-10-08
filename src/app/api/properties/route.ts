@@ -12,23 +12,41 @@ import { db } from "@/lib/prisma";
 import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientProperty } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
-import { getActiveOwnedProperty, unauthorized } from "@/lib/auth/ownership";
+import { getOwnedPropertiesWithRoomCounts, pickDefaultActiveProperty, unauthorized } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET — properti aktif milik owner sesi.
+ * GET — properti aktif milik owner sesi + SELURUH daftar properti (switcher).
  * `{ property: null }` bila belum onboarding (akun baru) — dipakai guard
  * onboarding di klien; TIDAK lagi melempar 500 saat database kosong.
+ * `properties` = daftar lengkap dari tabel properties + jumlah kamar riil —
+ * sumber daftar dropdown pemilih properti di dashboard (kartu atas & sidebar).
+ * Properti aktif memakai default cerdas: utamakan yang berdata (id "kgp"),
+ * bukan properti kosong pertama (lihat pickDefaultActiveProperty).
  */
 export async function GET() {
   try {
     const user = await getAuthUser();
     if (!user) return unauthorized();
     await ensureSeedForUser(user);
-    const property = await getActiveOwnedProperty(user);
+    const rows = await getOwnedPropertiesWithRoomCounts(user);
+    const property = pickDefaultActiveProperty(rows);
     return NextResponse.json({
       property: property ? toClientProperty(property) : null,
+      properties: rows.map((p) => ({
+        id: p.id,
+        name: p.name,
+        tipe: p.tipe,
+        alamat: p.alamat,
+        fotoUrl: p.fotoUrl,
+        bankName: p.bankName,
+        bankAccountNo: p.bankAccountNo,
+        bankAccountName: p.bankAccountName,
+        qrisImageUrl: p.qrisImageUrl,
+        qrisNmid: p.qrisNmid,
+        roomCount: p._count.rooms,
+      })),
     });
   } catch (err) {
     console.error("[api/properties GET]", err);

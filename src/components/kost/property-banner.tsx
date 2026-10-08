@@ -1,9 +1,17 @@
 "use client";
 
 import { useRef } from "react";
-import { Camera, ImagePlus, MapPin, PencilLine, ShieldCheck } from "lucide-react";
+import { Building2, Camera, Check, ChevronsUpDown, ImagePlus, MapPin, PencilLine, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PROPERTY_TYPE_META, type PropertyProfile } from "@/lib/app-settings";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { PROPERTY_TYPE_META, type PropertyEntry, type PropertyProfile } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
 
 interface PropertyBannerProps {
@@ -18,6 +26,12 @@ interface PropertyBannerProps {
   ownerName: string;
   /** Role pengguna aktif (Owner / Staff Admin) */
   ownerRole?: string;
+  /** Daftar properti (dari tabel properties) utk dropdown pemilih cabang */
+  properties?: PropertyEntry[];
+  /** id properti yang sedang dikelola — penanda aktif di dropdown */
+  activePropertyId?: string | null;
+  /** Ganti properti aktif — owner only; undefined = sembunyikan dropdown */
+  onSelectProperty?: (id: string) => void;
 }
 
 /**
@@ -45,11 +59,68 @@ export function PropertyBanner({
   onKelola,
   ownerName,
   ownerRole = "Owner",
+  properties = [],
+  activePropertyId = null,
+  onSelectProperty,
 }: PropertyBannerProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const meta = PROPERTY_TYPE_META[profile.tipe];
   const roleMeta = ROLE_BADGE_META[ownerRole.trim().toLowerCase()] ?? DEFAULT_ROLE_BADGE;
   const initial = ownerName.trim().charAt(0).toUpperCase() || "U";
+  /** Dropdown pemilih cabang — tampil bila ada ≥2 properti & aksi diizinkan */
+  const showSwitcher = Boolean(onSelectProperty) && properties.length > 1;
+
+  const renderSwitcher = (compact: boolean) => {
+    if (!showSwitcher) return null;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            className={cn(
+              "gap-1.5 border-zinc-200 bg-white font-semibold text-zinc-700 shadow-none hover:bg-zinc-50",
+              compact ? "h-10 shrink-0 px-2.5 text-[12.5px]" : "h-9 shrink-0 max-w-[200px] px-3 text-[13px]",
+            )}
+            title="Ganti properti yang dikelola"
+            aria-label="Ganti properti aktif"
+          >
+            <Building2 className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+            {!compact && <span className="truncate">Ganti Properti</span>}
+            <ChevronsUpDown className="size-3.5 shrink-0 opacity-60" aria-hidden="true" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align={compact ? "end" : "start"} className="w-64">
+          <DropdownMenuLabel className="text-xs text-zinc-700">
+            Daftar Properti — {properties.length} cabang
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {properties.map((p) => {
+            const isActive = p.id === activePropertyId;
+            return (
+              <DropdownMenuItem
+                key={p.id}
+                onClick={() => onSelectProperty?.(p.id)}
+                className="justify-between gap-2 text-[13px]"
+                aria-current={isActive ? "true" : undefined}
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <Check
+                    className={cn("size-3.5 shrink-0 text-emerald-600", !isActive && "invisible")}
+                    strokeWidth={2.25}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 truncate font-medium text-zinc-900">{p.name}</span>
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-zinc-600">
+                  {p.unitCount} {PROPERTY_TYPE_META[p.type].unit}
+                </span>
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
 
   return (
     <section
@@ -110,6 +181,8 @@ export function PropertyBanner({
 
         {/* Aksi + identitas sesi aktif — desktop */}
         <div className="hidden shrink-0 items-center gap-3 sm:flex">
+          {/* Pemilih properti aktif — daftar lengkap dari tabel properties */}
+          {renderSwitcher(false)}
           {/* Kartu identitas pengguna aktif — pengganti tombol "Ganti Foto" */}
           <div
             className="flex min-w-0 items-center gap-2.5 rounded-lg border bg-[var(--ik-accent-soft)] py-1.5 pl-1.5 pr-3 shadow-none [border-color:var(--ik-accent-border)]"
@@ -155,6 +228,8 @@ export function PropertyBanner({
 
       {/* Aksi + identitas — mobile */}
       <div className="mt-3 flex items-center gap-2 sm:hidden">
+        {/* Pemilih properti aktif (ringkas) */}
+        {renderSwitcher(true)}
         {/* Kartu identitas pengguna aktif — pengganti tombol Ganti Foto */}
         <div
           className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-zinc-50 px-2.5 py-2"

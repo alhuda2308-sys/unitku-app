@@ -32,9 +32,10 @@ interface SidebarProps {
   /** Nama profil owner dari Pengaturan → Profil Saya (settings.owner.nama) —
    *  reaktif: ikut terupdate saat "Simpan Perubahan" diklik */
   ownerName: string;
-  /** Daftar properti dari Pengaturan (multi-cabang) */
+  /** Daftar properti switcher (dari tabel properties / Pengaturan) */
   properties: PropertyEntry[];
-  onPropertyChange: (name: string) => void;
+  /** Ganti properti aktif — menerima id properti (nama juga diterima demi kompatibilitas) */
+  onPropertyChange: (property: string) => void;
   invoiceAlerts: number;
   ticketAlerts: number;
   activeKey: string;
@@ -228,7 +229,7 @@ export function Sidebar({
               {properties.map((p) => (
                 <DropdownMenuItem
                   key={p.id}
-                  onClick={() => onPropertyChange(p.name)}
+                  onClick={() => onPropertyChange(p.id)}
                   className="justify-between text-[13px]"
                 >
                   <span className="truncate">{p.name}</span>

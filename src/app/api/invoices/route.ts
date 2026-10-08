@@ -26,6 +26,7 @@ import { db } from "@/lib/prisma";
 import { ensureSeedForUser, nextCashId } from "@/lib/server/seed";
 import { toClientCashEntry, toClientInvoice, toClientRoom } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
+import type { AuthUser } from "@/lib/auth/server";
 import { getOwnedPropertyIds, notOwned, unauthorized } from "@/lib/auth/ownership";
 import { MONTH_NAMES, dateToLabel } from "@/lib/kost-data";
 import { dateSortFromLabel } from "@/lib/kost-cashflow";
@@ -35,14 +36,31 @@ export const dynamic = "force-dynamic";
 
 const INVOICE_INCLUDE = { lines: { orderBy: { id: "asc" as const } } } satisfies Prisma.InvoiceInclude;
 
-export async function GET() {
+/**
+ * Resolusi scope properti dari query ?propertyId= (isolation multi-tenant) —
+ * bila diisi, id WAJIB milik owner; tanpa param → seluruh properti owner.
+ */
+async function resolvePropertyScope(
+  user: AuthUser,
+  requested: string | null,
+): Promise<string[] | NextResponse> {
+  const ownedIds = await getOwnedPropertyIds(user);
+  if (!requested) return ownedIds;
+  if (!ownedIds.includes(requested)) return notOwned("Properti tidak ditemukan.");
+  return [requested];
+}
+
+export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser();
     if (!user) return unauthorized();
     await ensureSeedForUser(user);
-    const propertyIds = await getOwnedPropertyIds(user);
+    // Scope opsional ?propertyId= — tagihan dimuat SESUAI cabang aktif di
+    // switcher properti; tanpa param = perilaku lama (semua properti owner).
+    const scope = await resolvePropertyScope(user, request.nextUrl.searchParams.get("propertyId")?.trim() || null);
+    if (scope instanceof NextResponse) return scope;
     const invoices = await db.invoice.findMany({
-      where: { room: { propertyId: { in: propertyIds } } },
+      where: { room: { propertyId: { in: scope } } },
       include: INVOICE_INCLUDE,
       orderBy: [{ periodKey: "desc" }, { roomId: "asc" }],
     });
@@ -78,13 +96,24 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const body = (await request.json().catch(() => ({}))) as { periodKey?: unknown };
+    const body = (await request.json().catch(() => ({}))) as {
+      periodKey?: unknown;
+      propertyId?: unknown;
+    };
     const periodKey = typeof body.periodKey === "string" ? body.periodKey.trim() : "";
     if (!PERIOD_KEY_RE.test(periodKey)) {
       return NextResponse.json(
         { error: "Periode tidak valid — gunakan format \"YYYY-MM\", misal \"2026-10\"." },
         { status: 400 },
       );
+    }
+    // Generator hanya memindai cabang AKTIF yang sedang dikelola bila klien
+    // mengirim propertyId; tanpa itu = perilaku lama (semua properti owner).
+    const requestedId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";
+    let scopeIds = propertyIds;
+    if (requestedId) {
+      if (!propertyIds.includes(requestedId)) return notOwned("Properti tidak ditemukan.");
+      scopeIds = [requestedId];
     }
 
     const [year, month] = periodKey.split("-").map(Number);
@@ -94,14 +123,14 @@ export async function POST(request: NextRequest) {
 
     // 1) Semua kamar TERISI milik owner (ada penyewa aktif) — kosong/renovasi dilewati
     const occupiedRooms = await db.room.findMany({
-      where: { propertyId: { in: propertyIds }, tenant: { isNot: null } },
+      where: { propertyId: { in: scopeIds }, tenant: { isNot: null } },
       include: { tenant: true },
       orderBy: { id: "asc" },
     });
 
     // 2) Kamar yang sudah ditagih pada periode ini — anti duplikasi
     const existing = await db.invoice.findMany({
-      where: { room: { propertyId: { in: propertyIds } }, periodKey },
+      where: { room: { propertyId: { in: scopeIds } }, periodKey },
       select: { roomId: true, id: true },
     });
     const billedRooms = new Set(existing.map((i) => i.roomId));
@@ -114,7 +143,7 @@ export async function POST(request: NextRequest) {
 
     // 3) Riwayat invoice terakhir per kamar milik owner — sumber Sewa Pokok & add-on
     const history = await db.invoice.findMany({
-      where: { room: { propertyId: { in: propertyIds } } },
+      where: { room: { propertyId: { in: scopeIds } } },
       include: { lines: true },
       orderBy: [{ roomId: "asc" }, { periodKey: "desc" }],
     });

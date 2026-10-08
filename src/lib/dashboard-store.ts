@@ -96,12 +96,28 @@ function describeError(err: unknown): string {
   return String(err);
 }
 
+// ── Scope properti aktif (switcher multi-cabang) ─────────────────────────────
+// Dashboard memuat kamar/tagihan/kas SESUAI properti yang sedang dikelola.
+// Scope diset sebelum bootstrap/beralih cabang (setDashboardPropertyScope);
+// null = perilaku lama (seluruh properti owner) — dipakai sesi demo/offline.
+
+let propertyScopeId: string | null = null;
+
+/** Set properti aktif untuk SEMUA fetch dashboard berikutnya (kamar, tagihan, kas) */
+export function setDashboardPropertyScope(propertyId: string | null): void {
+  propertyScopeId = propertyId;
+}
+
 async function fetchDashboardData(): Promise<{
   rooms: Room[];
   invoices: Invoice[];
   cashEntries: CashEntry[];
 }> {
-  const [r, i, c] = await Promise.all([api.getRooms(), api.getInvoices(), api.getCash()]);
+  const [r, i, c] = await Promise.all([
+    api.getRooms(propertyScopeId),
+    api.getInvoices(propertyScopeId),
+    api.getCash(propertyScopeId),
+  ]);
   return { rooms: r.rooms, invoices: i.invoices, cashEntries: c.entries };
 }
 
