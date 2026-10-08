@@ -35,6 +35,17 @@ export interface AuthUser {
 }
 
 export async function getAuthUser(): Promise<AuthUser | null> {
+  // Self-heal skema database (best-effort) — menjangkau SEMUA route terlindungi
+  // (settings/portal/billing/admin yang tidak lewat ensureSeedForUser). TIDAK
+  // PERNAH memblokir autentikasi: bila DB sedang tidak terjangkau, cukup catat
+  // & lanjut — route data akan gagal-loud/fail-open di tempat masing-masing.
+  try {
+    const { ensureSchema } = await import("@/lib/server/schema");
+    await ensureSchema();
+  } catch (err) {
+    console.error("[UnitKu DB] Heal skema gagal pada jalur auth (dilewati):", err);
+  }
+
   const cookieStore = await cookies();
 
   if (isSupabaseConfigured()) {

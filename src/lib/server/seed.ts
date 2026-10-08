@@ -16,6 +16,7 @@ import { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/prisma";
 import { DEMO_OWNER_ID } from "@/lib/auth/config";
+import { ensureSchema } from "@/lib/server/schema";
 import { ROOMS, parseDateLabel, seededPortalToken } from "@/lib/kost-data";
 import { INVOICES } from "@/lib/kost-invoices";
 import { CASH_ENTRIES, dateSortFromLabel, type CashType } from "@/lib/kost-cashflow";
@@ -56,6 +57,12 @@ async function ignoreUniqueConflict(op: () => Promise<unknown>): Promise<void> {
  * produksi SaaS. Owner baru mendapat properti kosong via /api/onboarding.
  */
 export async function ensureSeedForUser(user: { demo: boolean } | null): Promise<void> {
+  // Self-heal skema DULU sebelum query apa pun — bila skema Prisma lebih baru
+  // dari tabel Supabase produksi (mis. kolom invoices."checkIn" hasil fitur
+  // sewa harian), DDL idempoten menyinkronkannya di sini sehingga INSERT kamar
+  // & SELECT denah tidak pernah gagal "column does not exist". Gagal heal
+  // dilempar: GET fail-open (offline mode), MUTASI fail-loud dgn error nyata.
+  await ensureSchema();
   if (user?.demo) await ensureSeed();
 }
 
