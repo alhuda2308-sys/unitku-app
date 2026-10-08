@@ -8,15 +8,21 @@
 //          ({ bulk: [{ id, patch }] }) untuk penetapan tarif massal
 // DELETE : hapus kamar (?id=…) — ditolak bila masih ada penghuni aktif
 //
-// ANTI-500 (fail-open): seluruh pemanggilan database dibungkus try...catch.
-// Bila kredensial database tidak terbaca atau query gagal, handler mengembalikan
-// 200 { success: true, data: [] } — BUKAN 500 — agar bootstrap dashboard tidak
-// langsung jatuh ke mode offline fatal. Detail penyebab selalu dicetak ke log
-// server: console.error("Detail error API invoices/rooms:", error).
+// ANTI-500 (fail-open — HANYA GET): seluruh pemanggilan database pada GET
+// dibungkus try...catch. Bila kredensial database tidak terbaca atau query
+// gagal, handler mengembalikan 200 { success: true, data: [] } — BUKAN 500 —
+// agar bootstrap dashboard tidak langsung jatuh ke mode offline fatal. Detail
+// penyebab selalu dicetak ke log server.
+//
+// MUTASI (POST/PATCH/DELETE) TIDAK PERNAH fail-open: kegagalan insert/update/
+// delete WAJIB terlihat oleh pengguna — server mencetak console.error(
+// "Gagal insert kamar:", error ) dan mengembalikan 500 { success: false,
+// error: error.message } agar toast dashboard menampilkan penyebab PASTI
+// (bukan sukses palsu "0 kamar baru ditambahkan").
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, type NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, type Property } from "@prisma/client";
 import { db } from "@/lib/prisma";
 import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientRoom } from "@/lib/server/mappers";
@@ -28,6 +34,7 @@ import {
   notOwned,
   unauthorized,
 } from "@/lib/auth/ownership";
+import { PROPERTY_TYPES } from "@/lib/app-settings";
 import type { OperationalStatus } from "@/lib/kost-data";
 
 /**
@@ -70,9 +77,9 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json({ success: true, rooms: rooms.map(toClientRoom) });
   } catch (err) {
-    // Kredensial database tidak terbaca / query gagal → JANGAN 500: dashboard
-    // memperlakukan kegagalan muat awal sebagai mode offline fatal. Fail-open
-    // 200 dgn data kosong; UI tetap hidup & otomatis sinkron ulang saat DB pulih.
+    // HANYA GET yang fail-open: bootstrap dashboard memperlakukan kegagalan
+    // muat awal sebagai mode offline fatal. Fail-open 200 dgn data kosong;
+    // UI tetap hidup & otomatis sinkron ulang saat DB pulih.
     console.error("Detail error API invoices/rooms:", err);
     return NextResponse.json({ success: true, data: [], rooms: [] });
   }
@@ -117,20 +124,55 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as {
       rooms?: IncomingRoom[];
       propertyId?: unknown;
+      propertyName?: unknown;
+      propertyTipe?: unknown;
     };
-    // Kamar baru masuk ke properti AKTIF yang sedang dikelola — bila klien
-    // mengirim propertyId (cabang terpilih di switcher), validasi kepemilikan;
-    // tanpa itu → properti aktif default cerdas (utamakan yang berdata).
-    const ownedIds = await getOwnedPropertyIds(user);
-    const requestedId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";
-    let targetId: string | null = null;
+    // Kamar baru masuk ke properti AKTIF yang sedang dikelola. Bila klien
+    // mengirim propertyId (cabang terpilih di switcher), PASTIKAN baris
+    // properti itu benar-benar ada di tabel `properties` DULU — bila belum
+    // terdaftar (mis. dibuat hanya di sisi klien), buat barisnya SEKARANG
+    // supaya insert ke `rooms` tidak pernah gagal foreign key constraint.
+    // Tanpa propertyId → properti aktif default cerdas (utamakan yang berdata).
+    const requestedId =
+      typeof body.propertyId === "string" ? body.propertyId.trim().slice(0, 120) : "";
+    const propertyName =
+      typeof body.propertyName === "string" ? body.propertyName.trim().slice(0, 80) : "";
+    const tipeRaw = typeof body.propertyTipe === "string" ? body.propertyTipe.trim() : "";
+    let target: Property | null = null;
     if (requestedId) {
-      if (!ownedIds.includes(requestedId)) return notOwned("Properti tidak ditemukan.");
-      targetId = requestedId;
+      const found = await db.property.findUnique({ where: { id: requestedId } });
+      if (found) {
+        // Isolasi multi-tenant: properti milik owner lain tetap 404 (tak bocor)
+        if (found.ownerId !== user.id) return notOwned("Properti tidak ditemukan.");
+        target = found;
+      } else {
+        // AUTO-PROVISION — properti aktif klien belum ada di tabel `properties`:
+        // buat barisnya milik owner ini (nama dari klien bila dikirim) agar FK
+        // ke tabel `rooms` terpenuhi dan kamar langsung bisa disimpan.
+        try {
+          target = await db.property.create({
+            data: {
+              id: requestedId,
+              ownerId: user.id,
+              name: propertyName || requestedId,
+              tipe: (PROPERTY_TYPES as readonly string[]).includes(tipeRaw) ? tipeRaw : "kost",
+            },
+          });
+        } catch (err) {
+          // Race serverless: instance lain baru saja membuat id yang sama.
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+            const race = await db.property.findUnique({ where: { id: requestedId } });
+            if (race && race.ownerId === user.id) target = race;
+            else return notOwned("Properti tidak ditemukan.");
+          } else {
+            throw err;
+          }
+        }
+      }
     } else {
-      targetId = (await getActiveOwnedProperty(user))?.id ?? null;
+      target = await getActiveOwnedProperty(user);
     }
-    if (!targetId) {
+    if (!target) {
       return NextResponse.json(
         { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
         { status: 400 },
@@ -150,7 +192,10 @@ export async function POST(request: NextRequest) {
     for (const item of data) {
       try {
         const room = await db.room.create({
-          data: { ...item!, propertyId: targetId },
+          // Kolom insert mengikuti skema Prisma (peta @@map("rooms")) — sama
+          // persis dgn kolom yang dipakai GET, sehingga konsisten dgn tabel
+          // Supabase yang dibuat via prisma db push.
+          data: { ...item!, propertyId: target.id },
           include: ROOM_INCLUDE,
         });
         created.push(room);
@@ -161,15 +206,30 @@ export async function POST(request: NextRequest) {
             { status: 409 },
           );
         }
+        // Error asli (FK, kolom, koneksi) → dilempar ke catch luar agar
+        // pengguna melihat penyebab PASTI — tidak pernah sukses palsu.
         throw err;
       }
     }
 
-    return NextResponse.json({ rooms: created.map(toClientRoom) }, { status: 201 });
+    return NextResponse.json(
+      { success: true, rooms: created.map(toClientRoom) },
+      { status: 201 },
+    );
   } catch (err) {
-    console.error("Detail error API invoices/rooms:", err);
-    // Fail-open 200 dgn rooms: [] sesuai kontrak klien — tanpa pernah 500.
-    return NextResponse.json({ success: true, data: [], rooms: [] });
+    // MUTASI TIDAK PERNAH fail-open: tanpa fallback created: [] berstatus 200.
+    // Pesan error asli Supabase/Prisma dikembalikan agar kegagalan terdeteksi.
+    console.error("Gagal insert kamar:", err);
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          err instanceof Error
+            ? err.message
+            : "Gagal menyimpan kamar ke database — coba lagi sebentar.",
+      },
+      { status: 500 },
+    );
   }
 }
 
@@ -265,9 +325,18 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ rooms: updated.map(toClientRoom) });
   } catch (err) {
-    console.error("Detail error API invoices/rooms:", err);
-    // Fail-open 200 dgn rooms: [] sesuai kontrak klien — tanpa pernah 500.
-    return NextResponse.json({ success: true, data: [], rooms: [] });
+    // MUTASI TIDAK PERNAH fail-open — kegagalan update wajib terlihat.
+    console.error("Gagal memperbarui kamar:", err);
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          err instanceof Error
+            ? err.message
+            : "Gagal memperbarui kamar di database — coba lagi sebentar.",
+      },
+      { status: 500 },
+    );
   }
 }
 
@@ -300,7 +369,18 @@ export async function DELETE(request: NextRequest) {
     await db.room.delete({ where: { id } }); // invoice & tiket ikut ter-cascade
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("Detail error API invoices/rooms:", err);
-    return NextResponse.json({ success: true, data: [] });
+    // MUTASI TIDAK PERNAH fail-open — tanpa ini klien mengira kamar terhapus
+    // padahal masih ada di database.
+    console.error("Gagal menghapus kamar:", err);
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          err instanceof Error
+            ? err.message
+            : "Gagal menghapus kamar dari database — coba lagi sebentar.",
+      },
+      { status: 500 },
+    );
   }
 }

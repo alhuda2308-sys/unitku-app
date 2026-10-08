@@ -245,10 +245,19 @@ export const api = {
       operational?: string;
     }[],
     propertyId?: string | null,
+    // Nama & tipe properti aktif — dipakai server utk AUTO-PROVISION baris
+    // `properties` bila propertyId belum terdaftar (anti gagal foreign key).
+    propertyName?: string | null,
+    propertyTipe?: string | null,
   ) =>
     request<{ rooms: ClientRoom[] }>("/api/rooms", {
       method: "POST",
-      body: JSON.stringify({ rooms, ...(propertyId ? { propertyId } : {}) }),
+      body: JSON.stringify({
+        rooms,
+        ...(propertyId ? { propertyId } : {}),
+        ...(propertyName ? { propertyName } : {}),
+        ...(propertyTipe ? { propertyTipe } : {}),
+      }),
     }),
   patchRoom: (id: string, patch: Record<string, unknown>) =>
     request<{ rooms: ClientRoom[] }>("/api/rooms", {

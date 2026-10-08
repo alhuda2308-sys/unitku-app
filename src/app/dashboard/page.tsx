@@ -1904,6 +1904,10 @@ export default function IndoKostPage() {
       );
       return;
     }
+    // Identitas properti aktif (id + nama + tipe) — ikut dikirim agar server
+    // bisa MEMASTIKAN baris properti ada di tabel `properties` sebelum insert
+    // kamar (auto-provision bila belum terdaftar → anti gagal foreign key).
+    const activeEntry = dbProperties.find((p) => p.id === activePropertyId) ?? null;
     api
       .addRooms(
         newRooms.map((r) => ({
@@ -1916,14 +1920,31 @@ export default function IndoKostPage() {
         })),
         // Kamar baru masuk ke cabang yang SEDANG dikelola (switcher aktif)
         activePropertyId,
+        activeEntry?.name ?? settings.propertyProfile.nama,
+        activeEntry?.tipe ?? settings.propertyProfile.tipe,
       )
       .then(({ rooms: created }) => {
+        if (created.length === 0) {
+          // Server 2xx tanpa satu pun kamar — JANGAN tampil toast sukses palsu
+          // "0 kamar baru ditambahkan"; perlakukan sebagai kegagalan simpan.
+          toast.error("Kamar belum tersimpan ke cloud", {
+            description:
+              "Server tidak mengembalikan data kamar — coba ulangi beberapa saat lagi atau gunakan tombol sambungkan ulang di banner atas.",
+          });
+          return;
+        }
         updateRooms((prev) => [...prev, ...created]);
         toast.success(`${created.length} kamar baru ditambahkan`, {
           description: `${created.map((r) => r.id).join(", ")} · ${created[0]?.type ?? newRooms[0].type} · ${formatIDR(
             created[0]?.price ?? newRooms[0].price,
           )}/bln · status kosong · tersimpan ke cloud.`,
         });
+        // Sinkronkan daftar properti switcher (jumlah kamar terbaru & baris
+        // properti yang baru saja di-provision server) — senyap, non-kritis.
+        api
+          .getProperty()
+          .then((res) => applyPropertyList(res.properties ?? [], res.property?.id ?? null))
+          .catch(() => {});
       })
       .catch((err: unknown) =>
         toast.error("Gagal menambah kamar", { description: errMsg(err) }),
