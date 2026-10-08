@@ -21,8 +21,20 @@ export const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 export const AUTH_SECRET =
   process.env.AUTH_SECRET ?? "unitku-dev-secret-ganti-di-produksi";
 
-export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+// Fallback env lintas penamaan — kredensial tetap terbaca walau lingkungan
+// (Vercel/server) memakai nama tanpa prefix NEXT_PUBLIC_:
+//   URL : NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL
+//   KEY : NEXT_PUBLIC_SUPABASE_ANON_KEY || SUPABASE_ANON_KEY || SUPABASE_SERVICE_ROLE_KEY
+// Aman utk bundle browser: Next.js hanya meng-inline nilai variabel NEXT_PUBLIC_*
+// di sisi klien — referensi SUPABASE_* (termasuk service role) menjadi undefined,
+// jadi rahasia tidak pernah terkirim ke browser.
+export const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+export const SUPABASE_ANON_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  "";
 
 /**
  * Flag cookie sesi Supabase — dipakai SEMUA factory @supabase/ssr

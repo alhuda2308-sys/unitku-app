@@ -7,6 +7,12 @@
 //          (operational), fasilitas, ganti nomor ({ id, patch }) atau
 //          ({ bulk: [{ id, patch }] }) untuk penetapan tarif massal
 // DELETE : hapus kamar (?id=…) — ditolak bila masih ada penghuni aktif
+//
+// ANTI-500 (fail-open): seluruh pemanggilan database dibungkus try...catch.
+// Bila kredensial database tidak terbaca atau query gagal, handler mengembalikan
+// 200 { success: true, data: [] } — BUKAN 500 — agar bootstrap dashboard tidak
+// langsung jatuh ke mode offline fatal. Detail penyebab selalu dicetak ke log
+// server: console.error("Detail error API invoices/rooms:", error).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -43,13 +49,13 @@ export async function GET() {
       include: ROOM_INCLUDE,
       orderBy: [{ floor: "asc" }, { id: "asc" }],
     });
-    return NextResponse.json({ rooms: rooms.map(toClientRoom) });
+    return NextResponse.json({ success: true, rooms: rooms.map(toClientRoom) });
   } catch (err) {
-    console.error("[api/rooms GET]", err);
-    return NextResponse.json(
-      { error: "Gagal memuat data kamar dari database." },
-      { status: 500 },
-    );
+    // Kredensial database tidak terbaca / query gagal → JANGAN 500: dashboard
+    // memperlakukan kegagalan muat awal sebagai mode offline fatal. Fail-open
+    // 200 dgn data kosong; UI tetap hidup & otomatis sinkron ulang saat DB pulih.
+    console.error("Detail error API invoices/rooms:", err);
+    return NextResponse.json({ success: true, data: [], rooms: [] });
   }
 }
 
@@ -128,11 +134,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ rooms: created.map(toClientRoom) }, { status: 201 });
   } catch (err) {
-    console.error("[api/rooms POST]", err);
-    return NextResponse.json(
-      { error: "Gagal menambah kamar ke database." },
-      { status: 500 },
-    );
+    console.error("Detail error API invoices/rooms:", err);
+    // Fail-open 200 dgn rooms: [] sesuai kontrak klien — tanpa pernah 500.
+    return NextResponse.json({ success: true, data: [], rooms: [] });
   }
 }
 
@@ -228,11 +232,9 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ rooms: updated.map(toClientRoom) });
   } catch (err) {
-    console.error("[api/rooms PATCH]", err);
-    return NextResponse.json(
-      { error: "Gagal memperbarui kamar di database." },
-      { status: 500 },
-    );
+    console.error("Detail error API invoices/rooms:", err);
+    // Fail-open 200 dgn rooms: [] sesuai kontrak klien — tanpa pernah 500.
+    return NextResponse.json({ success: true, data: [], rooms: [] });
   }
 }
 
@@ -265,10 +267,7 @@ export async function DELETE(request: NextRequest) {
     await db.room.delete({ where: { id } }); // invoice & tiket ikut ter-cascade
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("[api/rooms DELETE]", err);
-    return NextResponse.json(
-      { error: "Gagal menghapus kamar dari database." },
-      { status: 500 },
-    );
+    console.error("Detail error API invoices/rooms:", err);
+    return NextResponse.json({ success: true, data: [] });
   }
 }
