@@ -1,4 +1,4 @@
-# UnitKu — Kelola Kost, Kontrakan & Unit Sewa Tanpa Ribet
+# UnitKuu — Kelola Kost, Kontrakan & Unit Sewa Tanpa Ribet
 
 Aplikasi manajemen properti (kost, kontrakan & unit sewa) berbasis web: denah kamar interaktif, tagihan & invoice WhatsApp-ready, komplain/pemeliharaan, pengumuman broadcast, portal penyewa, buku kas, dan pengaturan properti multi-cabang — berjalan penuh dengan **mock data localStorage**, dengan **skema database Prisma siap Supabase PostgreSQL** (integrasi API runtime menyusul).
 
