@@ -28,7 +28,7 @@ import {
   type StaffSession,
 } from "@/lib/staff-access";
 import { BRAND_WA_FOOTER } from "@/lib/brand";
-import { CloudOff, Loader2, Plus, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
+import { CloudOff, Info, Loader2, Plus, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -2946,7 +2946,7 @@ function DemoBanner({ onReset }: { onReset: () => void }) {
     >
       <div className="mx-auto flex max-w-[1440px] flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
         <p className="flex min-w-0 items-start gap-2 text-[12.5px] leading-snug text-emerald-900">
-          <Sparkles
+          <Info
             className="mt-0.5 size-4 shrink-0 text-emerald-600"
             strokeWidth={1.75}
             aria-hidden="true"

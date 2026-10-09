@@ -1,11 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// IndoKost — Tagihan & Invoice dataset (Phase 2)
-// Billing period: Sep 2026 (bulan berjalan). Snapshot: 26 Sep 2026.
+// UnitKu — Tagihan & Invoice dataset (demo simulasi)
+// Periode DINAMIS — selalu bulan berjalan (new Date()) agar view Tagihan yang
+// memfilter periodKey bulan berjalan TIDAK PERNAH kosong (Rp0).
 //
-// Numbers reconcile exactly with the Phase 2 spec:
-//   Total     : Rp19.350.000 (12 kamar)
-//   Diterima  : Rp29.750.000 (18 invoice — 16 Lunas + 2 Menunggu Verifikasi) = 77%
-//   Belum bayar: Rp8.750.000 (6 kamar — 3 Menunggak + 3 Jatuh Tempo H-3)
+// Angka rekonsiliasi persis dengan spesifikasi kartu metrik Tagihan:
+//   Total      : Rp16.500.000 (10 invoice)
+//   Diterima   : Rp11.500.000 (6 Lunas + 1 Verifikasi) = 70%
+//   Belum bayar: Rp5.000.000 (2 Belum Bayar + 1 Menunggak)
 //   Pengingat WA terkirim: 18
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -55,8 +56,15 @@ export interface Invoice {
   nights?: number; // total durasi menginap (malam/hari)
 }
 
-export const CURRENT_PERIOD_KEY = "2026-09"; // periode dataset seed
-export const CURRENT_PERIOD_LABEL = "1 Sep – 30 Sep 2026";
+// ── Periode dataset — DINAMIS mengikuti bulan & tahun berjalan ─────────────
+const DATASET_NOW = new Date();
+export const CURRENT_PERIOD_KEY = periodKeyOf(DATASET_NOW);
+export const CURRENT_PERIOD_LABEL = periodLabelFromKey(CURRENT_PERIOD_KEY);
+/** "202610" — segmen id invoice (#INV-202610-101) */
+const PERIOD_ID = `${DATASET_NOW.getFullYear()}${String(DATASET_NOW.getMonth() + 1).padStart(2, "0")}`;
+/** 22 → "22 Okt 2026" (label tanggal dalam bulan berjalan) */
+const dayLabel = (day: number): string =>
+  `${day} ${MONTH_NAMES[DATASET_NOW.getMonth()]} ${DATASET_NOW.getFullYear()}`;
 
 // ── Periode dinamis (mengikuti tanggal berjalan — new Date()) ───────────────
 
@@ -136,7 +144,8 @@ export const INVOICE_STATUS_META: Record<
   },
   verifikasi: {
     label: "Verifikasi",
-    pill: "bg-violet-50 text-violet-700 border-violet-200",
+    // Kuning/oranye — menonjol di antara Lunas (hijau) & Belum Bayar (abu)
+    pill: "bg-amber-50 text-amber-700 border-amber-200",
     tabLabel: "Menunggu Verifikasi",
   },
   jatuhTempo: {
@@ -168,53 +177,54 @@ function make(
   tenantName: string | null,
   tenantPhone: string | null,
   roomType: string,
-  dueDate: string,
+  dueDay: number,
   lines: InvoiceLine[],
   status: InvoiceStatus,
-  opts?: { dayOffset?: number; paidAt?: string }
+  opts?: { dayOffset?: number; paidDay?: number }
 ): Invoice {
   return {
-    id: `#INV-202609-${roomId}`,
+    id: `#INV-${PERIOD_ID}-${roomId}`,
     roomId,
     tenantName,
     tenantPhone,
     roomType,
     periodLabel: CURRENT_PERIOD_LABEL,
     periodKey: CURRENT_PERIOD_KEY,
-    dueDate,
+    dueDate: dayLabel(dueDay),
     lines,
     total: lines.reduce((a, l) => a + l.amount, 0),
     status,
-    ...opts,
+    ...(opts?.dayOffset !== undefined ? { dayOffset: opts.dayOffset } : {}),
+    ...(opts?.paidDay !== undefined ? { paidAt: dayLabel(opts.paidDay) } : {}),
   };
 }
 
 export const INVOICES: Invoice[] = [
-  // ── Lantai 1 ───────────────────────────────────────────────────────────────
-  make("101", "Budi Santoso", "+62 812-1101-2210", "Tipe A - AC", "1 Sep 2026",
-    [sewa(1_500_000), listrik(180_000)], "lunas", { paidAt: "3 Sep 2026" }),
-  make("102", "Dimas Ardi", "+62 812-3456-7890", "Tipe A - AC", "5 Sep 2026",
-    [sewa(1_500_000), listrik(150_000)], "lunas", { paidAt: "2 Sep 2026" }),
-  make("103", "Ahmad Fauzi", "+62 813-8821-5502", "Tipe B - Kipas", "22 Sep 2026",
-    [sewa(1_100_000), listrik(50_000)], "menunggak", { dayOffset: 4 }),
-  make("104", "Dewi Lestari", "+62 812-9902-3367", "Tipe AC Deluxe", "24 Sep 2026",
-    [sewa(1_750_000), listrik(150_000)], "menunggak", { dayOffset: 2 }),
-  make("105", "Rizky Pratama", "+62 878-2210-6634", "Tipe A - AC", "10 Sep 2026",
-    [sewa(1_500_000), listrik(200_000)], "lunas", { paidAt: "9 Sep 2026" }),
-  make("106", null, null, "Tipe A - AC", "4 Sep 2026",
-    [sewa(1_500_000)], "lunas", { paidAt: "4 Sep 2026" }),
-  make("107", "Maya Anggraini", "+62 812-6675-0119", "Tipe B - Kipas", "3 Sep 2026",
-    [sewa(1_100_000), listrik(120_000)], "lunas", { paidAt: "3 Sep 2026" }),
-  make("108", "Doni Kusnadi", "+62 856-4410-8823", "Tipe A - AC", "18 Sep 2026",
-    [sewa(1_500_000), listrik(220_000)], "verifikasi", { paidAt: "25 Sep 2026" }),
-  make("109", "Putri Handayani", "+62 813-2299-4405", "Tipe AC Deluxe", "7 Sep 2026",
-    [sewa(1_750_000), listrik(250_000)], "lunas", { paidAt: "6 Sep 2026" }),
-  make("110", "Agus Setiawan", "+62 812-3358-9907", "Tipe B - Kipas", "29 Sep 2026",
-    [sewa(1_100_000), listrik(200_000)], "jatuhTempo", { dayOffset: 3 }),
-  make("111", null, null, "Tipe AC Deluxe", "14 Sep 2026",
-    [sewa(1_750_000)], "lunas", { paidAt: "12 Sep 2026" }),
-  make("112", "Fajar Nugroho", "+62 878-9920-1145", "Tipe A - AC", "21 Sep 2026",
-    [sewa(1_500_000), listrik(170_000)], "lunas", { paidAt: "19 Sep 2026" }),
+  // ── Lunas (6) — Rp10.000.000 ────────────────────────────────────────────────
+  make("101", "Budi Santoso", "+62 812-1101-2210", "Tipe A - AC", 5,
+    [sewa(1_500_000), listrik(180_000)], "lunas", { paidDay: 3 }),
+  make("102", "Dimas Ardi", "+62 812-3456-7890", "Tipe A - AC", 5,
+    [sewa(1_500_000), listrik(150_000)], "lunas", { paidDay: 2 }),
+  make("104", "Dewi Lestari", "+62 812-9902-3367", "Tipe AC Deluxe", 7,
+    [sewa(1_750_000)], "lunas", { paidDay: 4 }),
+  make("105", "Rizky Pratama", "+62 878-2210-6634", "Tipe A - AC", 8,
+    [sewa(1_500_000), listrik(200_000)], "lunas", { paidDay: 5 }),
+  make("107", "Maya Anggraini", "+62 812-6675-0119", "Tipe B - Kipas", 8,
+    [sewa(1_100_000), listrik(120_000)], "lunas", { paidDay: 4 }),
+  make("109", "Putri Handayani", "+62 813-2299-4405", "Tipe AC Deluxe", 10,
+    [sewa(1_750_000), listrik(250_000)], "lunas", { paidDay: 7 }),
+  // ── Menunggu Verifikasi (1) — Rp1.500.000 (diterima, menunggu cek rekening) ─
+  make("112", "Fajar Nugroho", "+62 878-9920-1145", "Tipe A - AC", 12,
+    [sewa(1_500_000)], "verifikasi", { paidDay: 7 }),
+  // ── Belum Bayar (2) — Rp2.500.000 (belum jatuh tempo) ──────────────────────
+  make("103", "Ahmad Fauzi", "+62 813-8821-5502", "Tipe B - Kipas", 22,
+    [sewa(1_100_000), listrik(200_000)], "belumBayar"),
+  make("110", "Agus Setiawan", "+62 812-3358-9907", "Tipe B - Kipas", 26,
+    [sewa(1_100_000), listrik(100_000)], "belumBayar"),
+  // ── Menunggak (1) — Rp2.500.000 (lewat jatuh tempo) ────────────────────────
+  make("108", "Doni Kusnadi", "+62 856-4410-8823", "Tipe A - AC", 3,
+    [sewa(1_500_000), listrik(350_000), { label: "Laundry", amount: 650_000 }],
+    "menunggak", { dayOffset: 5 }),
 ];
 
 // ── Derived stats ────────────────────────────────────────────────────────────

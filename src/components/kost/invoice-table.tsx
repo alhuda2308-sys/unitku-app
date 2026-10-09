@@ -164,16 +164,17 @@ function MobileInvoiceCard({ invoice: inv, ...handlers }: { invoice: Invoice } &
               Tandai Lunas
             </Button>
           )}
-          {!paid && (
-            <Button
-              variant="outline"
-              className="h-10 flex-1 border-zinc-200 bg-white px-2 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
-              onClick={() => handlers.onEdit(inv)}
-            >
-              <Pencil className="size-3.5" strokeWidth={1.75} />
-              Edit Biaya
-            </Button>
-          )}
+
+          {/* Detail / Kuitansi — pratinjau kwitansi digital (selalu tampil) */}
+          <Button
+            variant="outline"
+            className="h-10 flex-1 border-zinc-200 bg-white px-2 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+            onClick={() => handlers.onReceipt(inv)}
+            aria-label={`Detail / Kuitansi ${inv.id}`}
+          >
+            <Eye className="size-3.5" strokeWidth={1.75} />
+            Kuitansi
+          </Button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -258,7 +259,7 @@ export function InvoiceTable({
       {/* Desktop (md+): tabel scrollable dengan header sticky */}
       <div className="hidden max-h-[620px] overflow-auto overscroll-contain rounded-lg border border-border bg-white scrollbar-thin md:block">
       {/* Plain <table> so the scroll container is the direct ancestor (sticky header) */}
-      <table className="w-full min-w-[1060px] border-collapse text-[13px]">
+      <table className="w-full min-w-[1100px] border-collapse text-[13px]">
         <caption className="sr-only">Daftar tagihan sewa bulanan</caption>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
@@ -358,7 +359,7 @@ export function InvoiceTable({
                         onClick={() => onReceiptWa(inv)}
                       >
                         <WaIcon className="size-3" />
-                        Kirim Kwitansi via WA
+                        Kirim WA
                       </Button>
                     ) : (
                       <Button
@@ -367,7 +368,7 @@ export function InvoiceTable({
                         onClick={() => onTagihWa(inv)}
                       >
                         <WaIcon className="size-3" />
-                        Tagih via WhatsApp
+                        Kirim WA
                       </Button>
                     )}
 
@@ -382,6 +383,18 @@ export function InvoiceTable({
                         Tandai Lunas
                       </Button>
                     )}
+
+                    {/* Detail / Kuitansi — pratinjau kwitansi digital (selalu tampil) */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 border-zinc-200 bg-white px-2 text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                      onClick={() => onReceipt(inv)}
+                      aria-label={`Detail / Kuitansi ${inv.id}`}
+                    >
+                      <Eye className="size-3" strokeWidth={1.75} />
+                      Kuitansi
+                    </Button>
 
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
