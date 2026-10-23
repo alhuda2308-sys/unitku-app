@@ -20,8 +20,9 @@ import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientAnnouncement } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
 import {
-  getActiveOwnedProperty,
   getOwnedPropertyIds,
+  resolveOwnedPropertyOverride,
+  resolveOwnedPropertyScope,
   notOwned,
   unauthorized,
 } from "@/lib/auth/ownership";
@@ -137,15 +138,22 @@ function parseIsoDate(input: unknown): string | null {
   return ISO_DATE_RE.test(v) ? v : null;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     await ensureAnnouncementTable();
     const user = await getAuthUser();
     if (!user) return unauthorized();
     await ensureSeedForUser(user);
-    const propertyIds = await getOwnedPropertyIds(user);
+    // Scope opsional ?propertyId= — panel Pengumuman memuat SESUAI cabang
+    // aktif di switcher (broadcast hanya milik properti yang dikelola);
+    // tanpa param = perilaku lama (seluruh properti owner).
+    const scope = await resolveOwnedPropertyScope(
+      user,
+      request.nextUrl.searchParams.get("propertyId")?.trim() || null,
+    );
+    if (scope instanceof NextResponse) return scope;
     const announcements = await db.announcement.findMany({
-      where: { propertyId: { in: propertyIds } },
+      where: { propertyId: { in: scope } },
       orderBy: [{ createdAtSort: "desc" }, { id: "desc" }],
     });
     return NextResponse.json({
@@ -166,15 +174,20 @@ export async function POST(request: NextRequest) {
     const user = await getAuthUser();
     if (!user) return unauthorized();
     await ensureSeedForUser(user);
-    const ownedProperty = await getActiveOwnedProperty(user);
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+
+    // Isolasi multi-cabang: pengumuman masuk ke properti yang SEDANG dikelola
+    // (body.propertyId dari switcher, divalidasi kepemilikan); tanpa itu →
+    // properti aktif default (perilaku lama).
+    const ownedProperty = await resolveOwnedPropertyOverride(user, body.propertyId);
+    if (ownedProperty instanceof NextResponse) return ownedProperty;
     if (!ownedProperty) {
       return NextResponse.json(
         { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
         { status: 400 },
       );
     }
-
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const judul = typeof body.judul === "string" ? body.judul.trim() : "";
     const isi = typeof body.isi === "string" ? body.isi.trim() : "";
     const kategori = (

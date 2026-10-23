@@ -93,6 +93,41 @@ export async function requireActiveProperty(user: AuthUser): Promise<Property> {
   return property;
 }
 
+/**
+ * Scope daftar id properti untuk GET — isolasi multi-cabang:
+ * `requested` diisi & milik owner → [id] (hanya cabang yang dikelola);
+ * kosong → seluruh properti owner (perilaku lama); bukan milik owner → 404.
+ */
+export async function resolveOwnedPropertyScope(
+  user: AuthUser,
+  requested: string | null,
+): Promise<string[] | NextResponse> {
+  const ownedIds = await getOwnedPropertyIds(user);
+  if (!requested) return ownedIds;
+  if (!ownedIds.includes(requested)) return notOwned("Properti tidak ditemukan.");
+  return [requested];
+}
+
+/**
+ * Properti TUJUAN operasi tulis (POST) dari permintaan klien — isolasi
+ * multi-cabang: klien mengirim id properti yang SEDANG dikelola (switcher
+ * sidebar); server memvalidasi kepemilikan sebelum memakainya.
+ * Tidak dikirim → kembali ke properti aktif default (perilaku lama).
+ * Bukan milik owner → Response 404 (sengaja 404, jangan bocorkan keberadaan).
+ * Belum onboarding → null (caller menjawab 400).
+ */
+export async function resolveOwnedPropertyOverride(
+  user: AuthUser,
+  requested: unknown,
+): Promise<Property | NextResponse | null> {
+  const id = typeof requested === "string" ? requested.trim() : "";
+  if (!id) return await getActiveOwnedProperty(user);
+  const ownedIds = await getOwnedPropertyIds(user);
+  if (!ownedIds.includes(id)) return notOwned("Properti tidak ditemukan.");
+  const property = await db.property.findUnique({ where: { id } });
+  return property ?? notOwned("Properti tidak ditemukan.");
+}
+
 /** Pastikan propertyId milik owner — kembalikan true/false */
 export function ownsProperty(propertyId: string, ownedIds: string[]): boolean {
   return ownedIds.includes(propertyId);

@@ -353,6 +353,8 @@ export const api = {
     dateLabel: string;
     source?: string;
     attachment?: string;
+    /** Properti tujuan (switcher aktif) — server divalidasi kepemilikannya */
+    propertyId?: string | null;
   }) =>
     request<{ entry: ClientCashEntry }>("/api/cash", {
       method: "POST",
@@ -399,7 +401,10 @@ export const api = {
     request<{ ok: true }>(`/api/staff?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   // /api/tickets — Komplain & Pemeliharaan
-  getTickets: () => request<{ tickets: ClientTicket[] }>("/api/tickets"),
+  getTickets: (propertyId?: string | null) =>
+    request<{ tickets: ClientTicket[] }>(
+      scopedPropertyUrl("/api/tickets", propertyId),
+    ),
   /** Laporan masalah dari Portal Penyewa — foto dataURL (kompres canvas di klien) */
   createTicket: (payload: {
     portalToken?: string;
@@ -413,6 +418,8 @@ export const api = {
     deskripsi: string;
     urgensi?: string;
     photos?: string[];
+    /** Properti tujuan (switcher aktif) — server divalidasi kepemilikannya */
+    propertyId?: string | null;
   }) =>
     request<{ ticket: ClientTicket }>("/api/tickets", {
       method: "POST",
@@ -467,12 +474,14 @@ export const api = {
     }),
 
   // /api/announcements — Pengumuman & Broadcast (tersimpan permanen di cloud)
-  getAnnouncements: () =>
-    request<{ announcements: ClientAnnouncement[] }>("/api/announcements"),
-  createAnnouncement: (draft: AnnouncementDraft) =>
+  getAnnouncements: (propertyId?: string | null) =>
+    request<{ announcements: ClientAnnouncement[] }>(
+      scopedPropertyUrl("/api/announcements", propertyId),
+    ),
+  createAnnouncement: (draft: AnnouncementDraft, propertyId?: string | null) =>
     request<{ announcement: ClientAnnouncement }>("/api/announcements", {
       method: "POST",
-      body: JSON.stringify(draft),
+      body: JSON.stringify(propertyId ? { ...draft, propertyId } : draft),
     }),
   updateAnnouncement: (
     id: string,

@@ -15,8 +15,8 @@ import { toClientCashEntry } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
 import type { AuthUser } from "@/lib/auth/server";
 import {
-  getActiveOwnedProperty,
   getOwnedPropertyIds,
+  resolveOwnedPropertyOverride,
   notOwned,
   unauthorized,
 } from "@/lib/auth/ownership";
@@ -113,14 +113,18 @@ export async function POST(request: NextRequest) {
     const user = await getAuthUser();
     if (!user) return unauthorized();
     await ensureSeedForUser(user);
-    const property = await getActiveOwnedProperty(user);
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    // Isolasi multi-cabang: transaksi kas tercatat milik properti yang SEDANG
+    // dikelola (body.propertyId dari switcher, divalidasi kepemilikan); tanpa
+    // itu → properti aktif default (perilaku lama).
+    const property = await resolveOwnedPropertyOverride(user, body.propertyId);
+    if (property instanceof NextResponse) return property;
     if (!property) {
       return NextResponse.json(
         { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
         { status: 400 },
       );
     }
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const parsed = parseCashBody(body);
     if ("error" in parsed) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });

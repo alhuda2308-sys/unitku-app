@@ -17,8 +17,9 @@ import { ensureSeedForUser, nextTicketId } from "@/lib/server/seed";
 import { toClientTicket } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
 import {
-  getActiveOwnedProperty,
   getOwnedPropertyIds,
+  resolveOwnedPropertyOverride,
+  resolveOwnedPropertyScope,
   notOwned,
   unauthorized,
 } from "@/lib/auth/ownership";
@@ -89,19 +90,25 @@ function normalizePhotos(input: unknown): string[] | string {
   return photos;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser();
     if (!user) return unauthorized();
     await ensureSeedForUser(user);
-    const propertyIds = await getOwnedPropertyIds(user);
+    // Scope opsional ?propertyId= — panel Komplain memuat SESUAI cabang aktif
+    // di switcher; tanpa param = perilaku lama (seluruh properti owner).
+    const scope = await resolveOwnedPropertyScope(
+      user,
+      request.nextUrl.searchParams.get("propertyId")?.trim() || null,
+    );
+    if (scope instanceof NextResponse) return scope;
     const tickets = await db.ticket.findMany({
       // Isolasi: tiket terikat properti (kolom propertyId) ATAU via kamar
       // (tiket lama pra-migrasi yang belum di-backfill)
       where: {
         OR: [
-          { propertyId: { in: propertyIds } },
-          { room: { propertyId: { in: propertyIds } } },
+          { propertyId: { in: scope } },
+          { room: { propertyId: { in: scope } } },
         ],
       },
       orderBy: [{ reportedSort: "desc" }, { id: "desc" }],
@@ -170,11 +177,14 @@ export async function POST(request: NextRequest) {
       reporterPhone = tenant.phone;
       judul = judul || "Laporan via Portal Penyewa";
     } else {
-      // Cabang OWNER — wajib sesi + terikat properti miliknya
+      // Cabang OWNER — wajib sesi + terikat properti miliknya.
+      // Isolasi multi-cabang: propertyId dari body (switcher aktif, divalidasi
+      // kepemilikan); tanpa itu → properti aktif default (perilaku lama).
       const user = await getAuthUser();
       if (!user) return unauthorized();
       await ensureSeedForUser(user);
-      const ownedProperty = await getActiveOwnedProperty(user);
+      const ownedProperty = await resolveOwnedPropertyOverride(user, body.propertyId);
+      if (ownedProperty instanceof NextResponse) return ownedProperty;
       if (!ownedProperty) {
         return NextResponse.json(
           { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },

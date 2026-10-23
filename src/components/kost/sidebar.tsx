@@ -34,6 +34,9 @@ interface SidebarProps {
   ownerName: string;
   /** Daftar properti switcher (dari tabel properties / Pengaturan) */
   properties: PropertyEntry[];
+  /** Jumlah kamar RIIL properti aktif dari database (live, mengikuti switcher)
+   *  — menggantikan unitCount statis daftar pada baris properti aktif */
+  activeRoomCount?: number | null;
   /** Ganti properti aktif — menerima id properti (nama juga diterima demi kompatibilitas) */
   onPropertyChange: (property: string) => void;
   invoiceAlerts: number;
@@ -75,6 +78,7 @@ export function Sidebar({
   property,
   ownerName,
   properties = [],
+  activeRoomCount = null,
   onPropertyChange,
   invoiceAlerts,
   ticketAlerts,
@@ -212,9 +216,11 @@ export function Sidebar({
                       <span className="block truncate text-xs leading-4 text-zinc-700">
                       {(() => {
                         const active = properties.find((p) => p.name === property);
-                        return active
-                          ? `${active.unitCount} ${PROPERTY_TYPE_META[active.type].unit} · Owner`
-                          : "Owner";
+                        if (!active) return "Owner";
+                        // Jumlah kamar RIIL dari database (live, ikut switcher)
+                        // menggantikan unitCount statis daftar properti
+                        const count = activeRoomCount ?? active.unitCount;
+                        return `${count} ${PROPERTY_TYPE_META[active.type].unit} · Owner`;
                       })()}
                     </span>
                     </span>

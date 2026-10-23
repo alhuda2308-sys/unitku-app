@@ -507,11 +507,13 @@ export default function IndoKostPage() {
   }, [instantDemo, applyPropertyList]);
 
   // ── Bootstrap tiket komplain dari database (cloud-first, fallback mock demo)
+  // Scoped ?propertyId= — panel Komplain hanya menampilkan tiket milik cabang
+  // yang dikelola; otomatis dimuat ulang saat berganti properti di switcher.
   useEffect(() => {
     if (instantDemo) return; // demo: tiket simulasi lokal — tanpa API
     let alive = true;
     api
-      .getTickets()
+      .getTickets(activePropertyId)
       .then((res) => {
         if (alive) setTickets(res.tickets);
       })
@@ -521,7 +523,7 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, [instantDemo]);
+  }, [instantDemo, activePropertyId]);
 
   // ── Bootstrap PENGUMUMAN dari database (akun riil & sesi demo) ──────────────
   // Dulu pengumuman hanya state lokal perangkat — tidak pernah ikut pindah
@@ -532,10 +534,12 @@ export default function IndoKostPage() {
   //   • Sesi demo : memuat dari database (seed + buatan user agar panel =
   //                 portal); gagal (offline/sandbox) → dataset simulasi lokal
   //                 yang sudah terpasang tetap dipakai.
+  // Scoped ?propertyId= — panel hanya memuat pengumuman cabang yang dikelola;
+  // otomatis dimuat ulang saat berganti properti di switcher.
   useEffect(() => {
     let alive = true;
     api
-      .getAnnouncements()
+      .getAnnouncements(instantDemo ? null : activePropertyId)
       .then((res) => {
         if (alive) setAnnouncements(res.announcements);
       })
@@ -553,7 +557,7 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, [instantDemo]);
+  }, [instantDemo, activePropertyId]);
 
   /** "Hari ini" versi ISO (yyyy-mm-dd) — status tayang pengumuman akun riil
    *  memakai tanggal nyata; sesi demo memakai snapshot dataset (ISO demo). */
@@ -1570,6 +1574,8 @@ export default function IndoKostPage() {
               description: `Refund deposit — ${tenantName} (Kamar ${room.id}) · ${payload.alasan}`,
               amount: payload.refund,
               dateLabel,
+              // Isolasi multi-cabang — kas masuk buku cabang yang dikelola
+              propertyId: activePropertyId,
             })
             .then(({ entry }) => updateCashEntries((prev) => [entry, ...prev]))
             .catch((err: unknown) =>
@@ -1625,6 +1631,8 @@ export default function IndoKostPage() {
         dateLabel,
         source: draft.source,
         attachment: draft.attachment,
+        // Isolasi multi-cabang — kas tercatat milik cabang yang dikelola
+        propertyId: activePropertyId,
       })
       .then(({ entry }) => {
         updateCashEntries((prev) => [entry, ...prev]);
@@ -1668,6 +1676,8 @@ export default function IndoKostPage() {
         amount: draft.amount,
         dateLabel,
         source: draft.source,
+        // Isolasi multi-cabang — kas tercatat milik cabang yang dikelola
+        propertyId: activePropertyId,
       })
       .then(({ entry }) => {
         updateCashEntries((prev) => [entry, ...prev]);
@@ -2293,6 +2303,8 @@ export default function IndoKostPage() {
         deskripsi: draft.deskripsi,
         urgensi: draft.urgensi,
         photos: draft.photos,
+        // Isolasi multi-cabang — tiket terikat cabang yang dikelola
+        propertyId: activePropertyId,
       })
       .then((res) => {
         setTickets((prev) => prev.map((t) => (t.id === temp.id ? res.ticket : t)));
@@ -2359,7 +2371,7 @@ export default function IndoKostPage() {
     // Sesi demo → server-first, fallback lokal bila API tidak terjangkau
     if (instantDemo || isDemoSession) {
       api
-        .createAnnouncement(draft)
+        .createAnnouncement(draft, activePropertyId)
         .then((res) => {
           const a = res.announcement;
           setAnnouncements((prev) => [a, ...prev]);
@@ -2379,7 +2391,7 @@ export default function IndoKostPage() {
     }
 
     api
-      .createAnnouncement(draft)
+      .createAnnouncement(draft, activePropertyId)
       .then((res) => {
         const a = res.announcement;
         setAnnouncements((prev) => [a, ...prev]);
@@ -2534,6 +2546,8 @@ export default function IndoKostPage() {
         property={property}
         ownerName={settings.owner.nama}
         properties={switcherProperties}
+        // Jumlah kamar riil properti AKTIF (live dari database, ikut switcher)
+        activeRoomCount={rooms.length > 0 ? rooms.length : null}
         onPropertyChange={(id) => {
           handleSwitchProperty(id);
           setMobileOpen(false);
