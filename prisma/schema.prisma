@@ -204,6 +204,10 @@ model Tenant {
   emergencyName  String?
   emergencyPhone String?
   portalToken    String    @unique // magic-link Portal Penyewa — "tok_101_xxxxxx"
+  // Isolasi multi-cabang — kolom langsung (denormalisasi dari room.propertyId,
+  // di-backfill otomatis oleh self-heal skema) agar reset/filter per properti
+  // tidak perlu join. SELALU diisi saat create (check-in / seed / restore).
+  propertyId     String    @default("")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -214,6 +218,7 @@ model Tenant {
   // (target kembali = ALL).
   announcements Announcement[]
 
+  @@index([propertyId])
   @@map("tenants")
 }
 
@@ -222,6 +227,11 @@ model Tenant {
 model Invoice {
   id          String    @id // "#INV-202509-101"
   roomId      String
+  // Isolasi multi-cabang — kolom langsung (denormalisasi dari room.propertyId,
+  // di-backfill otomatis oleh self-heal skema) agar semua SELECT/reset per
+  // properti memakai filter .eq("property_id", …) tanpa join. SELALU diisi
+  // saat create (generator tagihan / check-in / auto-create / restore).
+  propertyId  String    @default("")
   tenantName  String? // null = kamar kosong (tagihan periode terakhir)
   tenantPhone String?
   roomType    String?
@@ -244,6 +254,7 @@ model Invoice {
   lines InvoiceLine[]
 
   @@unique([roomId, periodKey])
+  @@index([propertyId])
   @@index([status])
   @@index([periodKey])
   @@map("invoices")

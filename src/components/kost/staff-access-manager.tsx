@@ -71,7 +71,10 @@ export function StaffAccessManager({ properties, activePropertyId }: StaffAccess
   const loadMembers = (onFail?: () => void) => {
     api
       .getStaff()
-      .then((res) => setMembers(res.staff))
+      // ?? [] — respons tanpa array `staff` (degraded/bentuk tak terduga) tidak
+      // boleh menyetel undefined: state selain null/array menghancurkan render
+      // (members.length crash) seluruh tab Pengaturan.
+      .then((res) => setMembers(res.staff ?? []))
       .catch((err: unknown) => {
         toast.error("Gagal memuat daftar staf", {
           description: err instanceof Error ? err.message : "Periksa koneksi database.",

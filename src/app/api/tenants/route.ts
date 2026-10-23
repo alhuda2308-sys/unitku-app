@@ -133,10 +133,11 @@ export async function POST(request: NextRequest) {
         ? (body.addons.filter((a): a is string => typeof a === "string"))
         : [];
 
-    // 1) Penghuni + token portal unik
+    // 1) Penghuni + token portal unik — terikat properti kamar (isolasi cabang)
     const tenant = await db.tenant.create({
       data: {
         roomId: room.id,
+        propertyId: room.propertyId,
         name,
         phone: phoneDisplay,
         moveInAt: moveIn,
@@ -217,6 +218,7 @@ export async function POST(request: NextRequest) {
         data: {
           id: invoiceId,
           roomId: room.id,
+          propertyId: room.propertyId,
           periodKey,
           ...invoiceData,
           lines: { create: invoiceLines },

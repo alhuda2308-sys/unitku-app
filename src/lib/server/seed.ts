@@ -121,6 +121,8 @@ async function runSeed(): Promise<void> {
           ? {
               tenant: {
                 create: {
+                  // Isolasi multi-cabang — penghuni demo milik properti seed
+                  propertyId: SEED_PROPERTY_ID,
                   name: room.tenant.name,
                   phone: room.tenant.phone,
                   moveInAt: parseDateLabel(room.tenant.moveInDate),
@@ -143,6 +145,8 @@ async function runSeed(): Promise<void> {
       data: {
         id: inv.id,
         roomId: inv.roomId,
+        // Isolasi multi-cabang — tagihan demo milik properti seed
+        propertyId: SEED_PROPERTY_ID,
         tenantName: inv.tenantName,
         tenantPhone: inv.tenantPhone,
         roomType: inv.roomType,
@@ -297,7 +301,7 @@ async function seedAnnouncementsIfEmpty(): Promise<void> {
   // kamar dibuat — dicari, bukan di-hardcode). Bila tidak ada, baris targeted
   // kembali ke target ALL (targetTenantId null).
   const tenant = await db.tenant.findFirst({
-    where: { room: { propertyId: SEED_PROPERTY_ID } },
+    where: { propertyId: SEED_PROPERTY_ID },
     orderBy: { id: "asc" },
     select: { id: true },
   });

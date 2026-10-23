@@ -239,7 +239,7 @@ export async function POST(request: NextRequest) {
           : null;
     if (rawTargetTenantId) {
       const tenant = await db.tenant.findFirst({
-        where: { id: rawTargetTenantId, room: { propertyId: ownedProperty.id } },
+        where: { id: rawTargetTenantId, propertyId: ownedProperty.id },
         select: { id: true },
       });
       if (!tenant) {
@@ -363,7 +363,7 @@ export async function PATCH(request: NextRequest) {
         // Isolasi: penyewa harus milik salah satu properti owner sesi ini
         const propertyIds = await getOwnedPropertyIds(user);
         const tenant = await db.tenant.findFirst({
-          where: { id: rawTargetTenantId, room: { propertyId: { in: propertyIds } } },
+          where: { id: rawTargetTenantId, propertyId: { in: propertyIds } },
           select: { id: true },
         });
         if (!tenant) {

@@ -53,8 +53,10 @@ export async function GET(request: NextRequest) {
       user,
       request.nextUrl.searchParams.get("propertyId")?.trim() || null,
     );
+    // Filter kolom LANGSUNG propertyId (tanpa join room) — kolom di-backfill
+    // otomatis oleh self-heal sehingga seluruh baris terisi.
     const invoices = await db.invoice.findMany({
-      where: { room: { propertyId: { in: scope } } },
+      where: { propertyId: { in: scope } },
       include: INVOICE_INCLUDE,
       orderBy: [{ periodKey: "desc" }, { roomId: "asc" }],
     });
@@ -124,7 +126,7 @@ export async function POST(request: NextRequest) {
 
     // 2) Kamar yang sudah ditagih pada periode ini — anti duplikasi
     const existing = await db.invoice.findMany({
-      where: { room: { propertyId: { in: scopeIds } }, periodKey },
+      where: { propertyId: { in: scopeIds }, periodKey },
       select: { roomId: true, id: true },
     });
     const billedRooms = new Set(existing.map((i) => i.roomId));
@@ -137,7 +139,7 @@ export async function POST(request: NextRequest) {
 
     // 3) Riwayat invoice terakhir per kamar milik owner — sumber Sewa Pokok & add-on
     const history = await db.invoice.findMany({
-      where: { room: { propertyId: { in: scopeIds } } },
+      where: { propertyId: { in: scopeIds } },
       include: { lines: true },
       orderBy: [{ roomId: "asc" }, { periodKey: "desc" }],
     });
@@ -191,6 +193,8 @@ export async function POST(request: NextRequest) {
         data: {
           id: invoiceId,
           roomId: room.id,
+          // Isolasi multi-cabang — tagihan terikat properti kamar sumber
+          propertyId: room.propertyId,
           tenantName: tenant.name,
           tenantPhone: tenant.phone,
           roomType: room.type,
@@ -256,11 +260,10 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Parameter id atau roomId tagihan wajib diisi." }, { status: 400 });
     }
 
-    const INVOICE_WITH_ROOM = { ...INVOICE_INCLUDE, room: { select: { propertyId: true } } };
     let before = rawId
       ? await db.invoice.findFirst({
-          where: { id: rawId, room: { propertyId: { in: ownedIds } } },
-          include: INVOICE_WITH_ROOM,
+          where: { id: rawId, propertyId: { in: ownedIds } },
+          include: INVOICE_INCLUDE,
         })
       : null;
 
@@ -293,8 +296,8 @@ export async function PATCH(request: NextRequest) {
         if (active) {
           // Ada tagihan aktif — id dari klien basi, pakai tagihan sungguhan
           before = await db.invoice.findFirst({
-            where: { id: active.id, room: { propertyId: { in: ownedIds } } },
-            include: INVOICE_WITH_ROOM,
+            where: { id: active.id, propertyId: { in: ownedIds } },
+            include: INVOICE_INCLUDE,
           });
         } else {
           // Tidak ada tagihan tertunggak sama sekali → catat invoice periode
@@ -304,7 +307,7 @@ export async function PATCH(request: NextRequest) {
           const periodKey = reqPeriod || periodKeyOf(now);
           const existing = await db.invoice.findUnique({
             where: { roomId_periodKey: { roomId: room.id, periodKey } },
-            include: INVOICE_WITH_ROOM,
+            include: INVOICE_INCLUDE,
           });
           if (existing) {
             before = existing;
@@ -339,6 +342,7 @@ export async function PATCH(request: NextRequest) {
               data: {
                 id: invoiceId,
                 roomId: room.id,
+                propertyId: room.propertyId,
                 tenantName: room.tenant?.name ?? null,
                 tenantPhone: room.tenant?.phone ?? null,
                 roomType: room.type,
@@ -351,7 +355,7 @@ export async function PATCH(request: NextRequest) {
                 total,
                 lines: { create: lines },
               },
-              include: INVOICE_WITH_ROOM,
+              include: INVOICE_INCLUDE,
             });
             autoCreated = true;
           }
@@ -442,8 +446,8 @@ export async function PATCH(request: NextRequest) {
           entryDate: new Date(),
           dateLabel,
           dateSort: dateSortFromLabel(dateLabel),
-          // Isolasi multi-tenant — pemasukan tercatat di properti kamar tagihan
-          propertyId: before.room.propertyId,
+          // Isolasi multi-cabang — pemasukan tercatat di properti tagihan
+          propertyId: before.propertyId,
         },
       });
       cashEntryJson = toClientCashEntry(entry);
@@ -473,9 +477,9 @@ export async function DELETE(request: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: "Parameter ?id= tagihan wajib diisi." }, { status: 400 });
     }
-    // Isolasi: tagihan milik owner lain → 404
+    // Isolasi: tagihan milik owner lain → 404 (filter kolom langsung)
     const owned = await db.invoice.findFirst({
-      where: { id, room: { propertyId: { in: await getOwnedPropertyIds(user) } } },
+      where: { id, propertyId: { in: await getOwnedPropertyIds(user) } },
       select: { id: true },
     });
     if (!owned) return notOwned("Tagihan tidak ditemukan.");

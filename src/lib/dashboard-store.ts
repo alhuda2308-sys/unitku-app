@@ -118,7 +118,15 @@ async function fetchDashboardData(): Promise<{
     api.getInvoices(propertyScopeId),
     api.getCash(propertyScopeId),
   ]);
-  return { rooms: r.rooms, invoices: i.invoices, cashEntries: c.entries };
+  // ?? [] — respons degraded/bentuk tak terduga (fallback server tanpa kunci
+  // array) tidak boleh menyuntikkan undefined ke store: memo useMemo mana pun
+  // yang memanggil rooms.find/invoices.filter akan menghancurkan seluruh
+  // render dashboard ("Cannot read properties of undefined").
+  return {
+    rooms: r.rooms ?? [],
+    invoices: i.invoices ?? [],
+    cashEntries: c.entries ?? [],
+  };
 }
 
 // ── Auto-recovery mode offline ────────────────────────────────────────────────

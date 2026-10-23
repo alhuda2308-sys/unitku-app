@@ -112,10 +112,12 @@ const EXPECTED_COLUMNS: ReadonlySet<string> = new Set<string>([
   "tenants.emergencyName",
   "tenants.emergencyPhone",
   "tenants.portalToken",
+  "tenants.propertyId",
   "tenants.createdAt",
   "tenants.updatedAt",
   "invoices.id",
   "invoices.roomId",
+  "invoices.propertyId",
   "invoices.tenantName",
   "invoices.tenantPhone",
   "invoices.roomType",
@@ -217,8 +219,8 @@ const SCHEMA_DDL: readonly string[] = [
   "CREATE TABLE IF NOT EXISTS \"license_purchases\" (\n    \"id\" TEXT NOT NULL,\n    \"transactionId\" TEXT NOT NULL,\n    \"email\" TEXT NOT NULL,\n    \"name\" TEXT,\n    \"phone\" TEXT,\n    \"amount\" INTEGER NOT NULL DEFAULT 0,\n    \"status\" TEXT NOT NULL DEFAULT 'paid',\n    \"eventType\" TEXT,\n    \"provider\" TEXT,\n    \"autoProvisioned\" BOOLEAN NOT NULL DEFAULT false,\n    \"generatedPassword\" TEXT,\n    \"rawPayload\" JSONB,\n    \"licenseAccountId\" TEXT,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n\n    CONSTRAINT \"license_purchases_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"staff_members\" (\n    \"id\" TEXT NOT NULL,\n    \"propertyId\" TEXT,\n    \"name\" TEXT NOT NULL,\n    \"phone\" TEXT NOT NULL,\n    \"role\" TEXT NOT NULL DEFAULT 'PENJAGA_TEKNISI',\n    \"accessToken\" TEXT NOT NULL,\n    \"accessPin\" TEXT NOT NULL DEFAULT '',\n    \"isActive\" BOOLEAN NOT NULL DEFAULT true,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n\n    CONSTRAINT \"staff_members_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"rooms\" (\n    \"id\" TEXT NOT NULL,\n    \"propertyId\" TEXT NOT NULL,\n    \"floor\" INTEGER NOT NULL DEFAULT 1,\n    \"type\" TEXT NOT NULL DEFAULT '',\n    \"price\" INTEGER NOT NULL DEFAULT 0,\n    \"status\" TEXT NOT NULL DEFAULT 'kosong',\n    \"operational\" TEXT,\n    \"contractDuration\" TEXT,\n    \"contractStart\" TIMESTAMP(3),\n    \"contractEnd\" TIMESTAMP(3),\n    \"deposit\" INTEGER NOT NULL DEFAULT 0,\n    \"depositHeld\" BOOLEAN NOT NULL DEFAULT false,\n    \"facilities\" JSONB,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"rooms_pkey\" PRIMARY KEY (\"id\")\n)",
-  "CREATE TABLE IF NOT EXISTS \"tenants\" (\n    \"id\" TEXT NOT NULL,\n    \"roomId\" TEXT NOT NULL,\n    \"name\" TEXT NOT NULL,\n    \"phone\" TEXT NOT NULL,\n    \"moveInAt\" TIMESTAMP(3),\n    \"emergencyName\" TEXT,\n    \"emergencyPhone\" TEXT,\n    \"portalToken\" TEXT NOT NULL,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"tenants_pkey\" PRIMARY KEY (\"id\")\n)",
-  "CREATE TABLE IF NOT EXISTS \"invoices\" (\n    \"id\" TEXT NOT NULL,\n    \"roomId\" TEXT NOT NULL,\n    \"tenantName\" TEXT,\n    \"tenantPhone\" TEXT,\n    \"roomType\" TEXT,\n    \"periodLabel\" TEXT NOT NULL,\n    \"periodKey\" TEXT NOT NULL,\n    \"dueDate\" TIMESTAMP(3),\n    \"status\" TEXT NOT NULL DEFAULT 'jatuhTempo',\n    \"dayOffset\" INTEGER,\n    \"paidAt\" TIMESTAMP(3),\n    \"total\" INTEGER NOT NULL DEFAULT 0,\n    \"checkIn\" TIMESTAMP(3),\n    \"checkOut\" TIMESTAMP(3),\n    \"nights\" INTEGER,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"invoices_pkey\" PRIMARY KEY (\"id\")\n)",
+  "CREATE TABLE IF NOT EXISTS \"tenants\" (\n    \"id\" TEXT NOT NULL,\n    \"roomId\" TEXT NOT NULL,\n    \"propertyId\" TEXT NOT NULL DEFAULT '',\n    \"name\" TEXT NOT NULL,\n    \"phone\" TEXT NOT NULL,\n    \"moveInAt\" TIMESTAMP(3),\n    \"emergencyName\" TEXT,\n    \"emergencyPhone\" TEXT,\n    \"portalToken\" TEXT NOT NULL,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"tenants_pkey\" PRIMARY KEY (\"id\")\n)",
+  "CREATE TABLE IF NOT EXISTS \"invoices\" (\n    \"id\" TEXT NOT NULL,\n    \"roomId\" TEXT NOT NULL,\n    \"propertyId\" TEXT NOT NULL DEFAULT '',\n    \"tenantName\" TEXT,\n    \"tenantPhone\" TEXT,\n    \"roomType\" TEXT,\n    \"periodLabel\" TEXT NOT NULL,\n    \"periodKey\" TEXT NOT NULL,\n    \"dueDate\" TIMESTAMP(3),\n    \"status\" TEXT NOT NULL DEFAULT 'jatuhTempo',\n    \"dayOffset\" INTEGER,\n    \"paidAt\" TIMESTAMP(3),\n    \"total\" INTEGER NOT NULL DEFAULT 0,\n    \"checkIn\" TIMESTAMP(3),\n    \"checkOut\" TIMESTAMP(3),\n    \"nights\" INTEGER,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"invoices_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"invoice_lines\" (\n    \"id\" SERIAL NOT NULL,\n    \"invoiceId\" TEXT NOT NULL,\n    \"label\" TEXT NOT NULL,\n    \"amount\" INTEGER NOT NULL DEFAULT 0,\n\n    CONSTRAINT \"invoice_lines_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"facilities\" (\n    \"id\" TEXT NOT NULL,\n    \"propertyId\" TEXT,\n    \"group\" TEXT NOT NULL DEFAULT 'unit',\n    \"label\" TEXT NOT NULL,\n    \"custom\" BOOLEAN NOT NULL DEFAULT false,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n\n    CONSTRAINT \"facilities_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"tickets\" (\n    \"id\" TEXT NOT NULL,\n    \"roomId\" TEXT,\n    \"lokasi\" TEXT,\n    \"sumber\" TEXT NOT NULL DEFAULT 'penyewa',\n    \"judul\" TEXT NOT NULL,\n    \"urgensi\" TEXT NOT NULL DEFAULT 'sedang',\n    \"reporterName\" TEXT NOT NULL,\n    \"reporterPhone\" TEXT NOT NULL DEFAULT '',\n    \"kategori\" TEXT NOT NULL DEFAULT 'Lainnya',\n    \"deskripsi\" TEXT NOT NULL DEFAULT '',\n    \"photos\" JSONB NOT NULL DEFAULT '[]',\n    \"status\" TEXT NOT NULL DEFAULT 'menunggu',\n    \"reportedLabel\" TEXT NOT NULL,\n    \"reportedSort\" BIGINT NOT NULL DEFAULT 0,\n    \"teknisiName\" TEXT,\n    \"teknisiPhone\" TEXT,\n    \"selesaiLabel\" TEXT,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n    \"propertyId\" TEXT,\n\n    CONSTRAINT \"tickets_pkey\" PRIMARY KEY (\"id\")\n)",
@@ -325,6 +327,11 @@ const SCHEMA_DDL: readonly string[] = [
   "ALTER TABLE \"invoices\" ADD COLUMN IF NOT EXISTS \"nights\" INTEGER",
   "ALTER TABLE \"invoices\" ADD COLUMN IF NOT EXISTS \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP",
   "ALTER TABLE \"invoices\" ADD COLUMN IF NOT EXISTS \"updatedAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP",
+  // ── Isolasi multi-cabang: kolom propertyId langsung di tenants & invoices ──
+  // NOT NULL DEFAULT '' aman utk tabel berisi (Postgres mengisi baris lama dgn
+  // ''), lalu backfill di bawah mengisinya dari kamar masing-masing.
+  "ALTER TABLE \"tenants\" ADD COLUMN IF NOT EXISTS \"propertyId\" TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE \"invoices\" ADD COLUMN IF NOT EXISTS \"propertyId\" TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE \"invoice_lines\" ADD COLUMN IF NOT EXISTS \"invoiceId\" TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE \"invoice_lines\" ADD COLUMN IF NOT EXISTS \"label\" TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE \"invoice_lines\" ADD COLUMN IF NOT EXISTS \"amount\" INTEGER NOT NULL DEFAULT 0",
@@ -398,6 +405,16 @@ const SCHEMA_DDL: readonly string[] = [
   "ALTER TABLE \"owner_settings\" ADD COLUMN IF NOT EXISTS \"theme\" TEXT",
   "ALTER TABLE \"owner_settings\" ADD COLUMN IF NOT EXISTS \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP",
   "ALTER TABLE \"owner_settings\" ADD COLUMN IF NOT EXISTS \"updatedAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP",
+  // ── Backfill idempoten (SETELAH semua ALTER — kolom dijamin sudah ada) ────
+  // Semua baris tenants/invoices wajib punya property_id (NOT NULL efektif di
+  // level aplikasi; FK tidak ditambahkan agar self-heal tak bisa gagal bila
+  // ada baris yatim) sehingga SELECT/reset per properti tak perlu join room.
+  "UPDATE \"tenants\" SET \"propertyId\" = (SELECT r.\"propertyId\" FROM \"rooms\" r WHERE r.\"id\" = \"tenants\".\"roomId\") WHERE \"propertyId\" = ''",
+  "UPDATE \"invoices\" SET \"propertyId\" = (SELECT r.\"propertyId\" FROM \"rooms\" r WHERE r.\"id\" = \"invoices\".\"roomId\") WHERE \"propertyId\" = ''",
+  // Backfill tiket lama berbasis kamar (propertyId NULL) — tiket fasilitas tanpa
+  // kamar tetap dibiarkan NULL (kolom memang opsional).
+  "UPDATE \"tickets\" SET \"propertyId\" = (SELECT r.\"propertyId\" FROM \"rooms\" r WHERE r.\"id\" = \"tickets\".\"roomId\") WHERE \"propertyId\" IS NULL AND \"roomId\" IS NOT NULL",
+  // ── Indeks ──
   "CREATE INDEX IF NOT EXISTS \"properties_ownerId_idx\" ON \"properties\"(\"ownerId\")",
   "CREATE UNIQUE INDEX IF NOT EXISTS \"owner_accounts_email_key\" ON \"owner_accounts\"(\"email\")",
   "CREATE UNIQUE INDEX IF NOT EXISTS \"license_accounts_email_key\" ON \"license_accounts\"(\"email\")",
@@ -412,6 +429,8 @@ const SCHEMA_DDL: readonly string[] = [
   "CREATE INDEX IF NOT EXISTS \"rooms_status_idx\" ON \"rooms\"(\"status\")",
   "CREATE UNIQUE INDEX IF NOT EXISTS \"tenants_roomId_key\" ON \"tenants\"(\"roomId\")",
   "CREATE UNIQUE INDEX IF NOT EXISTS \"tenants_portalToken_key\" ON \"tenants\"(\"portalToken\")",
+  "CREATE INDEX IF NOT EXISTS \"tenants_propertyId_idx\" ON \"tenants\"(\"propertyId\")",
+  "CREATE INDEX IF NOT EXISTS \"invoices_propertyId_idx\" ON \"invoices\"(\"propertyId\")",
   "CREATE INDEX IF NOT EXISTS \"invoices_status_idx\" ON \"invoices\"(\"status\")",
   "CREATE INDEX IF NOT EXISTS \"invoices_periodKey_idx\" ON \"invoices\"(\"periodKey\")",
   "CREATE UNIQUE INDEX IF NOT EXISTS \"invoices_roomId_periodKey_key\" ON \"invoices\"(\"roomId\", \"periodKey\")",

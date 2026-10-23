@@ -525,12 +525,16 @@ export const api = {
       { method: "DELETE" },
     ),
 
-  // /api/reset — Zona Berbahaya
-  resetData: (mode: "demo" | "factory") =>
-    request<{ ok: true; mode: string }>("/api/reset", {
-      method: "POST",
-      body: JSON.stringify({ mode }),
-    }),
+  // /api/reset — Zona Berbahaya — TER-SCOPE PROPERTI AKTIF: server wajib
+  // menerima propertyId agar reset tidak pernah menyentuh cabang lain.
+  resetData: (mode: "demo" | "factory", propertyId?: string | null) =>
+    request<{ ok: true; mode: string; propertyId: string; propertyName: string }>(
+      "/api/reset",
+      {
+        method: "POST",
+        body: JSON.stringify({ mode, ...(propertyId ? { propertyId } : {}) }),
+      },
+    ),
 
   // /api/backup/restore — pulihkan data dari berkas cadangan JSON (Pengaturan)
   restoreBackup: (payload: unknown) =>

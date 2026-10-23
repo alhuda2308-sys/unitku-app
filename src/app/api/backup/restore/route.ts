@@ -174,6 +174,8 @@ export async function POST(request: NextRequest) {
         const tenantInDb = await tx.tenant.findUnique({ where: { roomId: room.id } });
         if (room.tenant) {
           const tenantData = {
+            // Isolasi multi-cabang — penghuni pulihan milik properti tujuan
+            propertyId: property!.id,
             name: room.tenant.name,
             phone: room.tenant.phone ?? "",
             moveInAt: backupLabelToDate(room.tenant.moveInDate),
@@ -245,6 +247,8 @@ export async function POST(request: NextRequest) {
         }
         const invoiceData = {
           roomId: inv.roomId,
+          // Isolasi multi-cabang — tagihan pulihan milik properti tujuan
+          propertyId: property!.id,
           tenantName: inv.tenantName ?? null,
           tenantPhone: inv.tenantPhone ?? null,
           roomType: inv.roomType ?? null,

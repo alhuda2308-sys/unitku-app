@@ -1825,26 +1825,25 @@ export default function IndoKostPage() {
     return [...fromDb, ...extras];
   }, [dbProperties, settings.properties]);
 
-  /** Ganti properti aktif (dropdown kartu atas / pemilih sidebar) — kamar,
-   *  tagihan & buku kas dimuat ULANG dari database sesuai propertyId terpilih.
-   *  Menerima id ATAU nama (kompatibel pemanggil lama). */
-  const handleSwitchProperty = (idOrName: string) => {
-    const entry = switcherProperties.find((p) => p.id === idOrName || p.name === idOrName);
-    if (!entry) return;
+  /** switchProperty(newPropertyId) — TERPUSAT: persist pilihan, RESET seluruh
+   *  state tampilan (detail kamar terpilih, modal terbuka, filter & pencarian)
+   *  supaya tidak ada sisa data properti sebelumnya yang terbawa ke layar, lalu
+   *  memuat ulang (re-fetch) data murni milik properti baru: kamar/tagihan/kas
+   *  via reloadDashboardData (scope sudah dipindah), tiket & pengumuman otomatis
+   *  via effect [activePropertyId]. Tiket & data lama diganti utuh oleh hasil
+   *  fetch — tidak pernah tercampur antar cabang. */
+  const switchProperty = (entry: PropertyEntry) => {
     const dbBacked = dbProperties.some((p) => p.id === entry.id);
-    updateSettings((s) => ({
-      properties: s.properties.some((p) => p.id === entry.id)
-        ? s.properties.map((p) => ({ ...p, aktif: p.id === entry.id }))
-        : s.properties,
-      propertyProfile: {
-        ...s.propertyProfile,
-        nama: entry.name,
-        tipe: entry.type,
-        alamat: entry.address || s.propertyProfile.alamat,
-        fotoUrl: entry.photoUrl ?? s.propertyProfile.fotoUrl,
-      },
-    }));
-    if (entry.name === property) return;
+    // Reset state tampilan — penanda kamar, modal & filter tidak boleh
+    // membawa data cabang sebelumnya ke layar cabang baru (kamar "101" milik
+    // cabang lama tidak boleh menampilkan detail kamar "101" cabang baru).
+    setSelectedRoomId(null);
+    setAdRoomId(null);
+    setManageRoomId(null);
+    setConfirmDeleteRoom(null);
+    setCheckinOpen(false);
+    setActiveTab("all");
+    setQuery("");
     if (dbBacked) {
       // Cabang database riil — persist pilihan + muat ulang data scoped
       writeStoredActivePropertyId(entry.id);
@@ -1863,6 +1862,29 @@ export default function IndoKostPage() {
         description: `${PROPERTY_TYPE_META[entry.type].label} · data kamar cabang ini berupa dataset demo.`,
       });
     }
+  };
+
+  /** Ganti properti aktif (dropdown kartu atas / pemilih sidebar) — sinkronkan
+   *  profil & daftar Pengaturan, lalu serahkan ke switchProperty (reset state
+   *  tampilan + re-fetch data cabang terpilih). Menerima id ATAU nama
+   *  (kompatibel pemanggil lama). */
+  const handleSwitchProperty = (idOrName: string) => {
+    const entry = switcherProperties.find((p) => p.id === idOrName || p.name === idOrName);
+    if (!entry) return;
+    updateSettings((s) => ({
+      properties: s.properties.some((p) => p.id === entry.id)
+        ? s.properties.map((p) => ({ ...p, aktif: p.id === entry.id }))
+        : s.properties,
+      propertyProfile: {
+        ...s.propertyProfile,
+        nama: entry.name,
+        tipe: entry.type,
+        alamat: entry.address || s.propertyProfile.alamat,
+        fotoUrl: entry.photoUrl ?? s.propertyProfile.fotoUrl,
+      },
+    }));
+    if (entry.name === property) return;
+    switchProperty(entry);
   };
 
   /** Ganti foto fasad langsung dari banner Denah — tersimpan ke database.
@@ -2214,7 +2236,9 @@ export default function IndoKostPage() {
     const keptRooms = rooms.length;
     const removedTenants = rooms.filter((r) => r.tenant && r.status !== "kosong").length;
     api
-      .resetData("demo")
+      // Isolasi multi-cabang: reset HANYA properti aktif yang sedang dikelola —
+      // data cabang lain dijamin tidak tersentuh.
+      .resetData("demo", activePropertyId)
       .then(() => refreshDashboard())
       .then(() => {
         // Bersihkan state LOKAL hanya setelah server mengonfirmasi
@@ -2222,7 +2246,7 @@ export default function IndoKostPage() {
         setAnnouncements([]);
         setSelectedRoomId(null);
         toast.success("Data demo berhasil dihapus", {
-          description: `${removedTenants} penyewa, seluruh invoice & transaksi kas dikosongkan dari database — struktur ${keptRooms} kamar & profil properti dipertahankan.`,
+          description: `${removedTenants} penyewa, seluruh invoice & transaksi kas dikosongkan dari database — struktur ${keptRooms} kamar & profil properti dipertahankan. Hanya cabang aktif yang terpengaruh.`,
         });
       })
       .catch((err: unknown) =>
@@ -2235,7 +2259,9 @@ export default function IndoKostPage() {
   const handleFactoryReset = () => {
     const removedRooms = rooms.length;
     api
-      .resetData("factory")
+      // Isolasi multi-cabang: factory reset HANYA properti aktif — kamar & data
+      // cabang lain tetap utuh di database.
+      .resetData("factory", activePropertyId)
       .then(() => {
         // Kosongkan state LOKAL hanya setelah server mengonfirmasi
         updateRooms(() => []);
@@ -2248,7 +2274,7 @@ export default function IndoKostPage() {
         setActiveTab("all");
         setQuery("");
         toast.success("Factory reset selesai", {
-          description: `${removedRooms} kamar beserta seluruh data penyewa, tagihan & transaksi dihapus permanen dari database.`,
+          description: `${removedRooms} kamar beserta seluruh data penyewa, tagihan & transaksi CABANG INI dihapus permanen dari database — cabang lain tetap aman.`,
         });
       })
       .catch((err: unknown) =>

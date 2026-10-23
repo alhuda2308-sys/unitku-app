@@ -95,7 +95,9 @@ export function RoomDrawer({
   propertyName,
   propertyType,
 }: RoomDrawerProps) {
-  const vacant = room?.status === "kosong";
+  // Cabang UI mengikuti KEHADIRAN PENYEWA (bukan status) — data anomali
+  // (status ≠ "kosong" tanpa tenant) tidak boleh menghancurkan drawer.
+  const vacant = !room?.tenant;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -240,17 +242,26 @@ export function RoomDrawer({
                     </div>
                   </SectionCard>
 
-                  {/* Last invoice */}
+                  {/* Last invoice — room.invoice opsional (bisa saja dibatalkan
+                      via DELETE /api/invoices) — tanpa guard seluruh halaman
+                      crash "Cannot read properties of undefined (reading
+                      'amount')" saat penghuni membuka detail kamar. */}
                   <SectionCard title="Status Tagihan Terakhir">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-[12.5px] text-zinc-700">Nominal Sewa</p>
                         <p className="mt-1 text-[22px] font-bold leading-7 tracking-tight tabular-nums text-zinc-900">
-                          {formatIDR(room.invoice!.amount)}
+                          {room.invoice ? formatIDR(room.invoice.amount) : "—"}
                         </p>
                         <p className="mt-0.5 text-[12.5px] text-zinc-700">
-                          Periode {room.invoice!.periodLabel} · Tempo{" "}
-                          <span className="tabular-nums">{room.invoice!.dueLabel.replace("Tempo: ", "")}</span>
+                          {room.invoice ? (
+                            <>
+                              Periode {room.invoice.periodLabel} · Tempo{" "}
+                              <span className="tabular-nums">{room.invoice.dueLabel.replace("Tempo: ", "")}</span>
+                            </>
+                          ) : (
+                            "Belum ada tagihan tercatat untuk kamar ini."
+                          )}
                         </p>
                       </div>
                       <span
@@ -285,25 +296,27 @@ export function RoomDrawer({
                     )}
                   </SectionCard>
 
-                  {/* Contract */}
+                  {/* Contract — room.contract opsional (penyewa lama/kamar
+                      tanpa kontrak tercatat) — tanpa guard drawer crash saat
+                      membuka detail kamar. */}
                   <SectionCard title="Kontrak Sewa">
                     <div className="space-y-3">
-                      <InfoRow label="Durasi Sewa">{room.contract!.duration}</InfoRow>
+                      <InfoRow label="Durasi Sewa">{room.contract?.duration ?? "—"}</InfoRow>
                       <InfoRow label="Mulai Kontrak">
-                        <span className="tabular-nums">{room.contract!.startDate}</span>
+                        <span className="tabular-nums">{room.contract?.startDate || "—"}</span>
                       </InfoRow>
                       <InfoRow label="Uang Deposit">
                         <span className="inline-flex items-center justify-end gap-1.5">
-                          <span className="tabular-nums">{formatIDR(room.contract!.deposit)}</span>
+                          <span className="tabular-nums">{formatIDR(room.contract?.deposit ?? 0)}</span>
                           <span
                             className={cn(
                               "inline-flex h-5 items-center rounded-full border px-1.5 text-xs font-semibold",
-                              room.contract!.depositHeld
+                              room.contract?.depositHeld
                                 ? "border-amber-200 bg-amber-50 text-amber-700"
                                 : "border-zinc-200 bg-zinc-100 text-zinc-700"
                             )}
                           >
-                            {room.contract!.depositHeld ? "Ditahan" : "Dikembalikan"}
+                            {room.contract?.depositHeld ? "Ditahan" : "Dikembalikan"}
                           </span>
                         </span>
                       </InfoRow>
