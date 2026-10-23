@@ -56,6 +56,9 @@ function sewaLabelFromPeriodKey(periodKey: string): string {
 
 function tenantToClient(tenant: Tenant): ClientTenant {
   return {
+    // id Prisma — dipakai filter target pengumuman "Khusus Penyewa" di portal
+    // (mock dataset tanpa id tetap aman: field opsional di tipe klien).
+    id: tenant.id,
     name: tenant.name,
     phone: tenant.phone,
     moveInDate: tenant.moveInAt ? dateToLabel(tenant.moveInAt) : "—",
@@ -167,6 +170,8 @@ export function toClientAnnouncement(a: Announcement): ClientAnnouncement {
     judul: a.judul,
     kategori: a.kategori as AnnouncementKategori,
     targetFloor: a.targetFloor,
+    // Target penyewa spesifik ("Khusus Penyewa") — null = ALL
+    targetTenantId: a.targetTenantId,
     isi: a.isi,
     tanggalMulai: a.tanggalMulai,
     tanggalBerakhir: a.tanggalBerakhir,

@@ -51,6 +51,7 @@ function ensureAnnouncementTable(): Promise<void> {
          "judul"           TEXT       NOT NULL,
          "kategori"        TEXT       NOT NULL DEFAULT 'info',
          "targetFloor"     INTEGER,
+         "targetTenantId"  TEXT,
          "isi"             TEXT       NOT NULL DEFAULT '',
          "tanggalMulai"    TEXT       NOT NULL,
          "tanggalBerakhir" TEXT       NOT NULL,
@@ -62,6 +63,12 @@ function ensureAnnouncementTable(): Promise<void> {
          CONSTRAINT "announcements_pkey" PRIMARY KEY ("id")
        )`,
     );
+    // Tabel lama tanpa kolom target penyewa — tambahkan (idempoten, no-op bila ada)
+    await db
+      .$executeRawUnsafe(
+        `ALTER TABLE "announcements" ADD COLUMN IF NOT EXISTS "targetTenantId" TEXT`,
+      )
+      .catch(() => undefined);
     await db
       .$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS "announcements_propertyId_idx" ON "announcements"("propertyId")`,
@@ -70,6 +77,11 @@ function ensureAnnouncementTable(): Promise<void> {
     await db
       .$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS "announcements_createdAtSort_idx" ON "announcements"("createdAtSort")`,
+      )
+      .catch(() => undefined);
+    await db
+      .$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "announcements_targetTenantId_idx" ON "announcements"("targetTenantId")`,
       )
       .catch(() => undefined);
     // Tabel lama dibuat dengan INTEGER — createdAtSort yyyymmddHHmm (12 digit)
@@ -86,6 +98,17 @@ function ensureAnnouncementTable(): Promise<void> {
              ALTER TABLE "announcements" ADD CONSTRAINT "announcements_propertyId_fkey"
                FOREIGN KEY ("propertyId") REFERENCES "properties"("id")
                ON DELETE CASCADE ON UPDATE CASCADE;
+           END IF;
+         END $$`,
+      )
+      .catch(() => undefined);
+    await db
+      .$executeRawUnsafe(
+        `DO $$ BEGIN
+           IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'announcements_targetTenantId_fkey') THEN
+             ALTER TABLE "announcements" ADD CONSTRAINT "announcements_targetTenantId_fkey"
+               FOREIGN KEY ("targetTenantId") REFERENCES "tenants"("id")
+               ON DELETE SET NULL ON UPDATE CASCADE;
            END IF;
          END $$`,
       )
@@ -191,6 +214,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Target penyewa spesifik ("Khusus Penyewa") — null/'' = ALL.
+    // Validasi: penyewa WAJIB penghuni salah satu kamar properti aktif owner
+    // (isolasi multi-tenant — id penyewa properti orang lain ditolak).
+    const rawTargetTenantId =
+      body.targetTenantId === null || body.targetTenantId === undefined || body.targetTenantId === ""
+        ? null
+        : typeof body.targetTenantId === "string"
+          ? body.targetTenantId.trim()
+          : null;
+    if (rawTargetTenantId) {
+      const tenant = await db.tenant.findFirst({
+        where: { id: rawTargetTenantId, room: { propertyId: ownedProperty.id } },
+        select: { id: true },
+      });
+      if (!tenant) {
+        return NextResponse.json(
+          { error: "Target penyewa tidak valid — bukan penghuni properti ini." },
+          { status: 400 },
+        );
+      }
+    }
+
     // "Hari ini" WIB — label & sort key monotonic utk urutan terbaru dulu
     const nowWib = new Date(Date.now() + 7 * 60 * 60 * 1000);
     const y = nowWib.getUTCFullYear();
@@ -215,6 +260,7 @@ export async function POST(request: NextRequest) {
         judul,
         kategori,
         targetFloor,
+        targetTenantId: rawTargetTenantId,
         isi,
         tanggalMulai,
         tanggalBerakhir,
@@ -255,6 +301,7 @@ export async function PATCH(request: NextRequest) {
       judul?: string;
       kategori?: string;
       targetFloor?: number | null;
+      targetTenantId?: string | null;
       isi?: string;
       tanggalMulai?: string;
       tanggalBerakhir?: string;
@@ -290,6 +337,29 @@ export async function PATCH(request: NextRequest) {
         );
       }
       data.targetFloor = targetFloor;
+    }
+    if (body.targetTenantId !== undefined) {
+      const rawTargetTenantId =
+        body.targetTenantId === null || body.targetTenantId === ""
+          ? null
+          : typeof body.targetTenantId === "string"
+            ? body.targetTenantId.trim()
+            : null;
+      if (rawTargetTenantId) {
+        // Isolasi: penyewa harus milik salah satu properti owner sesi ini
+        const propertyIds = await getOwnedPropertyIds(user);
+        const tenant = await db.tenant.findFirst({
+          where: { id: rawTargetTenantId, room: { propertyId: { in: propertyIds } } },
+          select: { id: true },
+        });
+        if (!tenant) {
+          return NextResponse.json(
+            { error: "Target penyewa tidak valid — bukan penghuni properti Anda." },
+            { status: 400 },
+          );
+        }
+      }
+      data.targetTenantId = rawTargetTenantId;
     }
     if (body.isi !== undefined) {
       data.isi = typeof body.isi === "string" ? body.isi.trim() : "";

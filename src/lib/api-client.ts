@@ -556,13 +556,21 @@ export interface PortalData {
   propertyName: string;
   /** Pengumuman properti (banner portal) — cloud-first lintas perangkat */
   announcements?: ClientAnnouncement[];
+  /** Sesi demo (properti seed) — portal memakai tanggal snapshot dataset,
+   *  bukan tanggal riil, agar konsisten dengan panel admin demo. */
+  demo?: boolean;
   /** Rekening + QRIS statis owner (cloud) — kartu pembayaran portal */
   rekening?: PortalRekening;
 }
 
 export const portalApi = {
   resolve: (token: string) =>
-    request<PortalData>(`/api/portal?token=${encodeURIComponent(token)}`),
+    request<PortalData>(
+      `/api/portal?token=${encodeURIComponent(token)}`,
+      // no-store — portal penyewa harus selalu segar: pengumuman/tagihan baru
+      // dari owner tampil tanpa clear cache browser (respons API juga no-store)
+      { cache: "no-store" },
+    ),
 };
 
 // re-export tipe ringan untuk konsumen

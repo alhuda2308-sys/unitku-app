@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Archive,
   CheckCircle2,
@@ -46,8 +46,8 @@ import {
   ANNOUNCEMENT_KATEGORI_META,
   ANNOUNCEMENT_TODAY_ISO,
   announcementStatus,
+  announcementTargetLabel,
   periodeLabel,
-  targetLabel,
   waBroadcastText,
   type Announcement,
   type AnnouncementDraft,
@@ -105,6 +105,7 @@ const HEAD_CELL =
 function MobileAnnouncementCard({
   a,
   status,
+  targetText,
   targetCount,
   onEdit,
   onCopyWa,
@@ -113,6 +114,7 @@ function MobileAnnouncementCard({
 }: {
   a: Announcement;
   status: AnnouncementStatus;
+  targetText: string;
   targetCount: number;
   onEdit: () => void;
   onCopyWa: () => void;
@@ -154,7 +156,7 @@ function MobileAnnouncementCard({
         >
           {meta.label}
         </span>
-        <span className="text-[12.5px] text-zinc-700">{targetLabel(a.targetFloor)}</span>
+        <span className="text-[12.5px] text-zinc-700">{targetText}</span>
         <span className="text-xs tabular-nums text-zinc-700">· {targetCount} penyewa</span>
       </div>
 
@@ -235,6 +237,28 @@ export function AnnouncementPanel({
   const [editing, setEditing] = useState<Announcement | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Announcement | null>(null);
 
+  /** id penyewa → label "Nama — Kamar xxx" (target "Khusus Penyewa") */
+  const resolveTenant = useCallback(
+    (tenantId: string) => {
+      const room = rooms.find((r) => r.tenant?.id === tenantId);
+      return room?.tenant ? `${room.tenant.name} — Kamar ${room.id}` : undefined;
+    },
+    [rooms]
+  );
+
+  /** Jumlah penyewa penerima — target spesifik = 1, lantai = kamar terisi lantai itu */
+  const tenantCountFor = useCallback(
+    (a: Announcement) => {
+      if (a.targetTenantId) return 1;
+      if (a.targetFloor === null)
+        return rooms.filter((r) => r.tenant && r.status !== "kosong").length;
+      return rooms.filter(
+        (r) => r.floor === a.targetFloor && r.tenant && r.status !== "kosong"
+      ).length;
+    },
+    [rooms]
+  );
+
   /** Newest first (sort key, lalu id terbesar) */
   const sorted = useMemo(
     () =>
@@ -277,10 +301,10 @@ export function AnnouncementPanel({
           r.a.id.toLowerCase().includes(q) ||
           r.a.judul.toLowerCase().includes(q) ||
           r.a.isi.toLowerCase().includes(q) ||
-          targetLabel(r.a.targetFloor).toLowerCase().includes(q) ||
+          announcementTargetLabel(r.a, resolveTenant).toLowerCase().includes(q) ||
           ANNOUNCEMENT_KATEGORI_META[r.a.kategori].label.toLowerCase().includes(q)
       );
-  }, [sorted, statusTab, query, todayISO]);
+  }, [sorted, statusTab, query, todayISO, resolveTenant]);
 
   const openCreate = () => {
     setEditing(null);
@@ -299,7 +323,7 @@ export function AnnouncementPanel({
 
   const copyWa = async (a: Announcement) => {
     try {
-      await navigator.clipboard.writeText(waBroadcastText(a, propertyName));
+      await navigator.clipboard.writeText(waBroadcastText(a, propertyName, resolveTenant));
       toast.success("Format WhatsApp disalin", {
         description: `${a.id} — ${a.judul}`,
       });
@@ -482,12 +506,10 @@ export function AnnouncementPanel({
                     {/* Target kamar */}
                     <TableCell className="align-top">
                       <p className="whitespace-nowrap text-[12.5px] text-zinc-700">
-                        {targetLabel(a.targetFloor)}
+                        {announcementTargetLabel(a, resolveTenant)}
                       </p>
                       <p className="mt-0.5 whitespace-nowrap text-xs tabular-nums text-zinc-700">
-                        {a.targetFloor === null
-                          ? `${rooms.filter((r) => r.tenant && r.status !== "kosong").length} penyewa`
-                          : `${rooms.filter((r) => r.floor === a.targetFloor && r.tenant && r.status !== "kosong").length} penyewa`}
+                        {tenantCountFor(a)} penyewa
                       </p>
                     </TableCell>
 
@@ -596,16 +618,13 @@ export function AnnouncementPanel({
         ) : (
           <ul role="list" aria-label="Riwayat pengumuman" className="space-y-2.5">
             {filtered.map(({ a, status }) => {
-              const tenantCount =
-                a.targetFloor === null
-                  ? rooms.filter((r) => r.tenant && r.status !== "kosong").length
-                  : rooms.filter((r) => r.floor === a.targetFloor && r.tenant && r.status !== "kosong").length;
               return (
                 <MobileAnnouncementCard
                   key={a.id}
                   a={a}
                   status={status}
-                  targetCount={tenantCount}
+                  targetText={announcementTargetLabel(a, resolveTenant)}
+                  targetCount={tenantCountFor(a)}
                   onEdit={() => openEdit(a)}
                   onCopyWa={() => copyWa(a)}
                   onToggle={() => onToggleActive(a)}
@@ -618,8 +637,9 @@ export function AnnouncementPanel({
       </div>
 
       <p className="text-xs leading-4 text-zinc-700">
-        Pengumuman aktif tampil sebagai banner di Portal Penyewa sesuai lantai
-        target — hilang otomatis setelah tanggal berakhir atau saat dinonaktifkan.
+        Pengumuman aktif tampil sebagai banner di Portal Penyewa sesuai target
+        (semua kamar, lantai, atau penyewa tertentu) — hilang otomatis setelah
+        tanggal berakhir atau saat dinonaktifkan.
       </p>
 
       {/* Create / edit modal — keyed remount resets form state */}

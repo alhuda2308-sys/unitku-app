@@ -186,6 +186,7 @@ const EXPECTED_COLUMNS: ReadonlySet<string> = new Set<string>([
   "announcements.judul",
   "announcements.kategori",
   "announcements.targetFloor",
+  "announcements.targetTenantId",
   "announcements.isi",
   "announcements.tanggalMulai",
   "announcements.tanggalBerakhir",
@@ -223,7 +224,7 @@ const SCHEMA_DDL: readonly string[] = [
   "CREATE TABLE IF NOT EXISTS \"tickets\" (\n    \"id\" TEXT NOT NULL,\n    \"roomId\" TEXT,\n    \"lokasi\" TEXT,\n    \"sumber\" TEXT NOT NULL DEFAULT 'penyewa',\n    \"judul\" TEXT NOT NULL,\n    \"urgensi\" TEXT NOT NULL DEFAULT 'sedang',\n    \"reporterName\" TEXT NOT NULL,\n    \"reporterPhone\" TEXT NOT NULL DEFAULT '',\n    \"kategori\" TEXT NOT NULL DEFAULT 'Lainnya',\n    \"deskripsi\" TEXT NOT NULL DEFAULT '',\n    \"photos\" JSONB NOT NULL DEFAULT '[]',\n    \"status\" TEXT NOT NULL DEFAULT 'menunggu',\n    \"reportedLabel\" TEXT NOT NULL,\n    \"reportedSort\" BIGINT NOT NULL DEFAULT 0,\n    \"teknisiName\" TEXT,\n    \"teknisiPhone\" TEXT,\n    \"selesaiLabel\" TEXT,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n    \"propertyId\" TEXT,\n\n    CONSTRAINT \"tickets_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"technician_contacts\" (\n    \"id\" TEXT NOT NULL,\n    \"name\" TEXT NOT NULL,\n    \"phone\" TEXT NOT NULL,\n    \"specialization\" TEXT NOT NULL DEFAULT 'Tukang Bangunan/Umum',\n    \"isPrimary\" BOOLEAN NOT NULL DEFAULT false,\n    \"propertyId\" TEXT,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"technician_contacts_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"cash_entries\" (\n    \"id\" TEXT NOT NULL,\n    \"type\" TEXT NOT NULL DEFAULT 'masuk',\n    \"category\" TEXT NOT NULL,\n    \"description\" TEXT NOT NULL DEFAULT '',\n    \"amount\" INTEGER NOT NULL DEFAULT 0,\n    \"source\" TEXT NOT NULL DEFAULT 'Kas Tunai',\n    \"entryDate\" TIMESTAMP(3),\n    \"dateLabel\" TEXT NOT NULL,\n    \"dateSort\" INTEGER NOT NULL DEFAULT 0,\n    \"attachment\" TEXT,\n    \"propertyId\" TEXT,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n\n    CONSTRAINT \"cash_entries_pkey\" PRIMARY KEY (\"id\")\n)",
-  "CREATE TABLE IF NOT EXISTS \"announcements\" (\n    \"id\" TEXT NOT NULL,\n    \"propertyId\" TEXT NOT NULL,\n    \"judul\" TEXT NOT NULL,\n    \"kategori\" TEXT NOT NULL DEFAULT 'info',\n    \"targetFloor\" INTEGER,\n    \"isi\" TEXT NOT NULL DEFAULT '',\n    \"tanggalMulai\" TEXT NOT NULL,\n    \"tanggalBerakhir\" TEXT NOT NULL,\n    \"aktif\" BOOLEAN NOT NULL DEFAULT true,\n    \"createdAtLabel\" TEXT NOT NULL,\n    \"createdAtSort\" BIGINT NOT NULL DEFAULT 0,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"announcements_pkey\" PRIMARY KEY (\"id\")\n)",
+  "CREATE TABLE IF NOT EXISTS \"announcements\" (\n    \"id\" TEXT NOT NULL,\n    \"propertyId\" TEXT NOT NULL,\n    \"judul\" TEXT NOT NULL,\n    \"kategori\" TEXT NOT NULL DEFAULT 'info',\n    \"targetFloor\" INTEGER,\n    \"targetTenantId\" TEXT,\n    \"isi\" TEXT NOT NULL DEFAULT '',\n    \"tanggalMulai\" TEXT NOT NULL,\n    \"tanggalBerakhir\" TEXT NOT NULL,\n    \"aktif\" BOOLEAN NOT NULL DEFAULT true,\n    \"createdAtLabel\" TEXT NOT NULL,\n    \"createdAtSort\" BIGINT NOT NULL DEFAULT 0,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"announcements_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"owner_settings\" (\n    \"userId\" TEXT NOT NULL,\n    \"owner\" JSONB,\n    \"propertyExtras\" JSONB,\n    \"properties\" JSONB,\n    \"staff\" JSONB,\n    \"templates\" JSONB,\n    \"facilities\" JSONB,\n    \"theme\" TEXT,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"owner_settings_pkey\" PRIMARY KEY (\"userId\")\n)",
   "ALTER TABLE \"properties\" ADD COLUMN IF NOT EXISTS \"id\" TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE \"properties\" ADD COLUMN IF NOT EXISTS \"ownerId\" TEXT",
@@ -378,6 +379,7 @@ const SCHEMA_DDL: readonly string[] = [
   "ALTER TABLE \"announcements\" ADD COLUMN IF NOT EXISTS \"judul\" TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE \"announcements\" ADD COLUMN IF NOT EXISTS \"kategori\" TEXT NOT NULL DEFAULT 'info'",
   "ALTER TABLE \"announcements\" ADD COLUMN IF NOT EXISTS \"targetFloor\" INTEGER",
+  "ALTER TABLE \"announcements\" ADD COLUMN IF NOT EXISTS \"targetTenantId\" TEXT",
   "ALTER TABLE \"announcements\" ADD COLUMN IF NOT EXISTS \"isi\" TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE \"announcements\" ADD COLUMN IF NOT EXISTS \"tanggalMulai\" TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE \"announcements\" ADD COLUMN IF NOT EXISTS \"tanggalBerakhir\" TEXT NOT NULL DEFAULT ''",
@@ -424,6 +426,7 @@ const SCHEMA_DDL: readonly string[] = [
   "CREATE INDEX IF NOT EXISTS \"cash_entries_propertyId_idx\" ON \"cash_entries\"(\"propertyId\")",
   "CREATE INDEX IF NOT EXISTS \"announcements_propertyId_idx\" ON \"announcements\"(\"propertyId\")",
   "CREATE INDEX IF NOT EXISTS \"announcements_createdAtSort_idx\" ON \"announcements\"(\"createdAtSort\")",
+  "CREATE INDEX IF NOT EXISTS \"announcements_targetTenantId_idx\" ON \"announcements\"(\"targetTenantId\")",
   "ALTER TABLE \"license_purchases\" ADD CONSTRAINT \"license_purchases_licenseAccountId_fkey\" FOREIGN KEY (\"licenseAccountId\") REFERENCES \"license_accounts\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE",
   "ALTER TABLE \"staff_members\" ADD CONSTRAINT \"staff_members_propertyId_fkey\" FOREIGN KEY (\"propertyId\") REFERENCES \"properties\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE",
   "ALTER TABLE \"rooms\" ADD CONSTRAINT \"rooms_propertyId_fkey\" FOREIGN KEY (\"propertyId\") REFERENCES \"properties\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE",
@@ -436,6 +439,7 @@ const SCHEMA_DDL: readonly string[] = [
   "ALTER TABLE \"technician_contacts\" ADD CONSTRAINT \"technician_contacts_propertyId_fkey\" FOREIGN KEY (\"propertyId\") REFERENCES \"properties\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE",
   "ALTER TABLE \"cash_entries\" ADD CONSTRAINT \"cash_entries_propertyId_fkey\" FOREIGN KEY (\"propertyId\") REFERENCES \"properties\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE",
   "ALTER TABLE \"announcements\" ADD CONSTRAINT \"announcements_propertyId_fkey\" FOREIGN KEY (\"propertyId\") REFERENCES \"properties\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE",
+  "ALTER TABLE \"announcements\" ADD CONSTRAINT \"announcements_targetTenantId_fkey\" FOREIGN KEY (\"targetTenantId\") REFERENCES \"tenants\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE",
 ];
 
 let schemaPromise: Promise<void> | null = null;

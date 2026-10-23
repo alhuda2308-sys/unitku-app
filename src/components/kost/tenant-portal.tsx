@@ -257,16 +257,22 @@ export function TenantPortal({
   const room = useMemo(() => resolvePortalRoom(token, rooms), [token, rooms]);
   const tenant = room?.tenant ?? null;
 
-  // Banner pengumuman aktif yang relevan dengan lantai kamar ini
+  // Banner pengumuman aktif yang relevan dengan kamar & penyewa ini:
+  //  • periode tayang berjalan (isAnnouncementLive)
+  //  • target lantai cocok (matchesFloor) — null = semua lantai
+  //  • target penyewa spesifik ("Khusus Penyewa") hanya untuk penyewa tsb —
+  //    portal publik menerima tenant.id dari cloud; pratinjau/mock tanpa id
+  //    menampilkan semua agar owner tetap bisa mengecek banner tiap kamar.
   const visibleBanners = useMemo(() => {
     if (!room) return [];
     return announcements.filter(
       (a) =>
         isAnnouncementLive(a, todayISO) &&
         matchesFloor(a, room.floor) &&
+        (!a.targetTenantId || !tenant?.id || a.targetTenantId === tenant.id) &&
         !dismissed.has(a.id)
     );
-  }, [announcements, room, dismissed, todayISO]);
+  }, [announcements, room, tenant, dismissed, todayISO]);
 
   const dismissBanner = (id: string) =>
     setDismissed((prev) => new Set(prev).add(id));

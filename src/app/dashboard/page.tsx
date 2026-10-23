@@ -108,6 +108,7 @@ import {
   ANNOUNCEMENTS,
   ANNOUNCEMENT_TODAY_ISO,
   announcementFromDraft,
+  announcementTargetLabel,
   periodeLabel,
   targetLabel,
   type Announcement,
@@ -522,13 +523,16 @@ export default function IndoKostPage() {
     };
   }, [instantDemo]);
 
-  // ── Bootstrap PENGUMUMAN dari database (akun riil) ─────────────────────────
+  // ── Bootstrap PENGUMUMAN dari database (akun riil & sesi demo) ──────────────
   // Dulu pengumuman hanya state lokal perangkat — tidak pernah ikut pindah
   // perangkat dan tak terlihat penyewa di /portal perangkat lain. Kini
-  // cloud-first: akun riil memuat dari tabel announcements (milik propertinya);
-  // sesi demo tetap memakai dataset simulasi lokal.
+  // cloud-first untuk SEMUA sesi (sinkron Portal Penyewa):
+  //   • Akun riil : memuat dari tabel announcements milik propertinya;
+  //                 gagal → tetap kosong (TIDAK PERNAH mock).
+  //   • Sesi demo : memuat dari database (seed + buatan user agar panel =
+  //                 portal); gagal (offline/sandbox) → dataset simulasi lokal
+  //                 yang sudah terpasang tetap dipakai.
   useEffect(() => {
-    if (instantDemo) return; // demo: pengumuman simulasi lokal — tanpa API
     let alive = true;
     api
       .getAnnouncements()
@@ -536,13 +540,15 @@ export default function IndoKostPage() {
         if (alive) setAnnouncements(res.announcements);
       })
       .catch((err: unknown) => {
-        // Tetap kosong (BUKAN mock) — konsisten dgn prinsip "akun riil tidak
-        // pernah melihat data dummy". Kegagalan dimuat dicatat di console;
-        // banner offline dashboard sudah menandai koneksi bermasalah.
-        console.warn(
-          "[UnitKu] Pengumuman gagal dimuat dari database:",
-          err instanceof Error ? err.message : err,
-        );
+        // Demo: biarkan dataset simulasi lokal (offline tetap hidup).
+        // Akun riil: tetap kosong — konsisten dgn prinsip "akun riil tidak
+        // pernah melihat data dummy"; banner offline dashboard menandai gagal.
+        if (!instantDemo) {
+          console.warn(
+            "[UnitKu] Pengumuman gagal dimuat dari database:",
+            err instanceof Error ? err.message : err,
+          );
+        }
       });
     return () => {
       alive = false;
@@ -2338,21 +2344,37 @@ export default function IndoKostPage() {
   };
 
   // ── Pengumuman & Broadcast ─────────────────────────────────────────
-  // Sesi demo  : murni lokal (dataset simulasi, 0 panggilan API).
-  // Akun riil  : SERVER-FIRST — POST/PATCH/DELETE ke database, TUNGGU respons;
-  //              state & toast hijau hanya setelah server mengonfirmasi.
-  //              Gagal → TIDAK ada perubahan lokal + toast merah (pengumuman
-  //              tidak seolah tersimpan padahal tidak).
+  // SEMUA sesi (demo & akun riil) menulis ke DATABASE (tabel announcements,
+  // Supabase) — bukan hanya local state — agar halaman Portal Penyewa
+  // /portal?token=… yang membaca database selalu menampilkan pengumuman
+  // terbaru (sinkron lintas perangkat, tanpa clear cache):
+  //   Akun riil : SERVER-FIRST — TUNGGU respons; gagal → toast merah, TANPA
+  //               perubahan lokal (tidak seolah tersimpan padahal tidak).
+  //   Sesi demo : SERVER-FIRST juga (dataset simulasi ikut masuk cloud agar
+  //               portal demo ?token=… menampilkannya); bila API gagal/offline
+  //               → fallback dataset lokal agar demo tetap hidup.
 
-  /** "+ Buat Pengumuman Baru" → tayang di portal sesuai periode & lantai */
+  /** "+ Buat Pengumuman Baru" → tayang di portal sesuai periode & target */
   const handleCreateAnnouncement = (draft: AnnouncementDraft) => {
-    // Sesi demo → cukup state lokal (dataset simulasi tidak ada di database)
+    // Sesi demo → server-first, fallback lokal bila API tidak terjangkau
     if (instantDemo || isDemoSession) {
-      const a = announcementFromDraft(draft, announcements, announcementTodayISO);
-      setAnnouncements((prev) => [a, ...prev]);
-      toast.success(`Pengumuman ${a.id} dipasang di Portal Penyewa`, {
-        description: `${a.judul} · ${targetLabel(a.targetFloor)} · tayang ${periodeLabel(a)}.`,
-      });
+      api
+        .createAnnouncement(draft)
+        .then((res) => {
+          const a = res.announcement;
+          setAnnouncements((prev) => [a, ...prev]);
+          toast.success(`Pengumuman ${a.id} dipasang di Portal Penyewa`, {
+            description: `${a.judul} · ${announcementTargetLabel(a)} · tayang ${periodeLabel(a)} · tersimpan ke database.`,
+          });
+        })
+        .catch(() => {
+          // Offline / sesi lokal murni → dataset simulasi (tanpa cloud)
+          const a = announcementFromDraft(draft, announcements, announcementTodayISO);
+          setAnnouncements((prev) => [a, ...prev]);
+          toast.success(`Pengumuman ${a.id} dipasang di Portal Penyewa`, {
+            description: `${a.judul} · ${targetLabel(a.targetFloor)} · tayang ${periodeLabel(a)} (mode lokal).`,
+          });
+        });
       return;
     }
 
@@ -2373,11 +2395,12 @@ export default function IndoKostPage() {
   };
 
   const handleUpdateAnnouncement = (a: Announcement, draft: AnnouncementDraft) => {
-    // Sesi demo → cukup state lokal
+    // Sesi demo → update lokal instan + ikutkan ke database (best-effort)
     if (instantDemo || isDemoSession) {
       setAnnouncements((prev) =>
         prev.map((row) => (row.id === a.id ? { ...row, ...draft } : row))
       );
+      api.updateAnnouncement(a.id, draft).catch(() => undefined);
       toast.success(`Pengumuman ${a.id} diperbarui`, {
         description: `${draft.judul} · tayang ${periodeLabel({ ...a, ...draft })} (sesi demo).`,
       });
@@ -2402,17 +2425,18 @@ export default function IndoKostPage() {
   };
 
   const handleToggleAnnouncement = (a: Announcement) => {
-    // Sesi demo → cukup state lokal
+    // Sesi demo → toggle lokal instan + ikutkan ke database (best-effort)
     if (instantDemo || isDemoSession) {
       setAnnouncements((prev) =>
         prev.map((row) => (row.id === a.id ? { ...row, aktif: !row.aktif } : row))
       );
+      api.updateAnnouncement(a.id, { aktif: !a.aktif }).catch(() => undefined);
       toast.success(
         a.aktif ? `Pengumuman ${a.id} dinonaktifkan` : `Pengumuman ${a.id} diaktifkan kembali`,
         {
           description: a.aktif
             ? `"${a.judul}" ditarik dari Portal Penyewa (sesi demo).`
-            : `"${a.judul}" kembali tayang sesuai periode & target lantai (sesi demo).`,
+            : `"${a.judul}" kembali tayang sesuai periode & target (sesi demo).`,
         }
       );
       return;
@@ -2441,9 +2465,10 @@ export default function IndoKostPage() {
   };
 
   const handleDeleteAnnouncement = (a: Announcement) => {
-    // Sesi demo → cukup state lokal
+    // Sesi demo → hapus lokal instan + ikutkan ke database (best-effort)
     if (instantDemo || isDemoSession) {
       setAnnouncements((prev) => prev.filter((row) => row.id !== a.id));
+      api.deleteAnnouncement(a.id).catch(() => undefined);
       toast.success(`Pengumuman ${a.id} dihapus`, {
         description: `"${a.judul}" dikeluarkan dari riwayat & Portal Penyewa.`,
       });

@@ -50,6 +50,9 @@ export interface EmergencyContact {
 }
 
 export interface Tenant {
+  /** Id Prisma (cloud) — dipakai filter pengumuman "Khusus Penyewa" di portal.
+   *  Opsional: dataset mock/seed lokal tidak punya id database. */
+  id?: string;
   name: string;
   phone: string;
   moveInDate: string; // already formatted, e.g. "12 Jan 2026"

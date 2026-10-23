@@ -1,15 +1,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// IndoKost — localStorage mirror: dashboard owner → halaman publik /portal
+// IndoKost — localStorage mirror: dashboard owner → pratinjau /portal TANPA token
 //
 // Dashboard menyimpan snapshot state (rooms, invoices, announcements, nama
-// properti) setiap kali berubah. Halaman /portal?token=… (tab baru) membaca
-// mirror tersebut — sehingga link magic selalu menampilkan data TERKINI
-// (status lunas, penghuni baru, banner pengumuman, reset) tanpa backend.
+// properti) setiap kali berubah. Halaman /portal TANPA ?token= membaca mirror
+// tersebut sebagai PRATINJAU (bukan portal penyewa riil).
+//
+// PENTING (sinkronisasi Pengumuman & Broadcast): portal penyewa RIIL
+// /portal?token=… TIDAK PERNAH memakai mirror/data mock — selalu cloud-first
+// via GET /api/portal?token=… (no-store + revalidasi berkala). Bila API gagal,
+// halaman token menampilkan kartu error + "Coba Lagi", bukan data statik.
+//
 // Pembacaan memakai useSyncExternalStore (snapshot stabil + live update lintas
 // tab via event `storage`).
-//
-// Integration seam: dengan REST API nyata, /portal cukup memanggil
-// GET /api/portal?token=… dan modul ini dihapus.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ROOMS, type Room } from "./kost-data";

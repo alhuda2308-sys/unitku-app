@@ -69,10 +69,11 @@ export async function ensureSeedForUser(user: { demo: boolean } | null): Promise
 async function runSeed(): Promise<void> {
   const existing = await db.property.findUnique({ where: { id: SEED_PROPERTY_ID } });
   if (existing) {
-    // Properti demo sudah ada — tiket & kontak teknisi adalah tabel yang lebih
-    // baru: pastikan terisi (idempoten) agar modul Komplain hidup.
+    // Properti demo sudah ada — tabel yang lebih baru tetap dipastikan terisi
+    // (idempoten) agar modul Komplain & Pengumuman hidup di database lama.
     await seedTicketsIfEmpty();
     await seedTechniciansIfEmpty();
+    await seedAnnouncementsIfEmpty();
     return;
   }
 
@@ -211,6 +212,9 @@ async function runSeed(): Promise<void> {
 
   // ── Kontak teknisi on-call ─────────────────────────────────────────────────
   await seedTechniciansIfEmpty();
+
+  // ── Pengumuman & broadcast (banner Portal Penyewa) ─────────────────────────
+  await seedAnnouncementsIfEmpty();
 }
 
 /** Seed kontak teknisi demo — idempoten: hanya bila tabel masih kosong */
@@ -273,6 +277,92 @@ async function seedTicketsIfEmpty(): Promise<void> {
       teknisiPhone: t.teknisi?.phone ?? null,
       selesaiLabel: t.selesaiLabel ?? null,
     })),
+    }),
+  );
+}
+
+/**
+ * Seed pengumuman demo — idempoten: hanya bila tabel masih kosong.
+ * Dunia demo beku pada snapshot Sep 2026 (sama dengan dataset lokal
+ * ANNOUNCEMENTS) supaya panel admin & Portal Penyewa menampilkan konten
+ * identik baik offline (dataset lokal) maupun cloud (tabel announcements).
+ * Termasuk 1 baris target "Khusus Penyewa" (targetTenantId = penyewa seed)
+ * untuk mendemonstrasikan filter portal: property_id + (ALL ATAU tenant).
+ */
+async function seedAnnouncementsIfEmpty(): Promise<void> {
+  const count = await db.announcement.count();
+  if (count > 0) return;
+
+  // Penyewa seed untuk contoh target "Khusus Penyewa" (id auto-generated saat
+  // kamar dibuat — dicari, bukan di-hardcode). Bila tidak ada, baris targeted
+  // kembali ke target ALL (targetTenantId null).
+  const tenant = await db.tenant.findFirst({
+    where: { room: { propertyId: SEED_PROPERTY_ID } },
+    orderBy: { id: "asc" },
+    select: { id: true },
+  });
+
+  await ignoreUniqueConflict(() =>
+    db.announcement.createMany({
+      data: [
+        {
+          id: "#PGM-006",
+          propertyId: SEED_PROPERTY_ID,
+          judul: "Jadwal Pengurasan Toren Air & Mati Lampu Sementara",
+          kategori: "penting",
+          targetFloor: null,
+          targetTenantId: null,
+          isi: "Diberitahukan seluruh penghuni bahwa pengurasan toren air akan dilakukan pada Minggu, 27 Sep 2026 pukul 09.00–15.00 WIB.\n\nSelama pengerjaan:\n• Aliran air terhenti sementara (± 4 jam).\n• Lampu koridor & area parkir dimatikan pukul 10.00–12.00 WIB.\n• Mohon simpan air minum dan kebutuhan pokok sebelum jadwal tersebut.\n\nAir akan kembali mengalir normal setelah toren terisi penuh. Terima kasih atas pengertiannya.",
+          tanggalMulai: "2026-09-26",
+          tanggalBerakhir: "2026-09-30",
+          aktif: true,
+          createdAtLabel: "26 Sep 2026",
+          createdAtSort: 202609260900,
+        },
+        {
+          id: "#PGM-005",
+          propertyId: SEED_PROPERTY_ID,
+          judul: "Pemeliharaan Pompa Air Otomatis — Lantai 2",
+          kategori: "info",
+          targetFloor: 2,
+          targetTenantId: null,
+          isi: "Teknisi akan melakukan pengecekan rutin pompa air otomatis pada kamar lantai 2, Kamis 17 Sep 2026 pukul 08.00 WIB. Tekanan air mungkin tidak stabil ± 1 jam. Tidak perlu koordinasi khusus — cukup informasi.",
+          tanggalMulai: "2026-09-15",
+          tanggalBerakhir: "2026-09-18",
+          aktif: true,
+          createdAtLabel: "15 Sep 2026",
+          createdAtSort: 202609150800,
+        },
+        {
+          id: "#PGM-004",
+          propertyId: SEED_PROPERTY_ID,
+          judul: "Spot Check Kamar & Fasilitas Bersama Pemilik",
+          kategori: "info",
+          targetFloor: null,
+          targetTenantId: null,
+          isi: "Pemilik akan melakukan spot check kondisi kamar & fasilitas bersama pada 8–12 Sep 2026. Mohon izin ketuk pintu saat penghuni berada di kamar. Atas kerja samanya, terima kasih.",
+          tanggalMulai: "2026-09-05",
+          tanggalBerakhir: "2026-09-12",
+          aktif: false, // ditarik lebih awal — contoh status nonaktif di panel
+          createdAtLabel: "4 Sep 2026",
+          createdAtSort: 202609040830,
+        },
+        {
+          id: "#PGM-003",
+          propertyId: SEED_PROPERTY_ID,
+          judul: "Penggunaan Listrik & Perangkat High-Wattage",
+          kategori: "penting",
+          targetFloor: null,
+          // Contoh target "Khusus Penyewa" — hanya tampil di portal penyewa ini
+          targetTenantId: tenant?.id ?? null,
+          isi: "Beberapa MCB sempat trip karena pemakaian setrika, water heater & charger berbarengan pada jam yang sama (21.00–23.00). Mohon tidak menjalankan perangkat high-wattage secara serentak untuk menjaga stabilitas listrik gedung.",
+          tanggalMulai: "2026-09-20",
+          tanggalBerakhir: "2026-09-30",
+          aktif: true,
+          createdAtLabel: "20 Sep 2026",
+          createdAtSort: 202609200900,
+        },
+      ],
     }),
   );
 }

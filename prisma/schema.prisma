@@ -209,6 +209,11 @@ model Tenant {
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
+  // Pengumuman yang ditujukan SPESIFIK ke penyewa ini (target_tenant_id) —
+  // null-kan referensi saat penyewa dihapus, baris pengumuman tetap ada
+  // (target kembali = ALL).
+  announcements Announcement[]
+
   @@map("tenants")
 }
 
@@ -359,6 +364,9 @@ model Announcement {
   judul          String
   kategori       String   @default("info") // info | penting | darurat
   targetFloor    Int? // null = Semua Kamar; selain itu = nomor lantai
+  // Target penyewa spesifik ("Khusus Penyewa") — null = ALL (semua penyewa).
+  // Struktur sinkron Portal: property_id + (target = ALL ATAU targetTenantId).
+  targetTenantId String?
   isi            String   @default("")
   tanggalMulai   String // ISO yyyy-mm-dd (periode tayang)
   tanggalBerakhir String // ISO yyyy-mm-dd
@@ -369,9 +377,11 @@ model Announcement {
   updatedAt      DateTime @updatedAt
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  targetTenant Tenant? @relation(fields: [targetTenantId], references: [id], onDelete: SetNull)
 
   @@index([propertyId])
   @@index([createdAtSort])
+  @@index([targetTenantId])
   @@map("announcements")
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Building2,
   CalendarRange,
@@ -10,6 +10,7 @@ import {
   Megaphone,
   Pencil,
   Send,
+  UserRound,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,6 @@ import { distinctFloors, type Room } from "@/lib/kost-data";
 import {
   ANNOUNCEMENT_KATEGORI,
   ANNOUNCEMENT_KATEGORI_META,
-  targetLabel,
   waBroadcastText,
   type Announcement,
   type AnnouncementDraft,
@@ -48,13 +48,14 @@ interface AnnouncementModalProps {
   todayISO: string;
 }
 
-type TargetValue = "semua" | number;
+type TargetValue = "semua" | "penyewa" | number;
 
 /**
  * "+ Buat Pengumuman Baru" / Edit — modal lengkap per spec:
  * Judul, Kategori/Urgensi (3 tingkat warna), Target Penerima (semua / per
- * lantai), Isi Pesan, Periode Tayang (mulai–berakhir, otomatis turun dari
- * portal), plus dua tombol aksi: pasang di portal & salin format grup WA.
+ * lantai / khusus penyewa), Isi Pesan, Periode Tayang (mulai–berakhir,
+ * otomatis turun dari portal), plus dua tombol aksi: pasang di portal &
+ * salin format grup WA.
  */
 export function AnnouncementModal({
   open,
@@ -70,8 +71,13 @@ export function AnnouncementModal({
     editing?.kategori ?? "info"
   );
   const [target, setTarget] = useState<TargetValue>(
-    editing ? (editing.targetFloor ?? "semua") : "semua"
+    editing
+      ? editing.targetTenantId
+        ? "penyewa"
+        : editing.targetFloor ?? "semua"
+      : "semua"
   );
+  const [tenantId, setTenantId] = useState<string>(editing?.targetTenantId ?? "");
   const [isi, setIsi] = useState(editing?.isi ?? "");
   const [mulai, setMulai] = useState(editing?.tanggalMulai ?? todayISO);
   const [berakhir, setBerakhir] = useState(
@@ -79,16 +85,34 @@ export function AnnouncementModal({
   );
 
   const floors = distinctFloors(rooms);
+
+  // Opsi "Khusus Penyewa" — kamar terisi dengan id cloud (akun riil & sesi
+  // demo berbasis database). Sesi demo murni-lokal tanpa id database
+  // menyembunyikan opsi ini (target penyewa butuh id tabel tenants).
+  const tenantOptions = useMemo(
+    () =>
+      rooms
+        .filter((r) => r.tenant && r.status !== "kosong" && r.tenant.id)
+        .map((r) => ({
+          id: r.tenant!.id as string,
+          label: `${r.tenant!.name} — Kamar ${r.id}`,
+        })),
+    [rooms]
+  );
+
   const judulValid = judul.trim().length >= 4;
   const isiValid = isi.trim().length >= 10;
   const tanggalValid =
     mulai.length > 0 && berakhir.length > 0 && berakhir >= mulai;
-  const valid = judulValid && isiValid && tanggalValid;
+  const penyewaValid = target !== "penyewa" || tenantId !== "";
+  const valid = judulValid && isiValid && tanggalValid && penyewaValid;
 
   const draft = (): AnnouncementDraft => ({
     judul: judul.trim(),
     kategori,
-    targetFloor: target === "semua" ? null : Number(target),
+    targetFloor:
+      target === "semua" || target === "penyewa" ? null : Number(target),
+    targetTenantId: target === "penyewa" ? tenantId : null,
     isi: isi.trim(),
     tanggalMulai: mulai,
     tanggalBerakhir: berakhir,
@@ -108,13 +132,13 @@ export function AnnouncementModal({
       });
       return;
     }
-    const text = waBroadcastText(draft(), propertyName);
+    const text = waBroadcastText(draft(), propertyName, (id) =>
+      tenantOptions.find((t) => t.id === id)?.label
+    );
     try {
       await navigator.clipboard.writeText(text);
       toast.success("Format WhatsApp disalin", {
-        description: `Header [PENGUMUMAN KOST] + isi — siap paste ke grup WA ${targetLabel(
-          target === "semua" ? null : Number(target)
-        )}.`,
+        description: `Header [PENGUMUMAN KOST] + isi — siap paste ke grup WA sesuai target pengumuman.`,
       });
     } catch {
       toast.error("Gagal menyalin", {
@@ -281,10 +305,70 @@ export function AnnouncementModal({
                   </span>
                 </button>
               ))}
+
+              {tenantOptions.length > 0 && (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={target === "penyewa"}
+                  onClick={() => setTarget("penyewa")}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md border px-3 py-2.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20",
+                    target === "penyewa"
+                      ? "border-zinc-900 bg-white ring-1 ring-zinc-900"
+                      : "border-zinc-200 bg-white hover:border-zinc-300"
+                  )}
+                >
+                  <UserRound
+                    className={cn(
+                      "size-4 shrink-0",
+                      target === "penyewa" ? "text-zinc-900" : "text-zinc-700"
+                    )}
+                    strokeWidth={1.75}
+                    aria-hidden="true"
+                  />
+                  <span>
+                    <span className="block text-[12.5px] font-semibold text-zinc-900">
+                      Khusus Penyewa
+                    </span>
+                    <span className="block text-xs leading-snug text-zinc-700">
+                      1 penyewa terpilih
+                    </span>
+                  </span>
+                </button>
+              )}
             </div>
+
+            {/* Pilih penyewa — tampil hanya saat target "Khusus Penyewa" */}
+            {target === "penyewa" && (
+              <div className="rounded-md border border-zinc-200 bg-white p-2.5">
+                <Label htmlFor="pgm-penyewa" className="mb-1 block text-xs text-zinc-700">
+                  Pilih Penyewa Tujuan
+                </Label>
+                <select
+                  id="pgm-penyewa"
+                  value={tenantId}
+                  onChange={(e) => setTenantId(e.target.value)}
+                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2.5 text-[13px] text-zinc-900 shadow-none focus:border-zinc-300 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+                >
+                  <option value="">— Pilih penyewa —</option>
+                  {tenantOptions.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+                {!penyewaValid && (
+                  <p className="mt-1 text-xs text-amber-600">
+                    Pilih satu penyewa untuk target "Khusus Penyewa".
+                  </p>
+                )}
+              </div>
+            )}
+
             <p className="flex items-center gap-1 text-xs text-zinc-700">
               <Building2 className="size-3" strokeWidth={1.75} aria-hidden="true" />
-              Banner hanya tampil di portal kamar pada lantai yang dituju.
+              Banner hanya tampil di Portal Penyewa yang dituju (lantai / penyewa).
             </p>
           </div>
 

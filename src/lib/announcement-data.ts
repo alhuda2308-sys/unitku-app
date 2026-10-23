@@ -24,6 +24,9 @@ export interface Announcement {
   kategori: AnnouncementKategori;
   /** null = Semua Kamar · selain itu = nomor lantai yang dituju */
   targetFloor: number | null;
+  /** Target penyewa spesifik ("Khusus Penyewa") — null/undefined = ALL.
+   *  Struktur sinkron Portal: property_id DAN (target ALL ATAU target_tenant_id). */
+  targetTenantId?: string | null;
   isi: string;
   /** Periode tayang — ISO yyyy-mm-dd (otomatis hilang dari portal saat lewat) */
   tanggalMulai: string;
@@ -137,6 +140,21 @@ export function targetLabel(targetFloor: number | null): string {
   return targetFloor === null ? "Semua Kamar" : `Khusus Lantai ${targetFloor}`;
 }
 
+/**
+ * Label target lengkap untuk tampilan tabel/WA — menghormati target penyewa
+ * spesifik bila ada. `resolveTenant` memetakan id → "Nama · Kamar xxx".
+ */
+export function announcementTargetLabel(
+  a: Pick<Announcement, "targetFloor" | "targetTenantId">,
+  resolveTenant?: (tenantId: string) => string | undefined
+): string {
+  if (a.targetTenantId) {
+    const resolved = resolveTenant?.(a.targetTenantId);
+    return resolved ?? "Khusus Penyewa";
+  }
+  return targetLabel(a.targetFloor);
+}
+
 /** "26 Sep – 30 Sep 2026" — ringkas untuk banner & WA */
 export function periodeLabel(a: Pick<Announcement, "tanggalMulai" | "tanggalBerakhir">): string {
   const start = isoToLabel(a.tanggalMulai);
@@ -158,7 +176,11 @@ export type WaBroadcastSource = Pick<
   "judul" | "kategori" | "targetFloor" | "isi" | "tanggalMulai" | "tanggalBerakhir"
 >;
 
-export function waBroadcastText(a: WaBroadcastSource, propertyName: string): string {
+export function waBroadcastText(
+  a: WaBroadcastSource & { targetTenantId?: string | null },
+  propertyName: string,
+  resolveTenant?: (tenantId: string) => string | undefined
+): string {
   const meta = ANNOUNCEMENT_KATEGORI_META[a.kategori];
   const lines: string[] = [
     "*[PENGUMUMAN KOST]*",
@@ -171,7 +193,7 @@ export function waBroadcastText(a: WaBroadcastSource, propertyName: string): str
     a.isi.trim(),
     "",
     `Periode tayang: ${periodeLabel(a)}`,
-    `Target: ${targetLabel(a.targetFloor)}`,
+    `Target: ${announcementTargetLabel(a, resolveTenant)}`,
     "",
     "Terima kasih atas perhatiannya.",
     `— Pengelola ${propertyName}`,
@@ -197,6 +219,8 @@ export interface AnnouncementDraft {
   judul: string;
   kategori: AnnouncementKategori;
   targetFloor: number | null;
+  /** Id penyewa tujuan bila target "Khusus Penyewa" — null = tanpa target spesifik */
+  targetTenantId: string | null;
   isi: string;
   tanggalMulai: string; // ISO
   tanggalBerakhir: string; // ISO
@@ -216,6 +240,7 @@ export function announcementFromDraft(
     judul: draft.judul,
     kategori: draft.kategori,
     targetFloor: draft.targetFloor,
+    targetTenantId: draft.targetTenantId ?? null,
     isi: draft.isi,
     tanggalMulai: draft.tanggalMulai,
     tanggalBerakhir: draft.tanggalBerakhir,
