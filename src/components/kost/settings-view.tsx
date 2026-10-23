@@ -89,6 +89,12 @@ import {
   type ThemeKey,
 } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api-client";
+import {
+  PROPERTY_IMAGE_PLACEHOLDER,
+  compressImageFile,
+  resolvePropertyImage,
+} from "@/lib/property-image";
 import { DangerZone } from "./danger-zone";
 import { ChangePasswordCard } from "@/components/kost/change-password-card";
 import { WaIcon } from "./wa-icon";
@@ -1025,6 +1031,8 @@ function PropertiListTab({
   const [draft, setDraft] = useState(emptyPropDraft);
   const [confirmDelete, setConfirmDelete] = useState<PropertyEntry | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const photoFileRef = useRef<HTMLInputElement>(null);
 
   const openAdd = () => {
     setEditId(null);
@@ -1043,6 +1051,46 @@ function PropertiListTab({
   );
   const unitCount = Number(draft.unitCount);
   const valid = draft.name.trim().length >= 3 && !nameTaken && unitCount >= 1;
+
+  /** Dua cara input foto fasad menyatu di SATU field photoUrl:
+   *  (1) tempel/ketik URL gambar langsung di kolom teks;
+   *  (2) tombol "Upload / Ambil Foto" → <input type="file" accept="image/*">
+   *      (di smartphone memunculkan opsi Kamera & Galeri) → kamera/galeri →
+   *      kompresi klien (≤720px JPEG) → unggah ke Supabase Storage → URL
+   *      publik diisi OTOMATIS ke kolom URL; bila storage tidak tersedia,
+   *      fallback data URL terkompresi (tetap tersimpan ke kolom fotoUrl). */
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file || uploading) return;
+    setUploading(true);
+    try {
+      const img = await compressImageFile(file);
+      let finalUrl = img.dataUrl;
+      let description = `Terkompresi ± ${img.sizeKb} KB — URL-nya otomatis diisi ke kolom "URL Foto Fasad".`;
+      try {
+        const up = await api.uploadImage(img.dataUrl);
+        if (up.url) {
+          finalUrl = up.url;
+          description = "Foto diunggah ke cloud storage — URL publiknya otomatis diisi ke kolom \"URL Foto Fasad\".";
+        }
+      } catch {
+        // Storage tidak tersedia (dev/sandbox/gagal jaringan) → foto tetap bisa
+        // dipakai sebagai data URL terkompresi — tidak memblokir pengguna.
+      }
+      setDraft((d) => ({ ...d, photoUrl: finalUrl }));
+      toast.success("Foto fasad siap disimpan", { description });
+    } catch (err) {
+      toast.error("Foto gagal diproses", {
+        description: err instanceof Error ? err.message : "Coba berkas gambar lain.",
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  /** Pratinjau hanya bila nilainya berbentuk URL/path gambar yang sah —
+   *  teks setengah diketik tidak memicu placeholder menyesatkan. */
+  const photoValue = draft.photoUrl.trim();
+  const photoPreviewSrc = /^(https?:\/\/|\/|data:image\/)/.test(photoValue) ? photoValue : "";
 
   const submit = async () => {
     if (!valid || saving) return;
@@ -1373,7 +1421,84 @@ function PropertiListTab({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pr-foto" className="text-[12.5px] text-zinc-600">URL Foto Fasad (opsional)</Label>
-              <Input id="pr-foto" value={draft.photoUrl} onChange={(e) => setDraft((d) => ({ ...d, photoUrl: e.target.value }))} className={inputCls} placeholder="https://…/fasad.jpg" />
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  id="pr-foto"
+                  value={draft.photoUrl}
+                  onChange={(e) => setDraft((d) => ({ ...d, photoUrl: e.target.value }))}
+                  className={cn(inputCls, "min-w-0 flex-1")}
+                  placeholder="Tempel link gambar (https://…) atau unggah foto"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={uploading}
+                  onClick={() => photoFileRef.current?.click()}
+                  className="h-9 shrink-0 gap-1.5 border-zinc-200 bg-white px-3 text-[12.5px] font-semibold text-zinc-800 shadow-none hover:bg-zinc-50 disabled:opacity-50"
+                  aria-label="Upload atau ambil foto fasad dari kamera/galeri"
+                >
+                  {uploading ? (
+                    <Loader2 className="size-3.5 animate-spin text-zinc-500" strokeWidth={2} aria-hidden="true" />
+                  ) : (
+                    <Camera className="size-3.5 text-zinc-500" strokeWidth={1.75} aria-hidden="true" />
+                  )}
+                  {uploading ? "Memproses…" : "Upload / Ambil Foto"}
+                </Button>
+              </div>
+              {photoPreviewSrc ? (
+                <div className="flex items-center gap-2.5 rounded-md border border-border bg-zinc-50 p-2">
+                  <img
+                    src={resolvePropertyImage(photoPreviewSrc)}
+                    alt="Pratinjau foto fasad properti"
+                    className="size-12 shrink-0 rounded-md border border-border object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = PROPERTY_IMAGE_PLACEHOLDER;
+                    }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12px] font-medium text-zinc-700">Pratinjau foto fasad</p>
+                    <p className="truncate text-[11px] text-zinc-400">
+                      {photoValue.startsWith("data:image/")
+                        ? "Foto terunggah — tersimpan sebagai data gambar terkompresi."
+                        : photoValue}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDraft((d) => ({ ...d, photoUrl: "" }))}
+                    className="h-7 shrink-0 gap-1 px-2 text-[12px] text-red-600 hover:bg-red-50 hover:text-red-700"
+                    aria-label="Hapus foto fasad"
+                  >
+                    <Trash2 className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                    Hapus
+                  </Button>
+                </div>
+              ) : photoValue ? (
+                <p className="flex items-center gap-1.5 text-[11px] text-amber-600">
+                  <TriangleAlert className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                  URL belum valid — awali dengan https:// atau pakai tombol "Upload / Ambil Foto".
+                </p>
+              ) : (
+                <p className="flex items-center gap-1.5 text-[11px] text-zinc-400">
+                  <Camera className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                  Belum ada foto — tempel link gambar atau unggah dari kamera/galeri (JPG/PNG, dikompresi otomatis).
+                </p>
+              )}
+              {/* Input file TERSEMBUNYI — accept="image/*" memunculkan opsi
+                  Kamera & Galeri langsung di smartphone (tanpa atribut capture) */}
+              <input
+                ref={photoFileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  void pickPhoto(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+                aria-label="Unggah atau ambil foto fasad properti"
+              />
             </div>
           </div>
           <DialogFooter className="shrink-0 flex-row items-center justify-end gap-2 border-t border-border bg-white px-4 py-3">

@@ -265,6 +265,15 @@ export const api = {
       { method: "DELETE" },
     ),
 
+  // /api/uploads — unggah gambar (foto fasad properti) ke Supabase Storage.
+  // url null = storage tidak tersedia → pemanggil memakai fallback data URL
+  // terkompresi miliknya (foto tetap tersimpan ke kolom fotoUrl).
+  uploadImage: (dataUrl: string) =>
+    request<{ ok: true; url: string | null; storage: "supabase" | "local"; reason?: string }>(
+      "/api/uploads",
+      { method: "POST", body: JSON.stringify({ dataUrl }) },
+    ),
+
   // /api/settings — pengaturan owner di cloud (Profil Saya, Staf, Template WA,
   // Fasilitas, Tema). settings null = sesi demo / tabel cloud belum dibuat
   // (degraded) — klien tetap memakai localStorage tanpa error.
