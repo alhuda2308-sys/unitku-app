@@ -21,9 +21,9 @@ import { toClientAnnouncement } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
 import {
   getOwnedPropertyIds,
-  resolveOwnedPropertyOverride,
-  resolveOwnedPropertyScope,
   notOwned,
+  resolveOwnedPropertyOverride,
+  resolveOwnedPropertyScopeLenient,
   unauthorized,
 } from "@/lib/auth/ownership";
 import {
@@ -147,11 +147,12 @@ export async function GET(request: NextRequest) {
     // Scope opsional ?propertyId= — panel Pengumuman memuat SESUAI cabang
     // aktif di switcher (broadcast hanya milik properti yang dikelola);
     // tanpa param = perilaku lama (seluruh properti owner).
-    const scope = await resolveOwnedPropertyScope(
+    // LENIENT: id basi/tidak dikenal → fallback seluruh properti owner (200),
+    // bukan 404 — panel tetap hidup saat localStorage basi.
+    const scope = await resolveOwnedPropertyScopeLenient(
       user,
       request.nextUrl.searchParams.get("propertyId")?.trim() || null,
     );
-    if (scope instanceof NextResponse) return scope;
     const announcements = await db.announcement.findMany({
       where: { propertyId: { in: scope } },
       orderBy: [{ createdAtSort: "desc" }, { id: "desc" }],

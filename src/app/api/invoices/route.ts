@@ -26,8 +26,12 @@ import { db } from "@/lib/prisma";
 import { ensureSeedForUser, nextCashId } from "@/lib/server/seed";
 import { toClientCashEntry, toClientInvoice, toClientRoom } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
-import type { AuthUser } from "@/lib/auth/server";
-import { getOwnedPropertyIds, notOwned, unauthorized } from "@/lib/auth/ownership";
+import {
+  getOwnedPropertyIds,
+  notOwned,
+  resolveOwnedPropertyScopeLenient,
+  unauthorized,
+} from "@/lib/auth/ownership";
 import { MONTH_NAMES, dateToLabel } from "@/lib/kost-data";
 import { dateSortFromLabel } from "@/lib/kost-cashflow";
 import { periodKeyOf, periodLabelFromKey, periodShortLabel } from "@/lib/kost-invoices";
@@ -36,20 +40,6 @@ export const dynamic = "force-dynamic";
 
 const INVOICE_INCLUDE = { lines: { orderBy: { id: "asc" as const } } } satisfies Prisma.InvoiceInclude;
 
-/**
- * Resolusi scope properti dari query ?propertyId= (isolation multi-tenant) —
- * bila diisi, id WAJIB milik owner; tanpa param → seluruh properti owner.
- */
-async function resolvePropertyScope(
-  user: AuthUser,
-  requested: string | null,
-): Promise<string[] | NextResponse> {
-  const ownedIds = await getOwnedPropertyIds(user);
-  if (!requested) return ownedIds;
-  if (!ownedIds.includes(requested)) return notOwned("Properti tidak ditemukan.");
-  return [requested];
-}
-
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser();
@@ -57,8 +47,12 @@ export async function GET(request: NextRequest) {
     await ensureSeedForUser(user);
     // Scope opsional ?propertyId= — tagihan dimuat SESUAI cabang aktif di
     // switcher properti; tanpa param = perilaku lama (semua properti owner).
-    const scope = await resolvePropertyScope(user, request.nextUrl.searchParams.get("propertyId")?.trim() || null);
-    if (scope instanceof NextResponse) return scope;
+    // LENIENT: id basi/tidak dikenal → fallback seluruh properti owner (200),
+    // bukan 404 — dashboard tidak pernah offline karena localStorage basi.
+    const scope = await resolveOwnedPropertyScopeLenient(
+      user,
+      request.nextUrl.searchParams.get("propertyId")?.trim() || null,
+    );
     const invoices = await db.invoice.findMany({
       where: { room: { propertyId: { in: scope } } },
       include: INVOICE_INCLUDE,

@@ -149,6 +149,11 @@ export function RoomAddModal({
   const [to, setTo] = useState("110");
   const [bulkFloor, setBulkFloor] = useState(1);
 
+  // Validasi TER-SCOPE properti aktif: allRooms hanya berisi kamar milik
+  // properti yang SEDANG dikelola (dashboard memuat ter-scope ?propertyId=),
+  // jadi nomor kamar milik properti lain TIDAK pernah memblokir di sini —
+  // bila ternyata bentrok global di database, server otomatis membuat varian
+  // "A-1 (2)" alih-alih menolak.
   const existingIds = new Set(allRooms.map((r) => r.id.toLowerCase()));
   const maxFloor = allRooms.reduce((m, r) => Math.max(m, r.floor), 0);
   const floorChoices = Array.from({ length: maxFloor + 1 }, (_, i) => i + 1); // 1..max+1
@@ -295,7 +300,9 @@ export function RoomAddModal({
                     aria-invalid={singleDup}
                   />
                   {singleDup ? (
-                    <p className="text-xs font-medium text-red-600">Nomor "{singleId}" sudah dipakai.</p>
+                    <p className="text-xs font-medium text-red-600">
+                      Nomor "{singleId}" sudah dipakai di properti ini.
+                    </p>
                   ) : (
                     <p className="text-xs text-zinc-700">Gunakan nomor pintu atau nama blok unik.</p>
                   )}
@@ -542,7 +549,7 @@ export function RoomAddModal({
                   </div>
                   {bulkSkipped > 0 && (
                     <p className="mt-2 text-xs font-medium text-amber-600">
-                      {bulkSkipped} nomor sudah dipakai &amp; dilewati otomatis.
+                      {bulkSkipped} nomor sudah dipakai di properti ini &amp; dilewati otomatis.
                     </p>
                   )}
                   {bulkNew.length === 0 && (

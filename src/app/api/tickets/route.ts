@@ -18,9 +18,9 @@ import { toClientTicket } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
 import {
   getOwnedPropertyIds,
-  resolveOwnedPropertyOverride,
-  resolveOwnedPropertyScope,
   notOwned,
+  resolveOwnedPropertyOverride,
+  resolveOwnedPropertyScopeLenient,
   unauthorized,
 } from "@/lib/auth/ownership";
 import {
@@ -97,11 +97,12 @@ export async function GET(request: NextRequest) {
     await ensureSeedForUser(user);
     // Scope opsional ?propertyId= — panel Komplain memuat SESUAI cabang aktif
     // di switcher; tanpa param = perilaku lama (seluruh properti owner).
-    const scope = await resolveOwnedPropertyScope(
+    // LENIENT: id basi/tidak dikenal → fallback seluruh properti owner (200),
+    // bukan 404 — panel tetap hidup saat localStorage basi / properti terhapus.
+    const scope = await resolveOwnedPropertyScopeLenient(
       user,
       request.nextUrl.searchParams.get("propertyId")?.trim() || null,
     );
-    if (scope instanceof NextResponse) return scope;
     const tickets = await db.ticket.findMany({
       // Isolasi: tiket terikat properti (kolom propertyId) ATAU via kamar
       // (tiket lama pra-migrasi yang belum di-backfill)

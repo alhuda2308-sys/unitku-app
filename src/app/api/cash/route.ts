@@ -13,31 +13,17 @@ import { db } from "@/lib/prisma";
 import { ensureSeedForUser, nextCashId } from "@/lib/server/seed";
 import { toClientCashEntry } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
-import type { AuthUser } from "@/lib/auth/server";
 import {
   getOwnedPropertyIds,
-  resolveOwnedPropertyOverride,
   notOwned,
+  resolveOwnedPropertyOverride,
+  resolveOwnedPropertyScopeLenient,
   unauthorized,
 } from "@/lib/auth/ownership";
 import { dateSortFromLabel, CASH_SOURCES, type CashType } from "@/lib/kost-cashflow";
 import { parseDateLabel } from "@/lib/kost-data";
 
 export const dynamic = "force-dynamic";
-
-/**
- * Resolusi scope properti dari query ?propertyId= (isolation multi-tenant) —
- * bila diisi, id WAJIB milik owner; tanpa param → seluruh properti owner.
- */
-async function resolvePropertyScope(
-  user: AuthUser,
-  requested: string | null,
-): Promise<string[] | NextResponse> {
-  const ownedIds = await getOwnedPropertyIds(user);
-  if (!requested) return ownedIds;
-  if (!ownedIds.includes(requested)) return notOwned("Properti tidak ditemukan.");
-  return [requested];
-}
 
 /** Validasi sumber dana — default "Kas Tunai" */
 function normalizeSource(input: unknown): string {
@@ -91,8 +77,12 @@ export async function GET(request: NextRequest) {
     await ensureSeedForUser(user);
     // Scope opsional ?propertyId= — buku kas dimuat SESUAI cabang aktif di
     // switcher properti; tanpa param = perilaku lama (semua properti owner).
-    const scope = await resolvePropertyScope(user, request.nextUrl.searchParams.get("propertyId")?.trim() || null);
-    if (scope instanceof NextResponse) return scope;
+    // LENIENT: id basi/tidak dikenal → fallback seluruh properti owner (200),
+    // bukan 404 — buku kas tetap hidup, tidak menjatuhkan mode offline.
+    const scope = await resolveOwnedPropertyScopeLenient(
+      user,
+      request.nextUrl.searchParams.get("propertyId")?.trim() || null,
+    );
     const entries = await db.cashEntry.findMany({
       where: { propertyId: { in: scope } },
       orderBy: [{ dateSort: "desc" }, { id: "asc" }],

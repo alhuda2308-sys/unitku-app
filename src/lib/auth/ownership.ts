@@ -109,6 +109,30 @@ export async function resolveOwnedPropertyScope(
 }
 
 /**
+ * Scope daftar id properti untuk GET — versi TOLERAN anti-mode-offline:
+ *   • `requested` kosong → seluruh properti owner (perilaku lama);
+ *   • `requested` milik owner → [id] (hanya cabang yang dikelola);
+ *   • `requested` TIDAK dikenal / bukan milik owner (localStorage basi,
+ *     properti sudah dihapus, perangkat berganti akun) → fallback SENYAP ke
+ *     seluruh properti owner — fetch tetap 200, dashboard TIDAK jatuh ke mode
+ *     offline hanya karena id aktif tersimpan tidak valid lagi.
+ * Isolasi tetap terjaga: fallback dibatasi pada properti milik owner sesi.
+ * (Mutasi tetap memakai resolveOwnedPropertyOverride yang strict 404.)
+ */
+export async function resolveOwnedPropertyScopeLenient(
+  user: AuthUser,
+  requested: string | null,
+): Promise<string[]> {
+  const ownedIds = await getOwnedPropertyIds(user);
+  if (!requested) return ownedIds;
+  if (ownedIds.includes(requested)) return [requested];
+  console.warn(
+    `[UnitKu] propertyId "${requested.slice(0, 120)}" tidak dikenal/bukan milik owner sesi — fallback ke seluruh properti owner (${ownedIds.length}).`,
+  );
+  return ownedIds;
+}
+
+/**
  * Properti TUJUAN operasi tulis (POST) dari permintaan klien — isolasi
  * multi-cabang: klien mengirim id properti yang SEDANG dikelola (switcher
  * sidebar); server memvalidasi kepemilikan sebelum memakainya.

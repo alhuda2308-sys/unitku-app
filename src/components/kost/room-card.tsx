@@ -42,7 +42,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
   const showAdCta = isVacant && op === "siap" && Boolean(onCreateAd);
   /** Label tombol iklan adaptif tipe properti aktif (Kamar/Kontrakan/Unit) */
   const adCta = adCtaLabel(adPropertyScope(propertyType));
-  const skin = STATUS_SKIN[room.status];
+  const skin = STATUS_SKIN[room.status] ?? STATUS_SKIN.kosong;
   const vacantLabel =
     op === "siap" ? (
       <span className="text-sm italic opacity-90">Tersedia</span>

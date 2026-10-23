@@ -9,6 +9,7 @@
 import { fetchWithTimeout, isTimeoutError } from "@/lib/http";
 import {
   notifySyncError,
+  notifySyncSettled,
   notifySyncStart,
   notifySyncSuccess,
 } from "@/lib/sync-status";
@@ -146,7 +147,22 @@ async function request<T>(url: string, init?: RequestInit, timeoutMs = 15_000): 
     });
   }
   if (!res.ok) {
-    notifySyncError(); // HTTP error → indikator merah (data gagal sampai ke cloud)
+    // Klasifikasi kegagalan untuk indikator sinkron cloud (jujur, tidak bohong):
+    //  • 4xx SELAIN 401/429 (400 validasi, 404 tidak ditemukan, 409 nomor kamar
+    //    duplikat, dst.) = server SEHAT & TERJANGKAU — ini kegagalan level
+    //    permintaan yang sudah dijelaskan toast merah di UI. Menandai koneksi
+    //    "Belum tersinkron (Offline)" untuk kasus ini justru menyesatkan
+    //    (pengguna mengira database putus padahal tidak) → TIDAK dijadikan merah.
+    //  • 401 (sesi berakhir), 429 (dibatasi), 5xx (server/DB gagal) = aliran
+    //    data benar-benar terganggu → indikator merah (jujur).
+    const requestLevelError =
+      res.status >= 400 && res.status < 500 && res.status !== 401 && res.status !== 429;
+    // DUA jalur wajib menyeimbangkan inflight dari notifySyncStart — tanpa itu
+    // indikator melekat di "Menyinkronkan..." selamanya:
+    //  • request-level (400/404/409…) → notifySyncSettled (tidak jadi merah);
+    //  • sync-level (401/429/5xx) → notifySyncError (merah, jujur).
+    if (requestLevelError) notifySyncSettled();
+    else notifySyncError();
     // 401 = sesi berakhir — KONFIRMASI dulu via /api/auth/me (anti ping-pong,
     // lihat catatan di atas), kecuali endpoint auth itu sendiri
     if (res.status === 401 && typeof window !== "undefined" && !url.startsWith("/api/auth/")) {
@@ -235,6 +251,9 @@ export const api = {
   // /api/rooms — propertyId opsional: muat kamar SESUAI cabang aktif (switcher)
   getRooms: (propertyId?: string | null) =>
     request<{ rooms: ClientRoom[] }>(scopedPropertyUrl("/api/rooms", propertyId)),
+  /** renamed: nomor yang diminta tapi diubah otomatis server — nomor itu
+   *  ternyata sudah dipakai kamar PROPERTI LAIN (tidak memblokir; kamar
+   *  tetap dibuat dengan varian "A-1 (2)") — klien menjelaskan di toast. */
   addRooms: (
     rooms: {
       id: string;
@@ -250,25 +269,34 @@ export const api = {
     propertyName?: string | null,
     propertyTipe?: string | null,
   ) =>
-    request<{ rooms: ClientRoom[] }>("/api/rooms", {
-      method: "POST",
-      body: JSON.stringify({
-        rooms,
-        ...(propertyId ? { propertyId } : {}),
-        ...(propertyName ? { propertyName } : {}),
-        ...(propertyTipe ? { propertyTipe } : {}),
-      }),
-    }),
+    request<{ rooms: ClientRoom[]; renamed?: { requested: string; stored: string }[] }>(
+      "/api/rooms",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          rooms,
+          ...(propertyId ? { propertyId } : {}),
+          ...(propertyName ? { propertyName } : {}),
+          ...(propertyTipe ? { propertyTipe } : {}),
+        }),
+      },
+    ),
   patchRoom: (id: string, patch: Record<string, unknown>) =>
-    request<{ rooms: ClientRoom[] }>("/api/rooms", {
-      method: "PATCH",
-      body: JSON.stringify({ id, patch }),
-    }),
+    request<{ rooms: ClientRoom[]; renamed?: { requested: string; stored: string }[] }>(
+      "/api/rooms",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ id, patch }),
+      },
+    ),
   patchRoomsBulk: (bulk: { id: string; patch: Record<string, unknown> }[]) =>
-    request<{ rooms: ClientRoom[] }>("/api/rooms", {
-      method: "PATCH",
-      body: JSON.stringify({ bulk }),
-    }),
+    request<{ rooms: ClientRoom[]; renamed?: { requested: string; stored: string }[] }>(
+      "/api/rooms",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ bulk }),
+      },
+    ),
   deleteRoom: (id: string) =>
     request<{ ok: true }>(`/api/rooms?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
 

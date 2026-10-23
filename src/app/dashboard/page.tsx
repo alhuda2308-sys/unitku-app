@@ -581,6 +581,48 @@ export default function IndoKostPage() {
     });
   };
 
+  // ── Paksa Sinkronkan / Muat Ulang (header Denah) ────────────────────────────
+  // Tarik ulang SELURUH data dashboard dari Supabase tanpa reload halaman:
+  // kamar + tagihan + kas (reloadDashboardData), daftar properti switcher,
+  // tiket komplain & pengumuman — semuanya ter-scope properti aktif. Dipakai
+  // saat indikator menampilkan "Belum tersinkron (Offline)", setelah gagal
+  // validasi, atau sekadar ingin memastikan data terbaru tampil realtime.
+  // Sukses → indikator sinkron kembali hijau (operasi cloud terakhir berhasil).
+  const [forceSyncing, setForceSyncing] = useState(false);
+  const handleForceSync = () => {
+    if (instantDemo || isDemoSession) {
+      toast.info("Mode demo memakai data simulasi lokal", {
+        description:
+          "Sesi demo tidak tersambung ke cloud — gunakan Reset Data Demo untuk memulihkan kondisi awal.",
+      });
+      return;
+    }
+    if (forceSyncing) return;
+    setForceSyncing(true);
+    Promise.all([
+      reloadDashboardData(),
+      api.getProperty().then((res) => {
+        applyPropertyList(res.properties ?? [], res.property?.id ?? null);
+      }),
+      activePropertyId
+        ? api.getTickets(activePropertyId).then((res) => setTickets(res.tickets))
+        : Promise.resolve(),
+      activePropertyId
+        ? api.getAnnouncements(activePropertyId).then((res) => setAnnouncements(res.announcements))
+        : Promise.resolve(),
+    ])
+      .then(() => {
+        toast.success("Data berhasil dimuat ulang", {
+          description:
+            "Kamar, tagihan, buku kas, komplain & pengumuman ditarik langsung dari cloud Supabase.",
+        });
+      })
+      .catch((err: unknown) => {
+        toast.error("Gagal memuat ulang data", { description: errMsg(err) });
+      })
+      .finally(() => setForceSyncing(false));
+  };
+
   // ── Guard onboarding + gerbang lisensi (jual putus Mayar) ───────────────────
   // Semua panggilan ber-timeout (api.getAuthMe/getLicense/getProperty) sehingga
   // guard tidak pernah menggantung; kegagalan ditangani try-catch per langkah.
@@ -1947,7 +1989,7 @@ export default function IndoKostPage() {
         activeEntry?.name ?? settings.propertyProfile.nama,
         activeEntry?.tipe ?? settings.propertyProfile.tipe,
       )
-      .then(({ rooms: created }) => {
+      .then(({ rooms: created, renamed }) => {
         if (created.length === 0) {
           // Server 2xx tanpa satu pun kamar — JANGAN tampil toast sukses palsu
           // "0 kamar baru ditambahkan"; perlakukan sebagai kegagalan simpan.
@@ -1958,10 +2000,15 @@ export default function IndoKostPage() {
           return;
         }
         updateRooms((prev) => [...prev, ...created]);
+        // Nomor yang diubah otomatis server (dipakai kamar PROPERTI LAIN —
+        // tidak memblokir; kamar tetap dibuat dgn varian "A-1 (2)")
+        const renameNote = (renamed ?? [])
+          .map((r) => `nomor "${r.requested}" dipakai properti lain → disimpan sebagai "${r.stored}"`)
+          .join(" · ");
         toast.success(`${created.length} kamar baru ditambahkan`, {
           description: `${created.map((r) => r.id).join(", ")} · ${created[0]?.type ?? newRooms[0].type} · ${formatIDR(
             created[0]?.price ?? newRooms[0].price,
-          )}/bln · status kosong · tersimpan ke cloud.`,
+          )}/bln · status kosong · tersimpan ke cloud.${renameNote ? ` Catatan: ${renameNote}.` : ""}`,
         });
         // Sinkronkan daftar properti switcher (jumlah kamar terbaru & baris
         // properti yang baru saja di-provision server) — senyap, non-kritis.
@@ -2754,6 +2801,26 @@ export default function IndoKostPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
+                    {/* Paksa Sinkronkan / Muat Ulang — tarik ulang SELURUH data
+                        dari Supabase tanpa reload halaman. Ikon berputar saat
+                        berjalan; sukses → indikator sinkron kembali hijau. */}
+                    {!isDemoVisitor && (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={handleForceSync}
+                        disabled={forceSyncing}
+                        aria-label="Paksa Sinkronkan / Muat Ulang"
+                        title="Paksa Sinkronkan / Muat Ulang — tarik ulang seluruh data terbaru dari cloud Supabase"
+                        className="h-9 w-9 shrink-0 border-zinc-200 bg-white text-zinc-700 shadow-none hover:bg-zinc-100 disabled:opacity-60"
+                      >
+                        <RefreshCw
+                          className={"size-4" + (forceSyncing ? " animate-spin" : "")}
+                          strokeWidth={2}
+                          aria-hidden="true"
+                        />
+                      </Button>
+                    )}
                     {/* Status sinkron cloud — 3 keadaan jujur: hijau (tersinkron
                         + jam), awan berputar (menyinkronkan), merah (gagal).
                         Demo: teks netral — sesi demo memang tidak ke cloud. */}

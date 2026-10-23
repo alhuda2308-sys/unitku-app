@@ -113,3 +113,19 @@ export function notifySyncSuccess(): void {
 export function notifySyncError(): void {
   settle("error");
 }
+
+/** Permintaan selesai dengan error LEVEL-PERMINTAAN (4xx selain 401/429 —
+ *  validasi 400, tidak ditemukan 404, nomor kamar duplikat 409, dst.):
+ *  server TERJANGKAU & menjawab, jadi kesehatan sinkron tidak jadi merah —
+ *  cukup lepaskan permintaan ini dari penghitung inflight (anti bocor yang
+ *  membuat indikator melekat di "Menyinkronkan..." selamanya) dan bila ini
+ *  permintaan terakhir, kembali hijau TANPA memperbarui jam sinkron (bukan
+ *  operasi data baru). Pesan penyebabnya ditampilkan toast merah di UI. */
+export function notifySyncSettled(): void {
+  inflight = Math.max(0, inflight - 1);
+  if (inflight > 0) return; // masih ada permintaan lain berjalan
+  clearSettleTimer();
+  if (state.status === "syncing") {
+    setState({ status: "synced" });
+  }
+}
