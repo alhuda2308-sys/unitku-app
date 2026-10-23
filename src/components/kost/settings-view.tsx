@@ -157,6 +157,10 @@ interface SettingsViewProps {
    *  riil; daftar Pengaturan utk sesi demo) — sumber tampilan tabel
    *  "Daftar & Kelola Properti". */
   switcherProperties?: PropertyEntry[];
+  /** ID properti yang sedang AKTIF dikelola (dari tabel `properties`) —
+   *  sumber kebenaran badge "Aktif Dikelola" & kunci tombol Hapus.
+   *  Bila null (mode demo) fallback ke pencocokan nama. */
+  activePropertyId?: string | null;
   /** Beralih mengelola properti langsung dari tabel Pengaturan
    *  (id ATAU nama) — tanpa lewat sidebar. */
   onSwitchProperty?: (idOrName: string) => void;
@@ -210,6 +214,7 @@ export function SettingsView({
   onTabChange,
   settings,
   switcherProperties,
+  activePropertyId,
   onSwitchProperty,
   onServerCreateProperty,
   onServerUpdateProperty,
@@ -407,6 +412,7 @@ export function SettingsView({
               : settings.properties
           }
           activeName={propertyName}
+          activePropertyId={activePropertyId}
           onChange={(properties) => commitSettings({ properties })}
           onSwitch={onSwitchProperty}
           isDemoMode={isDemoMode}
@@ -417,6 +423,7 @@ export function SettingsView({
         <StaffAccessTab
           properties={settings.properties}
           activePropertyName={propertyName}
+          activePropertyId={activePropertyId}
         />
         <RekeningTab
           key={JSON.stringify(settings.rekening)}
@@ -980,6 +987,7 @@ const emptyPropDraft = { name: "", type: "kost" as PropertyType, unitCount: "8",
 function PropertiListTab({
   properties,
   activeName,
+  activePropertyId,
   onChange,
   onSwitch,
   isDemoMode,
@@ -989,6 +997,9 @@ function PropertiListTab({
 }: {
   properties: PropertyEntry[];
   activeName: string;
+  /** ID properti AKTIF (dari tabel `properties`) — sumber kebenaran status.
+   *  null (mode demo) → fallback pencocokan nama. */
+  activePropertyId?: string | null;
   /** Server-first — resolve true = tersimpan (cloud/sesi demo). */
   onChange: (properties: PropertyEntry[]) => Promise<boolean>;
   /** Pilih & kelola properti ini langsung dari tabel (id ATAU nama). */
@@ -1102,13 +1113,16 @@ function PropertiListTab({
   };
 
   const doDelete = async (p: PropertyEntry) => {
-    // ── SERVER-MODE: hapus baris database dulu (ditolak bila masih ada kamar)
+    // ── SERVER-MODE: hapus baris database beserta SELURUH data relasinya
+    // (kamar, penghuni, tagihan, kas, tiket, dll — ter-scope cabang ini)
     if (onServerDelete) {
       const ok = await onServerDelete(p.id);
       if (!ok) return; // toast merah sudah ditampilkan handler
     }
     const ok = await onChange(
-      properties.filter((x) => x.id !== p.id && x.name !== p.name),
+      // Hanya entri dengan ID yang sama — TIDAK boleh ikut membuang cabang
+      // lain yang kebetulan bernama sama (dua cabang kembar nama).
+      properties.filter((x) => x.id !== p.id),
     );
     if (!ok) {
       toastSaveResult(false, isDemoMode, "Daftar properti tersinkron di semua perangkat.", "Daftar properti");
@@ -1117,6 +1131,14 @@ function PropertiListTab({
     setConfirmDelete(null);
     toastSaveResult(true, isDemoMode, `${p.name} dikeluarkan dari daftar properti.`, "Daftar properti");
   };
+
+  /** Status aktif dicocokkan lewat ID persis (activePropertyId) — HANYA SATU
+   *  properti yang boleh "Aktif Dikelola". Pencocokan nama hanya fallback
+   *  mode demo, dan tetap ditolak bila dua cabang bernama sama. */
+  const isActiveFor = (p: PropertyEntry): boolean =>
+    activePropertyId != null
+      ? p.id === activePropertyId
+      : p.name === activeName && properties.filter((x) => x.name === activeName).length === 1;
 
   return (
     <Pane value="properti-list">
@@ -1150,7 +1172,7 @@ function PropertiListTab({
             </thead>
             <tbody>
               {properties.map((p) => {
-                const isActive = p.name === activeName;
+                const isActive = isActiveFor(p);
                 return (
                   <tr key={p.id} className="border-b border-border last:border-0 hover:bg-zinc-50/70">
                     <td className="max-w-[280px] py-2.5 pl-4 pr-3">
@@ -1225,7 +1247,7 @@ function PropertiListTab({
         {/* Mobile cards */}
         <div className="space-y-2.5 md:hidden">
           {properties.map((p) => {
-            const isActive = p.name === activeName;
+            const isActive = isActiveFor(p);
             return (
               <div key={p.id} className="rounded-lg border border-border bg-white p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -1301,7 +1323,9 @@ function PropertiListTab({
                 {editId ? "Edit Properti" : "Tambah Properti Baru"}
               </DialogTitle>
               <DialogDescription className="text-[12.5px] text-zinc-700">
-                Cabang kedua & seterusnya memakai dataset demo saat diaktifkan.
+                {editId
+                  ? `Perbarui profil cabang "${draft.name || "properti ini"}" — properti lain tidak terpengaruh.`
+                  : "Dibuat sebagai cabang BARU dengan ID unik sendiri — nama, alamat & data properti lain tetap utuh."}
               </DialogDescription>
             </div>
             <DialogClose className="ml-2" />
@@ -1376,7 +1400,8 @@ function PropertiListTab({
           <AlertDialogHeader>
             <AlertDialogTitle className="text-[15px] text-zinc-900">Hapus {confirmDelete?.name}?</AlertDialogTitle>
             <AlertDialogDescription className="text-[12.5px] text-zinc-700">
-              Properti akan dikeluarkan dari daftar multi-cabang UnitKu. Riwayat data properti ini tidak ikut terhapus.
+              Properti ini dihapus permanen dari database BESERTA SELURUH datanya — kamar, penghuni, tagihan, buku kas,
+              komplain &amp; pengumuman cabang ini. Cabang lain tidak terpengaruh. Tindakan ini tidak bisa dibatalkan.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-row justify-end gap-2">
@@ -1401,15 +1426,24 @@ function PropertiListTab({
 function StaffAccessTab({
   properties,
   activePropertyName,
+  activePropertyId,
 }: {
   properties: PropertyEntry[];
   activePropertyName: string;
+  activePropertyId?: string | null;
 }) {
-  const activePropertyId =
-    properties.find((p) => p.name === activePropertyName)?.id ?? properties[0]?.id ?? "";
+  // Cocokkan lewat ID dulu (akurat bila dua cabang bernama sama);
+  // pencocokan nama hanya fallback (mode demo).
+  const activePropertyIdResolved =
+    (activePropertyId
+      ? properties.find((p) => p.id === activePropertyId)?.id
+      : undefined) ??
+    properties.find((p) => p.name === activePropertyName)?.id ??
+    properties[0]?.id ??
+    "";
   return (
     <Pane value="staf">
-      <StaffAccessManager properties={properties} activePropertyId={activePropertyId} />
+      <StaffAccessManager properties={properties} activePropertyId={activePropertyIdResolved} />
     </Pane>
   );
 }

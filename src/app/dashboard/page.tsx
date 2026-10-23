@@ -1885,7 +1885,9 @@ export default function IndoKostPage() {
         fotoUrl: entry.photoUrl ?? s.propertyProfile.fotoUrl,
       },
     }));
-    if (entry.name === property) return;
+    // Guard no-op lewat ID (bukan nama) — dua cabang bernama sama harus tetap
+    // bisa saling dipindahkan; nama hanya fallback saat activePropertyId null.
+    if (activePropertyId != null ? entry.id === activePropertyId : entry.name === property) return;
     switchProperty(entry);
   };
 
@@ -2739,6 +2741,9 @@ export default function IndoKostPage() {
         property={property}
         ownerName={settings.owner.nama}
         properties={switcherProperties}
+        // ID cabang aktif — centang hijau HANYA di cabang yang sedang dikelola
+        // (pencocokan nama melenceng bila dua cabang bernama sama)
+        activePropertyId={activePropertyId}
         // Jumlah kamar riil properti AKTIF (live dari database, ikut switcher)
         activeRoomCount={rooms.length > 0 ? rooms.length : null}
         onPropertyChange={(id) => {
@@ -2892,6 +2897,9 @@ export default function IndoKostPage() {
                 onTabChange={setSettingsTab}
                 settings={settings}
                 switcherProperties={switcherProperties}
+                // ID cabang aktif — badge "Aktif Dikelola" & kunci tombol Hapus
+                // dicocokkan lewat ID persis, bukan nama
+                activePropertyId={activePropertyId}
                 onSwitchProperty={handleSwitchProperty}
                 // ── Multi-cabang server-mode (akun riil) — Tambah/Edit/Hapus
                 // properti menulis ke tabel `properties` database. Sesi demo:

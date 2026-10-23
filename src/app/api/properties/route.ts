@@ -10,10 +10,11 @@
 //          rekening pembayaran, QRIS. Tanpa body.id → properti AKTIF
 //          (perilaku lama); dengan body.id (milik owner) → cabang tertentu
 //          (dipakai tabel "Daftar & Kelola Properti" di Pengaturan).
-// DELETE : hapus cabang (?id=) — DITOLAK bila masih ada kamar (hapus kamar
-//          dulu); baris terkait lainnya (pengumuman, tiket, kas, staf,
-//          teknisi, fasilitas) ikut dibersihkan ter-scope cabang ini —
-//          TIDAK PERNAH menyentuh cabang lain.
+// DELETE : hapus cabang (?id=) — MURNI milik owner sesi. SELURUH data relasi
+//          terkait cabang ini dihapus permanen agar database tetap bersih:
+//          kamar → penghuni → tagihan (+rinciannya), pengumuman, tiket, kas,
+//          staf, teknisi, fasilitas. Cabang lain TIDAK PERNAH tersentuh
+//          (semua deleteMany ter-scope property_id / roomId cabang ini).
 //
 // Semua mutasi fail-loud: kegagalan database mengembalikan 4xx/5xx dengan
 // pesan jelas — tidak pernah sukses palsu.
@@ -264,38 +265,53 @@ export async function DELETE(request: NextRequest) {
         { status: 400 },
       );
     }
-    const property = await db.property.findUnique({
-      where: { id },
-      include: { _count: { select: { rooms: true } } },
-    });
+    const property = await db.property.findUnique({ where: { id } });
     if (!property || property.ownerId !== user.id) {
       return notOwned("Properti tidak ditemukan.");
     }
-    // Pengaman data: cabang masih punya kamar → tolak (kamar/penghuni/tagihan
-    // ter-cascade — keputusan destruktif seperti itu lewat reset per-cabang
-    // atau hapus kamar satu per satu, bukan hapus cabang sekali klik).
-    if (property._count.rooms > 0) {
-      return NextResponse.json(
-        {
-          error: `${property.name} masih memiliki ${property._count.rooms} kamar — hapus kamarnya terlebih dahulu sebelum menghapus cabang.`,
-        },
-        { status: 409 },
-      );
-    }
+    // ── Hapus menyeluruh data relasi cabang ini (database tetap bersih) ──
+    // Kamar dihapus eksplisit → penghuni & tagihan (FK Cascade) ikut;
+    // dihapus juga eksplisit di sini agar aman bila FK cascade belum terpasang
+    // di database produksi (drift skema).
+    const roomIds = (
+      await db.room.findMany({ where: { propertyId: id }, select: { id: true } })
+    ).map((r) => r.id);
     const ownerId = user.id;
     await db.$transaction([
-      // Baris terkait cabang ini — dibersihkan agar tidak jadi yatim (SetNull)
+      // Rincian tagihan DULU, baru tagihannya — aman walau FK cascade belum
+      // terpasang di database produksi (urutan anak → induk)
+      db.invoiceLine.deleteMany({
+        where: { invoice: { roomId: { in: roomIds.length > 0 ? roomIds : ["__none__"] } } },
+      }),
+      // Tagihan — milik kamar cabang ini (safety net eksplisit)
+      db.invoice.deleteMany({
+        where: roomIds.length > 0 ? { roomId: { in: roomIds } } : { propertyId: id },
+      }),
+      // Penghuni — milik kamar cabang ini
+      db.tenant.deleteMany({
+        where: roomIds.length > 0 ? { roomId: { in: roomIds } } : { propertyId: id },
+      }),
+      // Tiket — ter-scope cabang (propertyId) ATAU menempel kamar cabang ini
+      db.ticket.deleteMany({
+        where:
+          roomIds.length > 0
+            ? { OR: [{ propertyId: id }, { roomId: { in: roomIds } }] }
+            : { propertyId: id },
+      }),
+      // Baris terkait cabang lainnya — dibersihkan agar tidak jadi yatim
       db.announcement.deleteMany({ where: { propertyId: id } }),
-      db.ticket.deleteMany({ where: { propertyId: id } }),
       db.cashEntry.deleteMany({ where: { propertyId: id } }),
       db.staffMember.deleteMany({ where: { propertyId: id } }),
       db.technicianContact.deleteMany({ where: { propertyId: id } }),
       db.facility.deleteMany({ where: { propertyId: id } }),
+      // Kamar cabang ini (penghuni/tagihan sudah bersih di atas)
+      db.room.deleteMany({ where: { propertyId: id } }),
+      // Terakhir — baris properti itu sendiri
       db.property.delete({ where: { id } }),
     ]);
     // Kepemilikan sudah divalidasi di atas — log audit ringkas
     console.info(
-      `[api/properties DELETE] cabang "${property.name}" (${id}) dihapus oleh owner ${ownerId}.`,
+      `[api/properties DELETE] cabang "${property.name}" (${id}) dihapus oleh owner ${ownerId} beserta seluruh data relasinya.`,
     );
     return NextResponse.json({ ok: true, propertyId: id, propertyName: property.name });
   } catch (err) {

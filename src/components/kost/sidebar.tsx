@@ -34,6 +34,10 @@ interface SidebarProps {
   ownerName: string;
   /** Daftar properti switcher (dari tabel properties / Pengaturan) */
   properties: PropertyEntry[];
+  /** ID properti yang sedang AKTIF dikelola (dari tabel `properties`) —
+   *  sumber kebenaran centang hijau & highlight. WAJIB untuk akun riil:
+   *  pencocokan nama melenceng bila dua cabang kebetulan bernama sama. */
+  activePropertyId?: string | null;
   /** Jumlah kamar RIIL properti aktif dari database (live, mengikuti switcher)
    *  — menggantikan unitCount statis daftar pada baris properti aktif */
   activeRoomCount?: number | null;
@@ -78,6 +82,7 @@ export function Sidebar({
   property,
   ownerName,
   properties = [],
+  activePropertyId = null,
   activeRoomCount = null,
   onPropertyChange,
   invoiceAlerts,
@@ -106,7 +111,9 @@ export function Sidebar({
   const visibleNav = NAV_ITEMS.filter((n) => allowedKeys.includes(n.key));
   /** Tipe properti aktif — Villa/Homestay → nav "Data Penghuni" jadi "Data Tamu / Penyewa" */
   const activePropertyTypeResolved =
-    activePropertyType ?? properties.find((p) => p.name === property)?.type;
+    activePropertyType ??
+    properties.find((p) => p.id === activePropertyId)?.type ??
+    properties.find((p) => p.name === property)?.type;
   const isVilla = isVillaType(activePropertyTypeResolved);
   const navLabel = (key: string, label: string): string =>
     key === "penghuni" && isVilla ? "Data Tamu / Penyewa" : label;
@@ -215,7 +222,13 @@ export function Sidebar({
                       <span className="block truncate text-[13px] font-semibold leading-4 text-zinc-900">{property}</span>
                       <span className="block truncate text-xs leading-4 text-zinc-700">
                       {(() => {
-                        const active = properties.find((p) => p.name === property);
+                        // Properti aktif dicocokkan lewat ID dulu (akurat bila
+                        // dua cabang bernama sama); nama hanya fallback demo.
+                        const active =
+                          (activePropertyId
+                            ? properties.find((p) => p.id === activePropertyId)
+                            : undefined) ??
+                          properties.find((p) => p.name === property);
                         if (!active) return "Owner";
                         // Jumlah kamar RIIL dari database (live, ikut switcher)
                         // menggantikan unitCount statis daftar properti
@@ -235,7 +248,15 @@ export function Sidebar({
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               {properties.map((p) => {
-                const isActive = p.name === property;
+                // HANYA properti dengan ID persis sama dgn activePropertyId yang
+                // dianggap aktif (centang + highlight). Pencocokan nama hanya
+                // fallback mode demo (activePropertyId null) — dan bila dua
+                // cabang bernama sama, keduanya TIDAK boleh ikut tercentang.
+                const isActive =
+                  activePropertyId != null
+                    ? p.id === activePropertyId
+                    : p.name === property &&
+                      properties.filter((x) => x.name === property).length === 1;
                 return (
                   <DropdownMenuItem
                     key={p.id}

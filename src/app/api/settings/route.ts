@@ -12,8 +12,13 @@
 //        Tabel belum dibuat (SQL owner_settings belum dijalankan) →
 //        { degraded: true, settings: null } — TIDAK 500, klien tetap lokal.
 // PUT  : simpan bagian settings ke owner_settings (upsert per userId) +
-//        CERMINKAN field yang memang milik tabel properties (nama properti,
-//        tipe, alamat, foto fasad, rekening, QRIS) agar satu sumber kebenaran.
+//        CERMINKAN field milik tabel properties (nama properti, tipe, alamat,
+//        foto fasad, rekening, QRIS) HANYA bila klien mengirim flag
+//        `mirrorIdentity: true` — artinya pemanggil memang sedang menyimpan
+//        propertyProfile/rekening. Tanpa flag (mis. simpan daftar properti,
+//        tema, template) identitas cabang TIDAK disentuh — mencegah bug
+//        "cabang baru tertimpa nama/alamat cabang lama" saat payload penuh
+//        membawa profil basi dari cache.
 //
 // Keamanan: wajib sesi (getAuthUser), data di-scoped user.id, email profil
 // dipaksa = email sesi (profil email TIDAK bisa diubah via endpoint ini).
@@ -169,6 +174,9 @@ interface SettingsPutBody {
   templates?: Record<string, unknown>;
   facilities?: Record<string, unknown>;
   theme?: unknown;
+  /** Izin eksplisit mencerminkan propertyProfile/rekening ke tabel `properties`
+   *  cabang aktif — dikirim klien hanya saat memang menyimpan field tersebut. */
+  mirrorIdentity?: boolean;
 }
 
 export async function PUT(request: NextRequest) {
@@ -247,7 +255,12 @@ export async function PUT(request: NextRequest) {
   try {
     await ensureOwnerSettingsTable();
     // ── 1. Cermin ke tabel properties (sumber kebenaran identitas & rekening)
-    if ((propertyMirror && Object.keys(propertyMirror).length > 0) || rekeningMirror) {
+    // HANYA dengan izin eksplisit (mirrorIdentity) — simpan daftar properti,
+    // tema, template, dll TIDAK BOLEH menimpa identitas cabang aktif.
+    if (
+      body.mirrorIdentity === true &&
+      ((propertyMirror && Object.keys(propertyMirror).length > 0) || rekeningMirror)
+    ) {
       const property = await getActiveOwnedProperty(user);
       if (property) {
         await db.property.update({

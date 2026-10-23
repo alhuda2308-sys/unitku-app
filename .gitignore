@@ -66,3 +66,4 @@ server.log
 
 # contoh environment tetap disertakan
 !.env.example
+upload/

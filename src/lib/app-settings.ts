@@ -761,21 +761,40 @@ function scheduleCloudSync(): void {
  *   • gagal  : state lokal TIDAK diubah sama sekali (tidak ada kesan sukses);
  *              pemanggil menampilkan toast merah "Gagal menyimpan ke server".
  *
- * Server juga mencerminkan field properti (nama/tipe/alamat/foto) & rekening/
- * QRIS ke tabel `properties` — satu panggilan menyimpan semuanya.
+ * Server HANYA mencerminkan identitas (nama/tipe/alamat/foto) & rekening ke
+ * tabel `properties` bila patch memuat propertyProfile/rekening (flag
+ * mirrorIdentity) — patch lain (daftar properti, tema, template) tidak pernah
+ * mengubah identitas cabang.
  * Mode demo TIDAK boleh lewat sini (panggil updateStoredSettings langsung).
  */
 export async function commitSettingsToCloud(
   patch: Partial<IndoKostSettings>,
 ): Promise<boolean> {
-  const base = getSettingsSnapshot();
-  const next = { ...base, ...patch };
+  // ── PAYLOAD PARSIAL (fix bug "properti baru menimpa profil properti lama") ──
+  // Hanya field yang MEMANG disimpan pemanggil yang dikirim. Dulu payload
+  // SELURUH snapshot (termasuk propertyProfile basi) ikut terkirim setiap kali
+  // daftar properti/tema/template disimpan — server lalu mencerminkan profil
+  // basi itu ke cabang yang sedang AKTIF (baru saja dibuat via switchProperty),
+  // sehingga cabang baru tertimpa nama/alamat cabang lama (dua entri kembar).
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    payload[key] = value;
+  }
+  // mirrorIdentity = izin eksplisit mencerminkan identitas (nama/tipe/alamat/
+  // foto/rekening) ke baris `properties` cabang AKTIF — hanya dikirim saat
+  // pemanggil memang menyimpan propertyProfile / rekening (tab Profil Properti
+  // & Rekening). Menyimpan daftar properti, tema, atau template TIDAK boleh
+  // mengubah identitas cabang mana pun.
+  if (payload.propertyProfile !== undefined || payload.rekening !== undefined) {
+    payload.mirrorIdentity = true;
+  }
   notifySyncStart(); // indikator sinkron: mulai menyimpan ke cloud
   try {
     const res = await fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildSettingsCloudPayload(next)),
+      body: JSON.stringify(payload),
       cache: "no-store",
     });
     if (!res.ok) {

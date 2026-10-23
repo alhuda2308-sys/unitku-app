@@ -256,8 +256,9 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ id, ...patch }),
     }),
-  /** Hapus cabang — ditolak server bila masih ada kamar (409); baris terkait
-   *  cabang ini ikut dibersihkan ter-scope, cabang lain tidak tersentuh. */
+  /** Hapus cabang beserta SELURUH data relasinya (kamar, penghuni, tagihan,
+   *  kas, tiket, pengumuman, staf, teknisi, fasilitas) — ter-scope cabang ini,
+   *  cabang lain tidak tersentuh. */
   deleteProperty: (id: string) =>
     request<{ ok: true; propertyId: string; propertyName: string }>(
       `/api/properties?id=${encodeURIComponent(id)}`,
