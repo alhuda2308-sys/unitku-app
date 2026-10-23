@@ -240,6 +240,30 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
+  // ── Multi-cabang: CRUD properti DATABASE (tabel `properties`) ──
+  // Produksi: cabang baru WAJIB lahir di database agar switcher memuat data
+  // murni miliknya (property_id asli) — bukan entri Pengaturan/dataset demo.
+  /** Tambah cabang baru — server membuat baris properties + id unik (UUID-ish).
+   *  Cabang lahir KOSONG (0 kamar) — denah menampilkan empty state resmi. */
+  createProperty: (payload: { name: string; tipe: string; alamat?: string; fotoUrl?: string }) =>
+    request<{ property: ClientProperty; summary?: PropertySummary }>("/api/properties", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  /** Perbarui profil cabang TERTENTU milik owner (tabel Kelola Properti). */
+  updatePropertyById: (id: string, patch: PropertyPatchInput) =>
+    request<{ property: ClientProperty }>("/api/properties", {
+      method: "PUT",
+      body: JSON.stringify({ id, ...patch }),
+    }),
+  /** Hapus cabang — ditolak server bila masih ada kamar (409); baris terkait
+   *  cabang ini ikut dibersihkan ter-scope, cabang lain tidak tersentuh. */
+  deleteProperty: (id: string) =>
+    request<{ ok: true; propertyId: string; propertyName: string }>(
+      `/api/properties?id=${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
+
   // /api/settings — pengaturan owner di cloud (Profil Saya, Staf, Template WA,
   // Fasilitas, Tema). settings null = sesi demo / tabel cloud belum dibuat
   // (degraded) — klien tetap memakai localStorage tanpa error.

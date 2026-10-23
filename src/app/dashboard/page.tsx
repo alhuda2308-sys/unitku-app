@@ -1799,14 +1799,21 @@ export default function IndoKostPage() {
 
   // ── Pengaturan ─────────────────────────────────────────────────────────────
 
-  /** Daftar properti utk switcher (sidebar & kartu atas) — GABUNGAN tabel
-   *  `properties` DATABASE (dgn jumlah kamar riil) + daftar Pengaturan
-   *  (owner_settings). Entri Pengaturan yang belum terdaftar di database
-   *  tetap tampil — tidak lagi tertimpa seluruhnya oleh daftar DB
-   *  (dedupe by id ATAU nama, DB menang utk entri yang sama). */
+  /** Daftar properti utk switcher (sidebar, kartu atas & tabel Pengaturan).
+   *
+   *  AKUN RIIL (produksi): HANYA properti dari tabel `properties` database —
+   *  entri Pengaturan/dataset demo (kgp/kmi/kpj, "Tambah Properti" lama yang
+   *  hanya menyimpan settings) TIDAK PERNAH tampil di switcher. Inilah akar
+   *  bug "data kamar identik di semua properti": entri tanpa property_id
+   *  database tidak punya sumber data sendiri, sehingga klik-nya tidak
+   *  memuat ulang apa pun dan denah terus menampilkan kamar cabang lama
+   *  (terlihat seperti "di-reset dari dataset demo").
+   *
+   *  SESI DEMO (?demo=1 / cookie demo): memakai daftar Pengaturan — sesi demo
+   *  memang berjalan di atas dataset simulasi tanpa database. */
   const switcherProperties: PropertyEntry[] = useMemo(() => {
-    if (dbProperties.length === 0) return settings.properties;
-    const fromDb: PropertyEntry[] = dbProperties.map((p) => ({
+    if (instantDemo || isDemoSession) return settings.properties;
+    return dbProperties.map((p) => ({
       id: p.id,
       name: p.name,
       type: (p.tipe in PROPERTY_TYPE_META ? p.tipe : "kost") as PropertyEntry["type"],
@@ -1814,26 +1821,29 @@ export default function IndoKostPage() {
       address: p.alamat ?? "",
       photoUrl: p.fotoUrl ?? undefined,
     }));
-    const extras = settings.properties.filter(
-      (s) =>
-        !fromDb.some(
-          (p) =>
-            p.id === s.id ||
-            p.name.trim().toLowerCase() === s.name.trim().toLowerCase(),
-        ),
-    );
-    return [...fromDb, ...extras];
-  }, [dbProperties, settings.properties]);
+  }, [instantDemo, isDemoSession, dbProperties, settings.properties]);
 
   /** switchProperty(newPropertyId) — TERPUSAT: persist pilihan, RESET seluruh
    *  state tampilan (detail kamar terpilih, modal terbuka, filter & pencarian)
    *  supaya tidak ada sisa data properti sebelumnya yang terbawa ke layar, lalu
-   *  memuat ulang (re-fetch) data murni milik properti baru: kamar/tagihan/kas
-   *  via reloadDashboardData (scope sudah dipindah), tiket & pengumuman otomatis
-   *  via effect [activePropertyId]. Tiket & data lama diganti utuh oleh hasil
-   *  fetch — tidak pernah tercampur antar cabang. */
+   *  memuat ulang (re-fetch) data MURNI milik properti baru dari database
+   *  (kamar/tagihan/kas via reloadDashboardData — scope sudah dipindah, tiket &
+   *  pengumuman otomatis via effect [activePropertyId]).
+   *
+   *  TANPA DEMO, TANPA SEED, TANPA FALLBACK DUMMY (produksi): tidak ada logika
+   *  "reset otomatis dari dataset demo" — bila properti baru memang belum
+   *  punya kamar, database menjawab array kosong dan denah tampil kosong
+   *  (Total 0 Kamar + empty state resmi). Bila entri bukan properti database
+   *  (guard defensif — switcher akun riil hanya memuat daftar database),
+   *  switch DITOLAK dengan pesan jujur; data yang sedang tampil tidak diubah. */
   const switchProperty = (entry: PropertyEntry) => {
     const dbBacked = dbProperties.some((p) => p.id === entry.id);
+    if (!dbBacked) {
+      toast.error("Properti belum terdaftar di database", {
+        description: `Cabang "${entry.name}" tidak memiliki property_id di cloud — tambahkan lewat Pengaturan → Daftar & Kelola Properti.`,
+      });
+      return;
+    }
     // Reset state tampilan — penanda kamar, modal & filter tidak boleh
     // membawa data cabang sebelumnya ke layar cabang baru (kamar "101" milik
     // cabang lama tidak boleh menampilkan detail kamar "101" cabang baru).
@@ -1844,24 +1854,16 @@ export default function IndoKostPage() {
     setCheckinOpen(false);
     setActiveTab("all");
     setQuery("");
-    if (dbBacked) {
-      // Cabang database riil — persist pilihan + muat ulang data scoped
-      writeStoredActivePropertyId(entry.id);
-      setActivePropertyId(entry.id);
-      setDashboardPropertyScope(entry.id);
-      toast.info(`Beralih ke ${entry.name}`, {
-        description: `${entry.unitCount} ${PROPERTY_TYPE_META[entry.type].unit} · kamar, tagihan & kas cabang ini dimuat dari database.`,
-      });
-      reloadDashboardData().catch((err: unknown) =>
-        toast.error("Gagal memuat data properti", { description: errMsg(err) }),
-      );
-    } else {
-      // Entri hanya ada di daftar Pengaturan (belum jadi properti database /
-      // sesi demo) — data kamar cabang ini berupa dataset demo.
-      toast.info(`Beralih ke ${entry.name}`, {
-        description: `${PROPERTY_TYPE_META[entry.type].label} · data kamar cabang ini berupa dataset demo.`,
-      });
-    }
+    // Persist pilihan + muat ulang data scoped milik cabang baru
+    writeStoredActivePropertyId(entry.id);
+    setActivePropertyId(entry.id);
+    setDashboardPropertyScope(entry.id);
+    toast.info(`Beralih ke ${entry.name}`, {
+      description: `${entry.unitCount} ${PROPERTY_TYPE_META[entry.type].unit} · kamar, tagihan & kas cabang ini dimuat dari database.`,
+    });
+    reloadDashboardData().catch((err: unknown) =>
+      toast.error("Gagal memuat data properti", { description: errMsg(err) }),
+    );
   };
 
   /** Ganti properti aktif (dropdown kartu atas / pemilih sidebar) — sinkronkan
@@ -1925,6 +1927,124 @@ export default function IndoKostPage() {
         toast.error(err instanceof Error ? err.message : "Gagal memuat foto");
       });
   };
+
+  // ── Multi-cabang SERVER-MODE: Tambah/Edit/Hapus properti → tabel database ──
+  // Produksi: properti baru WAJIB lahir di tabel `properties` (property_id
+  // asli) supaya switcher memuat data murni miliknya — bukan entri Pengaturan
+  // tanpa sumber data (akar bug "6 kamar identik di semua properti"). Sesi
+  // demo tidak memakai handler ini (jalur daftar Pengaturan lokal).
+  const handleServerCreateProperty = useCallback(
+    async (draft: {
+      name: string;
+      type: string;
+      address: string;
+      photoUrl?: string;
+    }): Promise<PropertyEntry | null> => {
+      if (instantDemo || isDemoSession) return null;
+      try {
+        const { summary } = await api.createProperty({
+          name: draft.name,
+          tipe: draft.type,
+          alamat: draft.address,
+          ...(draft.photoUrl ? { fotoUrl: draft.photoUrl } : {}),
+        });
+        // Daftar switcher terbaru dari database (roomCount riil per cabang)
+        const res = await api.getProperty();
+        applyPropertyList(res.properties ?? [], res.property?.id ?? null);
+        const created = (res.properties ?? []).find(
+          (p) => p.id === (summary?.id ?? ""),
+        );
+        if (created) {
+          toast.success(`Cabang "${created.name}" dibuat`, {
+            description:
+              "Tersimpan ke database dengan property_id asli — lahir kosong (0 kamar), langsung dikelola.",
+          });
+          // Langsung dikelola — denah kosong tampil (Total 0 Kamar), sesuai janji modal
+          switchProperty({
+            id: created.id,
+            name: created.name,
+            type: (created.tipe in PROPERTY_TYPE_META
+              ? created.tipe
+              : "kost") as PropertyEntry["type"],
+            unitCount: created.roomCount,
+            address: created.alamat ?? "",
+            photoUrl: created.fotoUrl ?? undefined,
+          });
+          return {
+            id: created.id,
+            name: created.name,
+            type: (created.tipe in PROPERTY_TYPE_META
+              ? created.tipe
+              : "kost") as PropertyEntry["type"],
+            unitCount: created.roomCount,
+            address: created.alamat ?? "",
+            photoUrl: created.fotoUrl ?? undefined,
+          };
+        }
+        return null;
+      } catch (err: unknown) {
+        toast.error("Gagal membuat properti", { description: errMsg(err) });
+        return null;
+      }
+    },
+    [instantDemo, isDemoSession, applyPropertyList],
+  );
+
+  const handleServerUpdateProperty = useCallback(
+    async (
+      id: string,
+      draft: { name: string; type: string; address: string; photoUrl?: string },
+    ): Promise<boolean> => {
+      if (instantDemo || isDemoSession) return false;
+      try {
+        await api.updatePropertyById(id, {
+          name: draft.name,
+          tipe: draft.type,
+          alamat: draft.address,
+          fotoUrl: draft.photoUrl ?? null,
+        });
+        const res = await api.getProperty();
+        applyPropertyList(res.properties ?? [], res.property?.id ?? null);
+        // Identitas banner ikut segar bila cabang yang diedit sedang dikelola
+        if (chosenPropertyRef.current?.id === id) applyChosenPropertyToSettings();
+        return true;
+      } catch (err: unknown) {
+        toast.error("Gagal memperbarui properti", { description: errMsg(err) });
+        return false;
+      }
+    },
+    [instantDemo, isDemoSession, applyPropertyList, applyChosenPropertyToSettings],
+  );
+
+  const handleServerDeleteProperty = useCallback(
+    async (id: string): Promise<boolean> => {
+      if (instantDemo || isDemoSession) return false;
+      const wasActive = id === activePropertyId;
+      try {
+        const res = await api.deleteProperty(id);
+        toast.success(`${res.propertyName} dihapus`, {
+          description:
+            "Cabang & data terkait dibersihkan dari database — cabang lain tidak terpengaruh.",
+        });
+        const g = await api.getProperty();
+        applyPropertyList(g.properties ?? [], g.property?.id ?? null);
+        if (wasActive) {
+          // Cabang aktif terhapus → scope pindah ke pilihan default + muat ulang
+          setSelectedRoomId(null);
+          setManageRoomId(null);
+          setConfirmDeleteRoom(null);
+          reloadDashboardData().catch((err: unknown) =>
+            toast.error("Gagal memuat data properti", { description: errMsg(err) }),
+          );
+        }
+        return true;
+      } catch (err: unknown) {
+        toast.error("Gagal menghapus properti", { description: errMsg(err) });
+        return false;
+      }
+    },
+    [instantDemo, isDemoSession, activePropertyId, applyPropertyList],
+  );
 
   const handleApplyTariff = (changes: { type: string; price: number }[]) => {
     // MODE DEMO: tarif cukup di state lokal — dataset simulasi tidak ada di
@@ -2773,6 +2893,18 @@ export default function IndoKostPage() {
                 settings={settings}
                 switcherProperties={switcherProperties}
                 onSwitchProperty={handleSwitchProperty}
+                // ── Multi-cabang server-mode (akun riil) — Tambah/Edit/Hapus
+                // properti menulis ke tabel `properties` database. Sesi demo:
+                // tanpa handler → jalur daftar Pengaturan lokal.
+                onServerCreateProperty={
+                  isDemoVisitor ? undefined : handleServerCreateProperty
+                }
+                onServerUpdateProperty={
+                  isDemoVisitor ? undefined : handleServerUpdateProperty
+                }
+                onServerDeleteProperty={
+                  isDemoVisitor ? undefined : handleServerDeleteProperty
+                }
                 onUpdateSettings={updateSettings}
                 onThemeChange={handleThemeChange}
                 dangerCounts={{

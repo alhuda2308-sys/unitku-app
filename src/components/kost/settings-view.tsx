@@ -153,13 +153,30 @@ interface SettingsViewProps {
   tab: string;
   onTabChange: (tab: string) => void;
   settings: IndoKostSettings;
-  /** Daftar properti switcher GABUNGAN (DB + Pengaturan) — sumber tampilan
-   *  tabel "Daftar & Kelola Properti" agar seluruh properti (termasuk yang
-   *  hanya terdaftar di database) ikut tampil. Kosong → settings.properties. */
+  /** Daftar properti switcher (dari tabel `properties` database utk akun
+   *  riil; daftar Pengaturan utk sesi demo) — sumber tampilan tabel
+   *  "Daftar & Kelola Properti". */
   switcherProperties?: PropertyEntry[];
   /** Beralih mengelola properti langsung dari tabel Pengaturan
    *  (id ATAU nama) — tanpa lewat sidebar. */
   onSwitchProperty?: (idOrName: string) => void;
+  /** ── Multi-cabang SERVER-MODE (akun riil) ──────────────────────────────
+   *  Bila tersedia, Tambah/Edit/Hapus di tabel properti menulis ke tabel
+   *  `properties` DATABASE (property_id asli) — switcher & seluruh fitur
+   *  memuat data murni milik cabang. Sesi demo: tanpa ini → perilaku lama
+   *  (hanya daftar Pengaturan). Handler menampilkan toast error sendiri dan
+   *  mengembalikan null/false bila gagal (fail-loud). */
+  onServerCreateProperty?: (draft: {
+    name: string;
+    type: string;
+    address: string;
+    photoUrl?: string;
+  }) => Promise<PropertyEntry | null>;
+  onServerUpdateProperty?: (
+    id: string,
+    draft: { name: string; type: string; address: string; photoUrl?: string },
+  ) => Promise<boolean>;
+  onServerDeleteProperty?: (id: string) => Promise<boolean>;
   onUpdateSettings: (patch: Partial<IndoKostSettings>) => void;
   /** Ganti tema — server-first utk akun riil (Task 109 sinkron lintas
    *  perangkat); bila tidak diberikan, jatuh ke onUpdateSettings lokal. */
@@ -194,6 +211,9 @@ export function SettingsView({
   settings,
   switcherProperties,
   onSwitchProperty,
+  onServerCreateProperty,
+  onServerUpdateProperty,
+  onServerDeleteProperty,
   onUpdateSettings,
   onThemeChange,
   staffSession,
@@ -390,6 +410,9 @@ export function SettingsView({
           onChange={(properties) => commitSettings({ properties })}
           onSwitch={onSwitchProperty}
           isDemoMode={isDemoMode}
+          onServerCreate={onServerCreateProperty}
+          onServerUpdate={onServerUpdateProperty}
+          onServerDelete={onServerDeleteProperty}
         />
         <StaffAccessTab
           properties={settings.properties}
@@ -960,6 +983,9 @@ function PropertiListTab({
   onChange,
   onSwitch,
   isDemoMode,
+  onServerCreate,
+  onServerUpdate,
+  onServerDelete,
 }: {
   properties: PropertyEntry[];
   activeName: string;
@@ -968,6 +994,20 @@ function PropertiListTab({
   /** Pilih & kelola properti ini langsung dari tabel (id ATAU nama). */
   onSwitch?: (idOrName: string) => void;
   isDemoMode?: boolean;
+  /** ── SERVER-MODE (akun riil) ── Bila tersedia, Tambah/Edit/Hapus menulis ke
+   *  tabel `properties` DATABASE dulu (sumber kebenaran switcher), lalu daftar
+   *  Pengaturan hanya dicerminkan. Toast error ditampilkan oleh handler. */
+  onServerCreate?: (draft: {
+    name: string;
+    type: string;
+    address: string;
+    photoUrl?: string;
+  }) => Promise<PropertyEntry | null>;
+  onServerUpdate?: (
+    id: string,
+    draft: { name: string; type: string; address: string; photoUrl?: string },
+  ) => Promise<boolean>;
+  onServerDelete?: (id: string) => Promise<boolean>;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -996,42 +1036,80 @@ function PropertiListTab({
   const submit = async () => {
     if (!valid || saving) return;
     setSaving(true);
-    const next: PropertyEntry[] = editId
-      ? properties.map((p) =>
-          p.id === editId
-            ? { ...p, name: draft.name.trim(), type: draft.type, unitCount, address: draft.address.trim(), photoUrl: draft.photoUrl.trim() || undefined }
-            : p
-        )
-      : [
-          ...properties,
-          {
-            id: nextSettingsId("prop"),
-            name: draft.name.trim(),
-            type: draft.type,
+    const serverDraft = {
+      name: draft.name.trim(),
+      type: draft.type,
+      address: draft.address.trim(),
+      photoUrl: draft.photoUrl.trim() || undefined,
+    };
+    try {
+      // ── SERVER-MODE: tulis ke tabel `properties` database DULU ────────────
+      let serverEntry: PropertyEntry | null = null;
+      if (editId && onServerUpdate) {
+        const ok = await onServerUpdate(editId, serverDraft);
+        if (!ok) return; // toast merah sudah ditampilkan handler
+        serverEntry = {
+          ...(properties.find((p) => p.id === editId) ?? {
+            id: editId,
+            name: serverDraft.name,
+            type: serverDraft.type as PropertyEntry["type"],
             unitCount,
-            address: draft.address.trim(),
-            photoUrl: draft.photoUrl.trim() || undefined,
-          },
-        ];
-    const ok = await onChange(next);
-    setSaving(false);
-    if (!ok) {
-      toastSaveResult(false, isDemoMode, "Daftar properti tersinkron di semua perangkat.", "Daftar properti");
-      return;
+            address: serverDraft.address,
+          }),
+          ...serverDraft,
+          type: serverDraft.type as PropertyEntry["type"],
+          unitCount,
+        };
+      } else if (!editId && onServerCreate) {
+        serverEntry = await onServerCreate(serverDraft);
+        if (!serverEntry) return; // toast merah sudah ditampilkan handler
+      }
+      // ── Cermin daftar Pengaturan (staf & kompatibilitas) — id server menang
+      const next: PropertyEntry[] = editId
+        ? properties.map((p) =>
+            p.id === editId
+              ? serverEntry ?? { ...p, name: draft.name.trim(), type: draft.type, unitCount, address: draft.address.trim(), photoUrl: draft.photoUrl.trim() || undefined }
+              : p
+          )
+        : [
+            ...properties.filter((p) => serverEntry == null || p.id !== serverEntry.id),
+            serverEntry ?? {
+              id: nextSettingsId("prop"),
+              name: draft.name.trim(),
+              type: draft.type,
+              unitCount,
+              address: draft.address.trim(),
+              photoUrl: draft.photoUrl.trim() || undefined,
+            },
+          ];
+      const ok = await onChange(next);
+      if (!ok) {
+        toastSaveResult(false, isDemoMode, "Daftar properti tersinkron di semua perangkat.", "Daftar properti");
+        return;
+      }
+      toastSaveResult(
+        true,
+        isDemoMode,
+        editId
+          ? `${draft.name.trim()} — daftar cabang tersinkron di semua perangkat.`
+          : `${draft.name.trim()} · ${unitCount} ${PROPERTY_TYPE_META[draft.type].unit} — tersimpan ke database, lahir kosong (0 kamar).`,
+        "Daftar properti",
+      );
+      setModalOpen(false);
+    } finally {
+      setSaving(false);
     }
-    toastSaveResult(
-      true,
-      isDemoMode,
-      editId
-        ? `${draft.name.trim()} — daftar cabang tersinkron di semua perangkat.`
-        : `${draft.name.trim()} · ${unitCount} ${PROPERTY_TYPE_META[draft.type].unit} — tersinkron di semua perangkat.`,
-      "Daftar properti",
-    );
-    setModalOpen(false);
   };
 
   const doDelete = async (p: PropertyEntry) => {
-    const ok = await onChange(properties.filter((x) => x.id !== p.id));
+    // ── SERVER-MODE: hapus baris database dulu (ditolak bila masih ada kamar)
+    if (onServerDelete) {
+      const ok = await onServerDelete(p.id);
+      if (!ok) return; // toast merah sudah ditampilkan handler
+    }
+    const ok = await onChange(
+      properties.filter((x) => x.id !== p.id && x.name !== p.name),
+    );
     if (!ok) {
       toastSaveResult(false, isDemoMode, "Daftar properti tersinkron di semua perangkat.", "Daftar properti");
       return;

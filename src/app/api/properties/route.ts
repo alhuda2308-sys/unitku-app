@@ -1,13 +1,26 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// /api/properties — profil properti aktif + rekening pembayaran (Supabase)
+// /api/properties — properti multi-cabang owner (Supabase)
 //
-// GET  : ambil properti aktif (+auto-seed database saat pertama kali)
+// GET    : properti aktif + SELURUH daftar properti (+ jumlah kamar riil)
+// POST   : TAMBAH CABANG BARU — buat baris `properties` milik owner sesi.
+//          Produksi: properti baru WAJIB lahir di database agar switcher
+//          dashboard memuat data murni miliknya (bukan dataset demo).
 // PUT/
-// PATCH: perbarui profil properti — nama kost, tipe, alamat, foto fasad,
-//        dan rekening pembayaran (bankName/bankAccountNo/bankAccountName)
+// PATCH  : perbarui profil properti — nama, tipe, alamat, foto fasad,
+//          rekening pembayaran, QRIS. Tanpa body.id → properti AKTIF
+//          (perilaku lama); dengan body.id (milik owner) → cabang tertentu
+//          (dipakai tabel "Daftar & Kelola Properti" di Pengaturan).
+// DELETE : hapus cabang (?id=) — DITOLAK bila masih ada kamar (hapus kamar
+//          dulu); baris terkait lainnya (pengumuman, tiket, kas, staf,
+//          teknisi, fasilitas) ikut dibersihkan ter-scope cabang ini —
+//          TIDAK PERNAH menyentuh cabang lain.
+//
+// Semua mutasi fail-loud: kegagalan database mengembalikan 4xx/5xx dengan
+// pesan jelas — tidak pernah sukses palsu.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, type NextRequest } from "next/server";
+import { randomUUID } from "node:crypto";
 import { db } from "@/lib/prisma";
 import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientProperty } from "@/lib/server/mappers";
@@ -15,20 +28,47 @@ import { getAuthUser } from "@/lib/auth/server";
 import {
   getActiveOwnedProperty,
   getOwnedPropertiesWithRoomCounts,
+  notOwned,
   pickDefaultActiveProperty,
   unauthorized,
 } from "@/lib/auth/ownership";
+import { PROPERTY_TYPES } from "@/lib/app-settings";
 
 export const dynamic = "force-dynamic";
+
+/** Ringkasan properti utk switcher (bentuk sama dgn GET `properties[]`) */
+function toSummary(p: {
+  id: string;
+  name: string;
+  tipe: string;
+  alamat: string | null;
+  fotoUrl: string | null;
+  bankName: string | null;
+  bankAccountNo: string | null;
+  bankAccountName: string | null;
+  qrisImageUrl: string | null;
+  qrisNmid: string | null;
+  _count?: { rooms: number };
+}) {
+  return {
+    id: p.id,
+    name: p.name,
+    tipe: p.tipe,
+    alamat: p.alamat,
+    fotoUrl: p.fotoUrl,
+    bankName: p.bankName,
+    bankAccountNo: p.bankAccountNo,
+    bankAccountName: p.bankAccountName,
+    qrisImageUrl: p.qrisImageUrl,
+    qrisNmid: p.qrisNmid,
+    roomCount: p._count?.rooms ?? 0,
+  };
+}
 
 /**
  * GET — properti aktif milik owner sesi + SELURUH daftar properti (switcher).
  * `{ property: null }` bila belum onboarding (akun baru) — dipakai guard
  * onboarding di klien; TIDAK lagi melempar 500 saat database kosong.
- * `properties` = daftar lengkap dari tabel properties + jumlah kamar riil —
- * sumber daftar dropdown pemilih properti di dashboard (kartu atas & sidebar).
- * Properti aktif memakai default cerdas: utamakan yang berdata (id "kgp"),
- * bukan properti kosong pertama (lihat pickDefaultActiveProperty).
  */
 export async function GET() {
   try {
@@ -36,22 +76,11 @@ export async function GET() {
     if (!user) return unauthorized();
     await ensureSeedForUser(user);
     const rows = await getOwnedPropertiesWithRoomCounts(user);
-    const property = pickDefaultActiveProperty(rows);
+    // Properti aktif default cerdas — helper bersama dgn endpoint lain
+    const active = pickDefaultActiveProperty(rows);
     return NextResponse.json({
-      property: property ? toClientProperty(property) : null,
-      properties: rows.map((p) => ({
-        id: p.id,
-        name: p.name,
-        tipe: p.tipe,
-        alamat: p.alamat,
-        fotoUrl: p.fotoUrl,
-        bankName: p.bankName,
-        bankAccountNo: p.bankAccountNo,
-        bankAccountName: p.bankAccountName,
-        qrisImageUrl: p.qrisImageUrl,
-        qrisNmid: p.qrisNmid,
-        roomCount: p._count.rooms,
-      })),
+      property: active ? toClientProperty(active) : null,
+      properties: rows.map(toSummary),
     });
   } catch (err) {
     console.error("[api/properties GET]", err);
@@ -61,6 +90,81 @@ export async function GET() {
     );
   }
 }
+
+// ── POST — tambah cabang baru (baris `properties` milik owner sesi) ──────────
+
+/** id properti unik — "prop_xxxxxxxx" (retry bila tabrakan) */
+async function nextPropertyId(): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const id = `prop_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+    const exists = await db.property.findUnique({ where: { id } });
+    if (!exists) return id;
+  }
+  return `prop_${randomUUID().replace(/-/g, "")}`;
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
+    const address = typeof body.address === "string" ? body.address.trim().slice(0, 160) : "";
+    const photoUrl = typeof body.fotoUrl === "string" ? body.fotoUrl.trim().slice(0, 400_000) : "";
+    const tipeRaw = typeof body.tipe === "string" ? body.tipe.trim() : "kost";
+    const tipe = (PROPERTY_TYPES as readonly string[]).includes(tipeRaw) ? tipeRaw : "kost";
+
+    if (name.length < 2) {
+      return NextResponse.json(
+        { error: "Nama properti wajib diisi (2–80 karakter)." },
+        { status: 400 },
+      );
+    }
+    // Nama cabang unik per owner — mencegah entri kembar membingungkan switcher
+    const duplicate = await db.property.findFirst({
+      where: { ownerId: user.id, name: { equals: name } },
+      select: { id: true },
+    });
+    if (duplicate) {
+      return NextResponse.json(
+        { error: `Cabang "${name}" sudah ada di daftar properti Anda.` },
+        { status: 409 },
+      );
+    }
+
+    const created = await db.property.create({
+      data: {
+        id: await nextPropertyId(),
+        ownerId: user.id,
+        name,
+        tipe,
+        alamat: address || null,
+        fotoUrl: photoUrl || null,
+      },
+      include: { _count: { select: { rooms: true } } },
+    });
+    // Cabang baru LAHIR KOSONG — 0 kamar. Denah akan menampilkan empty state
+    // resmi "Belum ada kamar di properti ini" sampai owner menambah kamar.
+    return NextResponse.json(
+      { property: toClientProperty(created), summary: toSummary(created) },
+      { status: 201 },
+    );
+  } catch (err) {
+    console.error("[api/properties POST]", err);
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error
+            ? err.message
+            : "Gagal membuat properti baru — coba lagi sebentar.",
+      },
+      { status: 500 },
+    );
+  }
+}
+
+// ── PUT/PATCH — perbarui profil properti (aktif ATAU per-id) ─────────────────
 
 const STRING_FIELDS = [
   "name",
@@ -115,12 +219,14 @@ async function handleUpdate(request: NextRequest) {
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "Tidak ada perubahan yang dikirim." }, { status: 400 });
     }
-    const property = await getActiveOwnedProperty(user);
-    if (!property) {
-      return NextResponse.json(
-        { error: "Properti belum terdaftar — lengkapi onboarding terlebih dahulu." },
-        { status: 400 },
-      );
+    // body.id → update cabang TERTENTU milik owner (tabel Kelola Properti);
+    // tanpa id → properti aktif default (perilaku lama form Profil Properti).
+    const requestedId = typeof body.id === "string" ? body.id.trim() : "";
+    const property = requestedId
+      ? await db.property.findUnique({ where: { id: requestedId } })
+      : await getActiveOwnedProperty(user);
+    if (!property || (requestedId && property.ownerId !== user.id)) {
+      return notOwned("Properti tidak ditemukan.");
     }
     const updated = await db.property.update({
       where: { id: property.id },
@@ -142,4 +248,61 @@ export async function PUT(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   return handleUpdate(request);
+}
+
+// ── DELETE — hapus cabang (ter-scope, anti sentuh cabang lain) ───────────────
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const user = await getAuthUser();
+    if (!user) return unauthorized();
+    await ensureSeedForUser(user);
+    const id = request.nextUrl.searchParams.get("id")?.trim() ?? "";
+    if (!id) {
+      return NextResponse.json(
+        { error: "Parameter ?id= properti wajib diisi." },
+        { status: 400 },
+      );
+    }
+    const property = await db.property.findUnique({
+      where: { id },
+      include: { _count: { select: { rooms: true } } },
+    });
+    if (!property || property.ownerId !== user.id) {
+      return notOwned("Properti tidak ditemukan.");
+    }
+    // Pengaman data: cabang masih punya kamar → tolak (kamar/penghuni/tagihan
+    // ter-cascade — keputusan destruktif seperti itu lewat reset per-cabang
+    // atau hapus kamar satu per satu, bukan hapus cabang sekali klik).
+    if (property._count.rooms > 0) {
+      return NextResponse.json(
+        {
+          error: `${property.name} masih memiliki ${property._count.rooms} kamar — hapus kamarnya terlebih dahulu sebelum menghapus cabang.`,
+        },
+        { status: 409 },
+      );
+    }
+    const ownerId = user.id;
+    await db.$transaction([
+      // Baris terkait cabang ini — dibersihkan agar tidak jadi yatim (SetNull)
+      db.announcement.deleteMany({ where: { propertyId: id } }),
+      db.ticket.deleteMany({ where: { propertyId: id } }),
+      db.cashEntry.deleteMany({ where: { propertyId: id } }),
+      db.staffMember.deleteMany({ where: { propertyId: id } }),
+      db.technicianContact.deleteMany({ where: { propertyId: id } }),
+      db.facility.deleteMany({ where: { propertyId: id } }),
+      db.property.delete({ where: { id } }),
+    ]);
+    // Kepemilikan sudah divalidasi di atas — log audit ringkas
+    console.info(
+      `[api/properties DELETE] cabang "${property.name}" (${id}) dihapus oleh owner ${ownerId}.`,
+    );
+    return NextResponse.json({ ok: true, propertyId: id, propertyName: property.name });
+  } catch (err) {
+    console.error("[api/properties DELETE]", err);
+    return NextResponse.json(
+      { error: "Gagal menghapus properti dari database." },
+      { status: 500 },
+    );
+  }
 }

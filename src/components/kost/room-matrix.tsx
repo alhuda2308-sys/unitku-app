@@ -73,7 +73,7 @@ export function RoomMatrix({
             <Inbox className="size-5" strokeWidth={1.5} aria-hidden="true" />
           </span>
           <div>
-            <p className="text-[14px] font-bold text-zinc-900">Belum ada kamar</p>
+            <p className="text-[14px] font-bold text-zinc-900">Belum ada kamar di properti ini</p>
             <p className="mt-1 text-[12.5px] text-zinc-700">
               Klik &lsquo;+ Tambah Kamar&rsquo; untuk memulai — satu per satu atau sekaligus dengan Bulk Add.
             </p>

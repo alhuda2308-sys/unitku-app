@@ -60,6 +60,39 @@ const MIN_SYNCING_MS = 350;
 let phaseStartedAt = 0;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Pengaman ANTI-SPINNER ABADI: bila status "syncing" menempel lebih dari
+ *  SYNCING_HARD_CAP_MS sejak permintaan TERAKHIR dimulai — artinya ada jalur
+ *  yang bocor (notifySyncStart tanpa notify pasangannya) atau koneksi benar-
+ *  benar mati di tengah jalan — indikator DILEPAS PAKSA ke "error" (jujur:
+ *  tidak ada respons dalam 25 detik = sesuatu salah) dan penghitung inflight
+ *  di-nol-kan supaya tidak menggantung selamanya. Permintaan sukses berikutnya
+ *  menormalisasi status kembali hijau. Tanpa ini, satu kebocoran kecil pun
+ *  membuat UI terlihat "Menyinkronkan..." tanpa ujung. */
+const SYNCING_HARD_CAP_MS = 25_000;
+let syncingCapTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearSyncingCap(): void {
+  if (syncingCapTimer !== null) {
+    clearTimeout(syncingCapTimer);
+    syncingCapTimer = null;
+  }
+}
+
+function armSyncingCap(): void {
+  clearSyncingCap();
+  syncingCapTimer = setTimeout(() => {
+    syncingCapTimer = null;
+    if (state.status !== "syncing") return; // sudah selesai secara normal
+    console.warn(
+      `[UnitKu Sync] Indikator "Menyinkronkan..." melebihi ${Math.round(
+        SYNCING_HARD_CAP_MS / 1000,
+      )} detik tanpa selesai — dilepas paksa ke status error (anti spinner abadi; inflight=${inflight}).`,
+    );
+    inflight = 0;
+    setState({ status: "error" });
+  }, SYNCING_HARD_CAP_MS);
+}
+
 function clearSettleTimer(): void {
   if (settleTimer !== null) {
     clearTimeout(settleTimer);
@@ -79,6 +112,7 @@ export function notifySyncStart(): void {
     phaseStartedAt = Date.now();
     setState({ status: "syncing" });
   }
+  armSyncingCap(); // permintaan baru → perbarui batas waktu spinner
 }
 
 function settle(next: SyncStatus): void {
@@ -88,6 +122,7 @@ function settle(next: SyncStatus): void {
   const commit = () => {
     settleTimer = null;
     if (inflight > 0) return; // permintaan baru masuk saat menunggu
+    clearSyncingCap(); // fase syncing berakhir secara normal
     if (next === "synced") {
       setState({ status: "synced", syncedAt: nowLabel() });
     } else {
@@ -126,6 +161,7 @@ export function notifySyncSettled(): void {
   if (inflight > 0) return; // masih ada permintaan lain berjalan
   clearSettleTimer();
   if (state.status === "syncing") {
+    clearSyncingCap(); // fase syncing berakhir (error level-permintaan)
     setState({ status: "synced" });
   }
 }
