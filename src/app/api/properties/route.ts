@@ -12,7 +12,12 @@ import { db } from "@/lib/prisma";
 import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientProperty } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
-import { getOwnedPropertiesWithRoomCounts, pickDefaultActiveProperty, unauthorized } from "@/lib/auth/ownership";
+import {
+  getActiveOwnedProperty,
+  getOwnedPropertiesWithRoomCounts,
+  pickDefaultActiveProperty,
+  unauthorized,
+} from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
