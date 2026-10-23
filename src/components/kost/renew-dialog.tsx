@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { formatDateLabel, formatIDR, parseDateLabel, type Room } from "@/lib/kost-data";
+import { formatDateLabel, formatIDR, parseDateLabel, roomNomor, type Room } from "@/lib/kost-data";
 import { cn } from "@/lib/utils";
 import { nextEndDate } from "./tenant-detail-drawer";
 
@@ -54,7 +54,7 @@ export function RenewDialog({ room, open, onOpenChange, onSubmit }: RenewDialogP
             Perpanjang Sewa
           </DialogTitle>
           <DialogDescription className="text-[12.5px] text-zinc-700">
-            {room.tenant?.name} · Kamar {room.id} ·{" "}
+            {room.tenant?.name} · Kamar {roomNomor(room)} ·{" "}
             {room.contract?.endDate ? (
               <>
                 kontrak berakhir <span className="tabular-nums">{room.contract.endDate}</span>

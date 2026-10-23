@@ -15,6 +15,7 @@ import {
   formatIDR,
   initialsOf,
   parseDateLabel,
+  roomNomor,
   dateToLabel,
   waLink,
   type Room,
@@ -79,7 +80,7 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
               </SheetTitle>
               <div className="flex items-center gap-1.5 text-[12.5px] tabular-nums text-zinc-700">
                 <span className="inline-flex h-5 items-center rounded-md border border-border bg-zinc-50 px-1.5 font-semibold text-zinc-700">
-                  Kamar {room.id}
+                  Kamar {roomNomor(room)}
                 </span>
                 <span>· {room.type}</span>
               </div>

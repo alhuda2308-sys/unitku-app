@@ -172,7 +172,7 @@ function ReceiptPaper({ inv, propertyName, ownerName }: ReceiptProps) {
             Kamar
           </dt>
           <dd className="mt-0.5 truncate text-[13px] font-semibold tabular-nums text-zinc-900">
-            Kamar {inv.roomId}
+            Kamar {inv.roomNomor ?? inv.roomId}
             <span className="block text-[12px] font-normal tabular-nums text-zinc-500">
               {inv.roomType}
             </span>
@@ -435,7 +435,7 @@ export function ReceiptPreviewModal({
         >
           <DialogHeader className="border-b border-border p-4 pr-12">
             <DialogTitle className="text-[15px] font-bold tracking-tight text-zinc-900">
-              Pratinjau Kwitansi — Kamar {invoice.roomId}
+              Pratinjau Kwitansi — Kamar {invoice.roomNomor ?? invoice.roomId}
             </DialogTitle>
             <DialogDescription className="text-[12.5px] tabular-nums text-zinc-700">
               {invoice.id} · Periode {invoice.periodLabel}

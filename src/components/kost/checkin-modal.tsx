@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatIDR, diffNights, todayISO, addDaysISO, type Room } from "@/lib/kost-data";
+import { formatIDR, diffNights, roomNomor, todayISO, addDaysISO, type Room } from "@/lib/kost-data";
 import { isVillaType, tenantTermFor } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
 import { RupiahInput } from "./rupiah-input";
@@ -195,7 +195,7 @@ export function CheckinModal({
                 )}
                 {vacantRooms.map((r) => (
                   <SelectItem key={r.id} value={r.id} className="text-[13px]">
-                    {isVillaType(propertyType) ? "Unit" : "Kamar"} {r.id} — Lt {r.floor} · {r.type} · {formatIDR(r.price)}{isVillaType(propertyType) ? "/hari" : "/bln"}
+                    {isVillaType(propertyType) ? "Unit" : "Kamar"} {roomNomor(r)} — Lt {r.floor} · {r.type} · {formatIDR(r.price)}{isVillaType(propertyType) ? "/hari" : "/bln"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -478,10 +478,10 @@ export function CheckinModal({
           <p className="hidden text-[12.5px] text-zinc-700 sm:block">
             {isHarian
               ? room
-                ? `${formatIDR(totalHarian)} · ${durasiHari} malam — Unit ${room.id} langsung berstatus terisi.`
+                ? `${formatIDR(totalHarian)} · ${durasiHari} malam — Unit ${roomNomor(room)} langsung berstatus terisi.`
                 : "Pilih unit terlebih dahulu."
               : room
-                ? `Kamar ${room.id} akan langsung berstatus terisi.`
+                ? `Kamar ${roomNomor(room)} akan langsung berstatus terisi.`
                 : "Pilih kamar terlebih dahulu."}
           </p>
           <div className="flex w-full gap-2 sm:w-auto">

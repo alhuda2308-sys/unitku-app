@@ -29,7 +29,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { fileToCompressedDataUrl } from "@/lib/image-compress";
-import type { Room } from "@/lib/kost-data";
+import { roomNomor, type Room } from "@/lib/kost-data";
 import {
   COMMON_AREAS,
   OWNER_REPORTER,
@@ -242,7 +242,7 @@ export function CreateTicketModal({
                     <SelectContent>
                       {occupiedRooms.map((r) => (
                         <SelectItem key={r.id} value={r.id} className="text-[13px]">
-                          Kamar {r.id} — {r.tenant?.name}
+                          Kamar {roomNomor(r)} — {r.tenant?.name}
                         </SelectItem>
                       ))}
                     </SelectContent>

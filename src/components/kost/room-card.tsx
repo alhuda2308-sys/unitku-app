@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { formatIDRShort, OPERATIONAL_META, type Room } from "@/lib/kost-data";
+import { formatIDRShort, OPERATIONAL_META, roomNomor, type Room } from "@/lib/kost-data";
 import { isVillaType } from "@/lib/app-settings";
 import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { StatusBadge, STATUS_SKIN } from "./status-badge";
@@ -64,8 +64,8 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
         onClick={() => onSelect(room)}
         aria-label={
           isVacant
-            ? `Kamar ${room.id}, ${OPERATIONAL_META[op].label}, ${room.type}, ${formatIDRShort(room.price)} per bulan`
-            : `Kamar ${room.id}, ${room.tenant?.name}, ${room.invoice?.dueLabel ?? ""}`
+            ? `Kamar ${roomNomor(room)}, ${OPERATIONAL_META[op].label}, ${room.type}, ${formatIDRShort(room.price)} per bulan`
+            : `Kamar ${roomNomor(room)}, ${room.tenant?.name}, ${room.invoice?.dueLabel ?? ""}`
         }
         className={cn(
           // ik-card: hook struktural tema karakter (brutalis/arsip/blueprint)
@@ -78,7 +78,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
       >
         {/* Baris 1: nomor kamar + pill status solid di pojok kanan atas */}
         <div className="flex items-center justify-between gap-1.5 pr-6">
-          <span className="ik-head truncate text-base font-extrabold leading-6 tabular-nums sm:text-lg sm:leading-7">{room.id}</span>
+          <span className="ik-head truncate text-base font-extrabold leading-6 tabular-nums sm:text-lg sm:leading-7">{roomNomor(room)}</span>
           <StatusBadge room={room} solid />
         </div>
 
@@ -130,7 +130,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
             e.stopPropagation();
             onCreateAd?.(room);
           }}
-          aria-label={`Buat iklan kamar ${room.id} untuk promosi sosmed`}
+          aria-label={`Buat iklan kamar ${roomNomor(room)} untuk promosi sosmed`}
           className={cn(
             "absolute inset-x-2.5 bottom-2.5 z-10 flex h-7 items-center justify-center gap-1 whitespace-nowrap rounded-md",
             "bg-gradient-to-r from-amber-500 to-orange-500 text-[11px] font-bold text-white shadow-sm",
@@ -149,7 +149,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label={`Opsi kamar ${room.id}`}
+            aria-label={`Opsi kamar ${roomNomor(room)}`}
             onClick={(e) => e.stopPropagation()}
             className={cn(
               "absolute top-[7px] right-[7px] z-10 flex size-6 items-center justify-center rounded-md",

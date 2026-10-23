@@ -23,7 +23,7 @@ import { BRAND_NAME, BRAND_TAGLINE } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api-client";
-import { formatIDR, type Room } from "@/lib/kost-data";
+import { formatIDR, roomNomor, type Room } from "@/lib/kost-data";
 import type { Invoice } from "@/lib/kost-invoices";
 import {
   ANNOUNCEMENT_KATEGORI_META,
@@ -370,7 +370,7 @@ export function TenantPortal({
         .then((res) => {
           setReportOpen(false);
           toast.success(`Laporan terkirim — ${res.ticket.id}`, {
-            description: `${draft.kategori} · Kamar ${room.id} · ${
+            description: `${draft.kategori} · Kamar ${roomNomor(room)} · ${
               draft.photos.length > 0 ? `${draft.photos.length} foto lampiran` : "tanpa foto"
             }. Pengelola akan menindaklanjuti.`,
             duration: 9000,
@@ -391,7 +391,7 @@ export function TenantPortal({
       const ticketId = onSubmitIssue(draft);
       setReportOpen(false);
       toast.success(`Laporan terkirim — ${ticketId}`, {
-        description: `${draft.kategori} · Kamar ${room.id} · ${
+        description: `${draft.kategori} · Kamar ${roomNomor(room)} · ${
           draft.photos.length > 0 ? `${draft.photos.length} foto lampiran` : "tanpa foto"
         }. Pengelola akan menindaklanjuti.`,
         action: onOpenTickets ? { label: "Buka Dashboard", onClick: onOpenTickets } : undefined,
@@ -402,7 +402,7 @@ export function TenantPortal({
     // Standalone (/portal tab publik) — laporan disimulasikan terkirim
     setReportOpen(false);
     toast.success("Laporan terkirim", {
-      description: `${draft.kategori} · Kamar ${room.id} · Pengelola akan menindaklanjuti segera.`,
+      description: `${draft.kategori} · Kamar ${roomNomor(room)} · Pengelola akan menindaklanjuti segera.`,
     });
     return "";
   };
@@ -418,7 +418,7 @@ export function TenantPortal({
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <PortalHeader propertyName={propertyName} onExit={onExit}>
           <HeaderChip>
-            Kamar {room.id} • {tenant?.name ?? "Belum ada penyewa"}
+            Kamar {roomNomor(room)} • {tenant?.name ?? "Belum ada penyewa"}
           </HeaderChip>
           {view && <HeaderChip mono>{view.id}</HeaderChip>}
         </PortalHeader>
@@ -448,7 +448,7 @@ export function TenantPortal({
             <CenterState
               icon={<ReceiptText className="size-5" strokeWidth={1.5} aria-hidden="true" />}
               title="Belum Ada Tagihan Terbit"
-              body={`Tagihan untuk Kamar ${room.id} akan muncul di sini setelah diterbitkan oleh pengelola.`}
+              body={`Tagihan untuk Kamar ${roomNomor(room)} akan muncul di sini setelah diterbitkan oleh pengelola.`}
             />
           ) : (
             <>
@@ -679,7 +679,7 @@ export function TenantPortal({
                 Fasilitas
               </h2>
               <p className="mt-0.5 text-[12.5px] text-zinc-700">
-                Fasilitas Kamar {room.id} yang menjadi hak Anda:
+                Fasilitas Kamar {roomNomor(room)} yang menjadi hak Anda:
               </p>
               {(room.facilities?.length ?? 0) > 0 ? (
                 <div className="mt-2.5 flex flex-wrap gap-2">
@@ -740,7 +740,7 @@ export function TenantPortal({
         open={reportOpen}
         onOpenChange={setReportOpen}
         onSubmit={handleSubmitIssue}
-        roomLabel={`Kamar ${room.id}`}
+        roomLabel={`Kamar ${roomNomor(room)}`}
       />
     </div>
   );

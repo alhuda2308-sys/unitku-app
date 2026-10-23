@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { portalLink, portalLocalPath } from "@/lib/tenant-portal";
 import { cn } from "@/lib/utils";
-import type { Room } from "@/lib/kost-data";
+import { roomNomor, type Room } from "@/lib/kost-data";
 
 interface PortalAccessCardProps {
   room: Room;
@@ -48,7 +48,7 @@ export function PortalAccessCard({ room, propertyName, className }: PortalAccess
     try {
       await navigator.clipboard.writeText(link);
       toast.success("Tautan portal disalin", {
-        description: `Kamar ${room.id} — bagikan ke ${tenant.name} via WA atau tempel di kontrak sewa.`,
+        description: `Kamar ${roomNomor(room)} — bagikan ke ${tenant.name} via WA atau tempel di kontrak sewa.`,
       });
     } catch {
       toast.error("Gagal menyalin", { description: "Salin manual dari kotak tautan." });
@@ -60,10 +60,10 @@ export function PortalAccessCard({ room, propertyName, className }: PortalAccess
     if (!canvas) return;
     const a = document.createElement("a");
     a.href = canvas.toDataURL("image/png");
-    a.download = `portal-qr-kamar-${room.id.toLowerCase().replace(/[^a-z0-9]/g, "-")}.png`;
+    a.download = `portal-qr-kamar-${roomNomor(room).toLowerCase().replace(/[^a-z0-9]/g, "-")}.png`;
     a.click();
     toast.success("QR portal diunduh", {
-      description: `Kamar ${room.id} — siap dicetak & ditempel di pintu kamar.`,
+      description: `Kamar ${roomNomor(room)} — siap dicetak & ditempel di pintu kamar.`,
     });
   };
 
@@ -80,11 +80,11 @@ export function PortalAccessCard({ room, propertyName, className }: PortalAccess
       return;
     }
     w.document.write(
-      `<!doctype html><html><head><title>QR Portal — Kamar ${room.id}</title></head>` +
+      `<!doctype html><html><head><title>QR Portal — Kamar ${roomNomor(room)}</title></head>` +
         `<body style="font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;` +
         `align-items:center;gap:14px;padding:36px 24px;text-align:center">` +
         `<p style="margin:0;font-size:12px;letter-spacing:.1em;font-weight:700;color:#71717A">${propertyName.toUpperCase()}</p>` +
-        `<p style="margin:0;font-size:22px;font-weight:800;color:#0F172A">Kamar ${room.id} — ${tenant.name}</p>` +
+        `<p style="margin:0;font-size:22px;font-weight:800;color:#0F172A">Kamar ${roomNomor(room)} — ${tenant.name}</p>` +
         `<img src="${png}" width="300" height="300" alt="QR Portal Penyewa" style="border:1px solid #E2E8F0;border-radius:12px;padding:10px"/>` +
         `<p style="margin:0;font-size:13px;color:#3F3F46">Scan untuk membuka tagihan &amp; pembayaran via UnitKu</p>` +
         `<p style="margin:0;font-size:10.5px;color:#A1A1AA;font-family:ui-monospace,monospace;word-break:break-all">${link}</p>` +
@@ -159,7 +159,7 @@ export function PortalAccessCard({ room, propertyName, className }: PortalAccess
           <DialogHeader>
             <DialogTitle className="text-[15px]">QR Portal Penyewa</DialogTitle>
             <DialogDescription className="text-[12.5px]">
-              Kamar {room.id} — {tenant.name} · {propertyName}
+              Kamar {roomNomor(room)} — {tenant.name} · {propertyName}
             </DialogDescription>
           </DialogHeader>
 
@@ -175,7 +175,7 @@ export function PortalAccessCard({ room, propertyName, className }: PortalAccess
                 level="M"
                 bgColor="#FFFFFF"
                 fgColor="#0F172A"
-                title={`Portal Penyewa — Kamar ${room.id}`}
+                title={`Portal Penyewa — Kamar ${roomNomor(room)}`}
                 className="block"
               />
             </div>
@@ -184,7 +184,7 @@ export function PortalAccessCard({ room, propertyName, className }: PortalAccess
                 {propertyName}
               </p>
               <p className="mt-0.5 text-[13.5px] font-bold tracking-tight text-zinc-900">
-                Kamar {room.id} — {tenant.name}
+                Kamar {roomNomor(room)} — {tenant.name}
               </p>
               <p className="mt-1 text-[12.5px] text-zinc-700">
                 Scan untuk membuka tagihan &amp; pembayaran

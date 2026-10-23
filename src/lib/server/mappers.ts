@@ -23,10 +23,15 @@ export function toClientInvoiceLine(line: InvoiceLine): ClientInvoiceLine {
 
 export function toClientInvoice(
   invoice: Invoice & { lines?: InvoiceLine[] },
+  // Nomor kamar murni (tanpa suffix) — di-resolve route dari kolom rooms.nomor
+  // agar UI menampilkan "Kamar A-1", bukan kunci internal rooms.id
+  roomNomor?: string | null,
 ): ClientInvoice {
   return {
     id: invoice.id,
     roomId: invoice.roomId,
+    // Fallback id menjaga kompatibilitas data lama (id = nomornya sendiri)
+    roomNomor: (roomNomor ?? "").trim() || undefined,
     tenantName: invoice.tenantName,
     tenantPhone: invoice.tenantPhone,
     roomType: invoice.roomType ?? "",
@@ -84,6 +89,8 @@ export function toClientRoom(
 
   return {
     id: room.id,
+    // Nomor tampilan murni (tanpa suffix "(n)") — id hanyalah kunci internal
+    nomor: room.nomor?.trim() || room.id,
     floor: room.floor,
     type: room.type,
     price: room.price,
@@ -134,7 +141,11 @@ export function toClientCashEntry(entry: CashEntry): ClientCashEntry {
 
 // ── Tiket Komplain & Pemeliharaan ───────────────────────────────────────
 
-export function toClientTicket(t: Ticket): ClientTicket {
+export function toClientTicket(
+  t: Ticket,
+  // Nomor kamar murni (tanpa suffix) utk label "Kamar …" di panel komplain
+  roomNomor?: string | null,
+): ClientTicket {
   const teknisi: TicketContact | undefined =
     t.teknisiName && t.teknisiPhone
       ? { name: t.teknisiName, phone: t.teknisiPhone }
@@ -145,6 +156,7 @@ export function toClientTicket(t: Ticket): ClientTicket {
   return {
     id: t.id,
     ...(t.roomId ? { roomId: t.roomId } : {}),
+    roomNomor: (roomNomor ?? "").trim() || undefined,
     ...(t.lokasi ? { lokasi: t.lokasi } : {}),
     sumber: t.sumber as ClientTicket["sumber"],
     judul: t.judul,

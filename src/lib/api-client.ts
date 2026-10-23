@@ -285,9 +285,9 @@ export const api = {
   // /api/rooms — propertyId opsional: muat kamar SESUAI cabang aktif (switcher)
   getRooms: (propertyId?: string | null) =>
     request<{ rooms: ClientRoom[] }>(scopedPropertyUrl("/api/rooms", propertyId)),
-  /** renamed: nomor yang diminta tapi diubah otomatis server — nomor itu
-   *  ternyata sudah dipakai kamar PROPERTI LAIN (tidak memblokir; kamar
-   *  tetap dibuat dengan varian "A-1 (2)") — klien menjelaskan di toast. */
+  /** Nomor kamar murni tanpa penamaan otomatis — server menyimpan persis
+   *  seperti diminta (suffix "(n)" disanitasi); duplikat DI PROPERTI YANG SAMA
+   *  ditolak 409, nomor milik properti lain tidak pernah memblokir. */
   addRooms: (
     rooms: {
       id: string;
@@ -303,7 +303,7 @@ export const api = {
     propertyName?: string | null,
     propertyTipe?: string | null,
   ) =>
-    request<{ rooms: ClientRoom[]; renamed?: { requested: string; stored: string }[] }>(
+    request<{ rooms: ClientRoom[] }>(
       "/api/rooms",
       {
         method: "POST",
@@ -316,7 +316,7 @@ export const api = {
       },
     ),
   patchRoom: (id: string, patch: Record<string, unknown>) =>
-    request<{ rooms: ClientRoom[]; renamed?: { requested: string; stored: string }[] }>(
+    request<{ rooms: ClientRoom[] }>(
       "/api/rooms",
       {
         method: "PATCH",
@@ -324,7 +324,7 @@ export const api = {
       },
     ),
   patchRoomsBulk: (bulk: { id: string; patch: Record<string, unknown> }[]) =>
-    request<{ rooms: ClientRoom[]; renamed?: { requested: string; stored: string }[] }>(
+    request<{ rooms: ClientRoom[] }>(
       "/api/rooms",
       {
         method: "PATCH",

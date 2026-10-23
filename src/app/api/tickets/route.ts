@@ -114,7 +114,21 @@ export async function GET(request: NextRequest) {
       },
       orderBy: [{ reportedSort: "desc" }, { id: "desc" }],
     });
-    return NextResponse.json({ tickets: tickets.map(toClientTicket) });
+    // Label kamar murni (tanpa suffix) — kunci internal rooms.id tidak ditampilkan
+    const roomIds = [...new Set(tickets.map((t) => t.roomId).filter((v): v is string => !!v))];
+    const nomorById = new Map<string, string>();
+    if (roomIds.length > 0) {
+      const roomRows = await db.room.findMany({
+        where: { id: { in: roomIds } },
+        select: { id: true, nomor: true },
+      });
+      for (const r of roomRows) nomorById.set(r.id, r.nomor);
+    }
+    return NextResponse.json({
+      tickets: tickets.map((t) =>
+        toClientTicket(t, t.roomId ? nomorById.get(t.roomId) ?? t.roomId : null),
+      ),
+    });
   } catch (err) {
     console.error("[api/tickets GET]", err);
     return NextResponse.json({ error: "Gagal memuat tiket komplain." }, { status: 500 });
@@ -248,8 +262,9 @@ export async function POST(request: NextRequest) {
         reportedLabel: reportedLabelNow(),
         reportedSort: await reportedSortNow(),
       },
+      include: { room: { select: { nomor: true } } },
     });
-    return NextResponse.json({ ticket: toClientTicket(ticket) }, { status: 201 });
+    return NextResponse.json({ ticket: toClientTicket(ticket, ticket.room?.nomor ?? ticket.roomId) }, { status: 201 });
   } catch (err) {
     console.error("[api/tickets POST]", err);
     return NextResponse.json({ error: "Gagal mengirim laporan komplain." }, { status: 500 });
@@ -318,8 +333,12 @@ export async function PATCH(request: NextRequest) {
         select: { id: true },
       });
       if (!owned) return notOwned("Tiket tidak ditemukan.");
-      const ticket = await db.ticket.update({ where: { id }, data });
-      return NextResponse.json({ ticket: toClientTicket(ticket) });
+      const ticket = await db.ticket.update({
+        where: { id },
+        data,
+        include: { room: { select: { nomor: true } } },
+      });
+      return NextResponse.json({ ticket: toClientTicket(ticket, ticket.room?.nomor ?? ticket.roomId) });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
         return NextResponse.json({ error: "Tiket tidak ditemukan." }, { status: 404 });

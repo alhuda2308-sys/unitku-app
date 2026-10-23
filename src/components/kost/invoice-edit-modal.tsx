@@ -108,7 +108,7 @@ function EditBody({
     <>
       <DialogHeader className="border-b border-border p-4">
         <DialogTitle className="text-[15px] font-bold tracking-tight text-zinc-900">
-          Edit / Tambah Biaya — Kamar {invoice.roomId}
+          Edit / Tambah Biaya — Kamar {invoice.roomNomor ?? invoice.roomId}
         </DialogTitle>
         <DialogDescription className="text-[12.5px] text-zinc-700">
           {invoice.id} · Periode {invoice.periodLabel} — atur rincian sebelum tagihan dikirim

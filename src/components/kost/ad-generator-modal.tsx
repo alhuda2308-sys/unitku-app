@@ -61,7 +61,7 @@ import {
   type AdPropertyScope,
   type VillaPresetId,
 } from "@/lib/ad-generator";
-import { FACILITY_OPTIONS, formatIDR, type Room } from "@/lib/kost-data";
+import { FACILITY_OPTIONS, formatIDR, roomNomor, type Room } from "@/lib/kost-data";
 import type { FacilityItem } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
 import { WaIcon } from "./wa-icon";
@@ -165,6 +165,7 @@ function AdModalBody({
   // Kontrakan/rusun: fasilitas prioritas rumah dulu; Villa/homestay: fasilitas
   // liburan (kolam renang, dapur, view, BBQ…) paling depan agar iklan
   // langsung menonjolkan yang relevan utk tamu liburan.
+  const roomLabel = roomNomor(room);
   const quickFacilities = useMemo(() => {
     const roomAndCatalog = [
       ...(room.facilities ?? []),
@@ -178,12 +179,12 @@ function AdModalBody({
           ? [...VILLA_FACILITY_PRIORITY, ...roomAndCatalog]
           : [...HOUSE_FACILITY_PRIORITY, ...roomAndCatalog];
     return Array.from(new Set(pool.filter((f) => f.trim().length > 0))).slice(0, 14);
-  }, [scope, room.id, room.facilities, facilityCatalog]);
+  }, [scope, roomLabel, room.facilities, facilityCatalog]);
 
   const input = useMemo<AdGeneratorInput>(
     () => ({
       propertyName,
-      roomId: room.id,
+      roomId: roomLabel,
       floor: room.floor,
       type: room.type,
       price: room.price,
@@ -195,7 +196,7 @@ function AdModalBody({
     }),
     [
       propertyName,
-      room.id,
+      roomLabel,
       room.floor,
       room.type,
       room.price,
@@ -272,7 +273,7 @@ function AdModalBody({
           <Building2 className="size-3.5 shrink-0 text-zinc-500" strokeWidth={1.75} aria-hidden="true" />
           <span className="max-w-[180px] truncate font-bold text-zinc-900">{propertyName}</span>
           <span className="text-zinc-400" aria-hidden="true">·</span>
-          <span>{unitWord} {room.id}</span>
+          <span>{unitWord} {roomNomor(room)}</span>
           <span className="text-zinc-400" aria-hidden="true">·</span>
           <span className="tabular-nums">
             {formatIDR(room.price)}/{isVilla ? "malam" : "bln"}
@@ -457,7 +458,7 @@ function AdModalBody({
               onChange={(e) => setDraft(e.target.value)}
               rows={13}
               className="w-full resize-none rounded-lg border border-border bg-white p-3 font-sans text-[12.5px] leading-5 text-zinc-800 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-              aria-label={`Teks iklan ${unitWord.toLowerCase()} ${room.id}`}
+              aria-label={`Teks iklan ${unitWord.toLowerCase()} ${roomNomor(room)}`}
             />
           </div>
           <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">

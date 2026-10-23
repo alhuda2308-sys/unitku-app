@@ -146,6 +146,8 @@ export async function POST(request: NextRequest) {
           type: room.type,
           price: room.price,
           status: room.status,
+          // Nomor murni dari berkas cadangan — fallback id utk cadangan lama
+          nomor: room.nomor || room.id,
           facilities: (room.facilities ?? []) as unknown as Prisma.InputJsonValue,
           operational: normalizeOperational(room.operational),
           contractDuration: room.contract?.duration ?? null,

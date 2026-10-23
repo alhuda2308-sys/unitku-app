@@ -26,6 +26,7 @@
 import { PrismaClient } from "@prisma/client";
 
 import { db } from "@/lib/prisma";
+import { ensureRoomsNormalized } from "@/lib/server/room-nomor";
 
 /** Probe ringan — 1 query per cold start; membandingkan kolom aktual vs harapan */
 const PROBE_SQL = "SELECT \"table_name\" || '.' || \"column_name\" AS col FROM \"information_schema\".\"columns\" WHERE \"table_schema\" = current_schema() AND \"table_name\" IN ('properties', 'owner_accounts', 'license_accounts', 'license_leads', 'license_purchases', 'staff_members', 'rooms', 'tenants', 'invoices', 'invoice_lines', 'facilities', 'tickets', 'technician_contacts', 'cash_entries', 'announcements', 'owner_settings')";
@@ -90,6 +91,7 @@ const EXPECTED_COLUMNS: ReadonlySet<string> = new Set<string>([
   "staff_members.isActive",
   "staff_members.createdAt",
   "rooms.id",
+  "rooms.nomor",
   "rooms.propertyId",
   "rooms.floor",
   "rooms.type",
@@ -218,7 +220,7 @@ const SCHEMA_DDL: readonly string[] = [
   "CREATE TABLE IF NOT EXISTS \"license_leads\" (\n    \"id\" TEXT NOT NULL,\n    \"email\" TEXT,\n    \"name\" TEXT NOT NULL,\n    \"phone\" TEXT NOT NULL,\n    \"source\" TEXT NOT NULL DEFAULT 'BAYAR_OTOMATIS',\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"license_leads_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"license_purchases\" (\n    \"id\" TEXT NOT NULL,\n    \"transactionId\" TEXT NOT NULL,\n    \"email\" TEXT NOT NULL,\n    \"name\" TEXT,\n    \"phone\" TEXT,\n    \"amount\" INTEGER NOT NULL DEFAULT 0,\n    \"status\" TEXT NOT NULL DEFAULT 'paid',\n    \"eventType\" TEXT,\n    \"provider\" TEXT,\n    \"autoProvisioned\" BOOLEAN NOT NULL DEFAULT false,\n    \"generatedPassword\" TEXT,\n    \"rawPayload\" JSONB,\n    \"licenseAccountId\" TEXT,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n\n    CONSTRAINT \"license_purchases_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"staff_members\" (\n    \"id\" TEXT NOT NULL,\n    \"propertyId\" TEXT,\n    \"name\" TEXT NOT NULL,\n    \"phone\" TEXT NOT NULL,\n    \"role\" TEXT NOT NULL DEFAULT 'PENJAGA_TEKNISI',\n    \"accessToken\" TEXT NOT NULL,\n    \"accessPin\" TEXT NOT NULL DEFAULT '',\n    \"isActive\" BOOLEAN NOT NULL DEFAULT true,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n\n    CONSTRAINT \"staff_members_pkey\" PRIMARY KEY (\"id\")\n)",
-  "CREATE TABLE IF NOT EXISTS \"rooms\" (\n    \"id\" TEXT NOT NULL,\n    \"propertyId\" TEXT NOT NULL,\n    \"floor\" INTEGER NOT NULL DEFAULT 1,\n    \"type\" TEXT NOT NULL DEFAULT '',\n    \"price\" INTEGER NOT NULL DEFAULT 0,\n    \"status\" TEXT NOT NULL DEFAULT 'kosong',\n    \"operational\" TEXT,\n    \"contractDuration\" TEXT,\n    \"contractStart\" TIMESTAMP(3),\n    \"contractEnd\" TIMESTAMP(3),\n    \"deposit\" INTEGER NOT NULL DEFAULT 0,\n    \"depositHeld\" BOOLEAN NOT NULL DEFAULT false,\n    \"facilities\" JSONB,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"rooms_pkey\" PRIMARY KEY (\"id\")\n)",
+  "CREATE TABLE IF NOT EXISTS \"rooms\" (\n    \"id\" TEXT NOT NULL,\n    \"nomor\" TEXT NOT NULL DEFAULT '',\n    \"propertyId\" TEXT NOT NULL,\n    \"floor\" INTEGER NOT NULL DEFAULT 1,\n    \"type\" TEXT NOT NULL DEFAULT '',\n    \"price\" INTEGER NOT NULL DEFAULT 0,\n    \"status\" TEXT NOT NULL DEFAULT 'kosong',\n    \"operational\" TEXT,\n    \"contractDuration\" TEXT,\n    \"contractStart\" TIMESTAMP(3),\n    \"contractEnd\" TIMESTAMP(3),\n    \"deposit\" INTEGER NOT NULL DEFAULT 0,\n    \"depositHeld\" BOOLEAN NOT NULL DEFAULT false,\n    \"facilities\" JSONB,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"rooms_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"tenants\" (\n    \"id\" TEXT NOT NULL,\n    \"roomId\" TEXT NOT NULL,\n    \"propertyId\" TEXT NOT NULL DEFAULT '',\n    \"name\" TEXT NOT NULL,\n    \"phone\" TEXT NOT NULL,\n    \"moveInAt\" TIMESTAMP(3),\n    \"emergencyName\" TEXT,\n    \"emergencyPhone\" TEXT,\n    \"portalToken\" TEXT NOT NULL,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"tenants_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"invoices\" (\n    \"id\" TEXT NOT NULL,\n    \"roomId\" TEXT NOT NULL,\n    \"propertyId\" TEXT NOT NULL DEFAULT '',\n    \"tenantName\" TEXT,\n    \"tenantPhone\" TEXT,\n    \"roomType\" TEXT,\n    \"periodLabel\" TEXT NOT NULL,\n    \"periodKey\" TEXT NOT NULL,\n    \"dueDate\" TIMESTAMP(3),\n    \"status\" TEXT NOT NULL DEFAULT 'jatuhTempo',\n    \"dayOffset\" INTEGER,\n    \"paidAt\" TIMESTAMP(3),\n    \"total\" INTEGER NOT NULL DEFAULT 0,\n    \"checkIn\" TIMESTAMP(3),\n    \"checkOut\" TIMESTAMP(3),\n    \"nights\" INTEGER,\n    \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updatedAt\" TIMESTAMP(3) NOT NULL,\n\n    CONSTRAINT \"invoices_pkey\" PRIMARY KEY (\"id\")\n)",
   "CREATE TABLE IF NOT EXISTS \"invoice_lines\" (\n    \"id\" SERIAL NOT NULL,\n    \"invoiceId\" TEXT NOT NULL,\n    \"label\" TEXT NOT NULL,\n    \"amount\" INTEGER NOT NULL DEFAULT 0,\n\n    CONSTRAINT \"invoice_lines_pkey\" PRIMARY KEY (\"id\")\n)",
@@ -286,6 +288,7 @@ const SCHEMA_DDL: readonly string[] = [
   "ALTER TABLE \"staff_members\" ADD COLUMN IF NOT EXISTS \"isActive\" BOOLEAN NOT NULL DEFAULT true",
   "ALTER TABLE \"staff_members\" ADD COLUMN IF NOT EXISTS \"createdAt\" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP",
   "ALTER TABLE \"rooms\" ADD COLUMN IF NOT EXISTS \"id\" TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE \"rooms\" ADD COLUMN IF NOT EXISTS \"nomor\" TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE \"rooms\" ADD COLUMN IF NOT EXISTS \"propertyId\" TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE \"rooms\" ADD COLUMN IF NOT EXISTS \"floor\" INTEGER NOT NULL DEFAULT 1",
   "ALTER TABLE \"rooms\" ADD COLUMN IF NOT EXISTS \"type\" TEXT NOT NULL DEFAULT ''",
@@ -467,9 +470,15 @@ let schemaPromise: Promise<void> | null = null;
  * Pastikan skema database sinkron dengan schema.prisma. Memoisasi promise per
  * proses → request paralel hanya memicu satu probe. Gagal → memo di-reset agar
  * request berikutnya mencoba lagi (mis. DB sesaat tidak terjangkau).
+ * Setelah skema terjamin, normalisasi data kamar (backfill kolom nomor +
+ * buka suffix "(n)" data lama) dijalankan sekali per proses — higienitas
+ * data yang TIDAK pernah melempar error.
  */
 export function ensureSchema(): Promise<void> {
-  schemaPromise ??= runEnsureSchema().catch((err) => {
+  schemaPromise ??= (async () => {
+    await runEnsureSchema();
+    await ensureRoomsNormalized();
+  })().catch((err) => {
     schemaPromise = null;
     throw err;
   });

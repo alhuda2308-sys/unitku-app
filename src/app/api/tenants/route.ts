@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { room: toClientRoom(updatedRoom), invoice: toClientInvoice(invoice), tenantId: tenant.id },
+      { room: toClientRoom(updatedRoom), invoice: toClientInvoice(invoice, updatedRoom.nomor ?? updatedRoom.id), tenantId: tenant.id },
       { status: 201 },
     );
   } catch (err) {

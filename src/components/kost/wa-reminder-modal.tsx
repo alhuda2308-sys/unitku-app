@@ -63,7 +63,7 @@ function WaModalBody({
     onSent(invoice);
     setSent(true);
     toast.success(
-      receipt ? `Kwitansi ditandai terkirim — Kamar ${invoice.roomId}` : `Pengingat ditandai terkirim — Kamar ${invoice.roomId}`,
+      receipt ? `Kwitansi ditandai terkirim — Kamar ${invoice.roomNomor ?? invoice.roomId}` : `Pengingat ditandai terkirim — Kamar ${invoice.roomNomor ?? invoice.roomId}`,
       {
         description: `${invoice.tenantName ?? recipientTerm} · ${formatIDR(invoice.total)}`,
       },
@@ -74,7 +74,7 @@ function WaModalBody({
     <>
       <DialogHeader className="border-b border-border p-4">
         <DialogTitle className="text-[15px] font-bold tracking-tight text-zinc-900">
-          {receipt ? "Kirim Kwitansi Lunas via WhatsApp" : "Tagih via WhatsApp"} — Kamar {invoice.roomId}
+          {receipt ? "Kirim Kwitansi Lunas via WhatsApp" : "Tagih via WhatsApp"} — Kamar {invoice.roomNomor ?? invoice.roomId}
         </DialogTitle>
         <DialogDescription className="text-[12.5px] text-zinc-700">
           {invoice.id} · Periode {invoice.periodLabel}

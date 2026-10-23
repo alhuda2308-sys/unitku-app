@@ -36,6 +36,7 @@ import {
   unauthorized,
 } from "@/lib/auth/ownership";
 import { PROPERTY_TYPES } from "@/lib/app-settings";
+import { sanitizeRoomNomor } from "@/lib/server/room-nomor";
 import type { OperationalStatus } from "@/lib/kost-data";
 
 /**
@@ -93,7 +94,7 @@ export async function GET(request: NextRequest) {
 // ── POST (tambah kamar) ──────────────────────────────────────────────────────
 
 interface IncomingRoom {
-  id?: unknown;
+  id?: unknown; // nomor/nama kamar yang diketik pengguna — disanitasi suffix "(n)"
   floor?: unknown;
   type?: unknown;
   price?: unknown;
@@ -102,14 +103,15 @@ interface IncomingRoom {
 }
 
 function normalizeRoomInput(raw: IncomingRoom) {
-  const id = typeof raw.id === "string" ? raw.id.trim() : "";
-  if (!id) return null;
+  // Nomor kamar MURNI — suffix otomatis "(n)" tidak pernah masuk database
+  const nomor = typeof raw.id === "string" ? sanitizeRoomNomor(raw.id) : "";
+  if (!nomor) return null;
   const operational =
     raw.operational === "perbaikan" || raw.operational === "nonaktif" || raw.operational === "siap"
       ? (raw.operational as OperationalStatus)
       : "siap";
   return {
-    id,
+    nomor,
     floor: Number.isFinite(Number(raw.floor)) ? Number(raw.floor) : 1,
     type: typeof raw.type === "string" ? raw.type : "",
     price: Number.isFinite(Number(raw.price)) ? Math.max(0, Math.round(Number(raw.price))) : 0,
@@ -119,6 +121,17 @@ function normalizeRoomInput(raw: IncomingRoom) {
     // kolom DB menyimpan null untuk "siap" agar mudah dibedakan
     operational: operational === "siap" ? null : operational,
   };
+}
+
+/**
+ * Pesan duplikat nomor kamar — unik PER PROPERTI (data antar cabang terisolasi
+ * oleh property_id), nomor milik properti lain tidak pernah memblokir.
+ */
+function duplicateNomorResponse(nomor: string): NextResponse {
+  return NextResponse.json(
+    { error: `Nomor kamar "${nomor}" sudah dipakai di properti ini — gunakan nomor lain.` },
+    { status: 409 },
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -194,91 +207,87 @@ export async function POST(request: NextRequest) {
     }
 
     const created: Prisma.RoomGetPayload<{ include: typeof ROOM_INCLUDE }>[] = [];
-    // Nomor yang diminta tapi diubah otomatis (tabrakan lintas properti) —
-    // dilaporkan ke klien agar toast bisa menjelaskan penamaan otomatis.
-    const renamedMap = new Map<string, string>();
-    // Id final yang sudah diputuskan untuk batch ini — anti tabrakan antar item
-    const reserved = new Set<string>();
-
-    /**
-     * Pastikan `candidate` bebas dipakai GLOBAL (rooms.id = primary key lintas
-     * properti). Bila dipakai kamar properti LAIN → cari varian "A-1 (2)",
-     * "A-1 (3)" … yang bebas — nomor milik properti lain TIDAK PERNAH memblokir
-     * penambahan kamar di properti aktif. Bila milik properti INI (atau sudah
-     * dipakai item lain dalam batch) → duplikat sungguhan.
-     * Mengembalikan id final yang aman, atau null bila duplikat properti ini.
-     */
-    const resolveFreeRoomId = async (candidate: string): Promise<string | null> => {
-      if (reserved.has(candidate)) return null; // item lain batch ini → duplikat properti sama
-      const clash = await db.room.findUnique({
-        where: { id: candidate },
-        select: { propertyId: true },
-      });
-      if (!clash) return candidate;
-      if (clash.propertyId === target.id) return null; // duplikat di properti aktif
-      for (let n = 2; n <= 99; n += 1) {
-        const variant = `${candidate} (${n})`;
-        if (reserved.has(variant)) continue;
-        const taken = await db.room.findUnique({ where: { id: variant }, select: { id: true } });
-        if (!taken) return variant;
-      }
-      return null; // 99 varian habis (praktis mustahil) → perlakukan duplikat
-    };
+    // Nomor yang sudah diputuskan untuk batch ini — unik PER PROPERTI
+    const reservedNomors = new Set<string>();
 
     for (const item of data) {
-      const requestedId = item!.id;
-      const storedId = await resolveFreeRoomId(requestedId);
-      if (storedId === null) {
-        // Duplikat sungguhan DI PROPERTI INI — pesan jelas, bukan salah koneksi
-        return NextResponse.json(
-          { error: `Nomor kamar "${requestedId}" sudah dipakai di properti ini — gunakan nomor lain.` },
-          { status: 409 },
-        );
+      const nomor = item!.nomor;
+      // VALIDASI MURNI PER PROPERTI — nomor kamar properti LAIN tidak pernah
+      // memblokir dan TIDAK ADA penamaan otomatis "(2)"/"(3)".
+      if (reservedNomors.has(nomor)) return duplicateNomorResponse(nomor);
+      const dupInProperty = await db.room.findFirst({
+        where: { propertyId: target.id, nomor },
+        select: { id: true },
+      });
+      if (dupInProperty) return duplicateNomorResponse(nomor);
+      reservedNomors.add(nomor);
+
+      // id (kunci internal stabil): pakai nomornya langsung bila bebas GLOBAL
+      // (kompatibel data lama); bila sudah dipakai kamar properti LAIN, kunci
+      // komposit "propertyId::nomor" — dijamin unik lintas properti tanpa
+      // mengubah nomor tampilan. Nomor tetap murni "A-1", bukan "A-1 (2)".
+      let roomId = nomor;
+      const globalClash = await db.room.findUnique({
+        where: { id: roomId },
+        select: { propertyId: true },
+      });
+      if (globalClash) {
+        if (globalClash.propertyId === target.id) return duplicateNomorResponse(nomor);
+        roomId = `${target.id}::${nomor}`;
       }
-      if (storedId !== requestedId) renamedMap.set(requestedId, storedId);
-      reserved.add(storedId);
+
       try {
         const room = await db.room.create({
           // Kolom insert mengikuti skema Prisma (peta @@map("rooms")) — sama
           // persis dgn kolom yang dipakai GET, sehingga konsisten dgn tabel
           // Supabase yang dibuat via prisma db push.
-          data: { ...item!, id: storedId, propertyId: target.id },
+          data: {
+            floor: item!.floor,
+            type: item!.type,
+            price: item!.price,
+            facilities: item!.facilities,
+            operational: item!.operational,
+            id: roomId,
+            nomor,
+            propertyId: target.id,
+          },
           include: ROOM_INCLUDE,
         });
         created.push(room);
       } catch (err) {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-          // Race serverless: id diambil request paralel setelah pre-check —
-          // ulangi resolusi varian SEKALI lagi (bukan 409 membuta; nomor milik
-          // properti lain tetap tidak memblokir). Duplikat properti ini → 409.
-          const retryId = await resolveFreeRoomId(storedId);
-          if (retryId === null) {
-            return NextResponse.json(
-              { error: `Nomor kamar "${requestedId}" sudah dipakai di properti ini — gunakan nomor lain.` },
-              { status: 409 },
-            );
-          }
-          if (retryId !== storedId) renamedMap.set(requestedId, retryId);
-          reserved.add(retryId);
-          try {
-            const room = await db.room.create({
-              data: { ...item!, id: retryId, propertyId: target.id },
-              include: ROOM_INCLUDE,
-            });
-            created.push(room);
-          } catch (retryErr) {
-            if (
-              retryErr instanceof Prisma.PrismaClientKnownRequestError &&
-              retryErr.code === "P2002"
-            ) {
-              return NextResponse.json(
-                { error: `Nomor kamar "${requestedId}" sudah dipakai di properti ini — gunakan nomor lain.` },
-                { status: 409 },
-              );
+          // Race serverless: kunci diambil request paralel setelah pre-check.
+          // Bila kandidat "nomor polos" yang kalah race → pakai kunci komposit
+          // (unik per properti, tanpa penamaan otomatis). Bila komposit yang
+          // tabrakan → benar-benar duplikat di properti ini → 409.
+          if (roomId === nomor) {
+            try {
+              const room = await db.room.create({
+                data: {
+                  floor: item!.floor,
+                  type: item!.type,
+                  price: item!.price,
+                  facilities: item!.facilities,
+                  operational: item!.operational,
+                  id: `${target.id}::${nomor}`,
+                  nomor,
+                  propertyId: target.id,
+                },
+                include: ROOM_INCLUDE,
+              });
+              created.push(room);
+              continue;
+            } catch (retryErr) {
+              if (
+                retryErr instanceof Prisma.PrismaClientKnownRequestError &&
+                retryErr.code === "P2002"
+              ) {
+                return duplicateNomorResponse(nomor);
+              }
+              throw retryErr;
             }
-            throw retryErr;
           }
-          continue;
+          return duplicateNomorResponse(nomor);
         }
         // Error asli (FK, kolom, koneksi) → dilempar ke catch luar agar
         // pengguna melihat penyebab PASTI — tidak pernah sukses palsu.
@@ -290,9 +299,6 @@ export async function POST(request: NextRequest) {
       {
         success: true,
         rooms: created.map(toClientRoom),
-        ...(renamedMap.size > 0
-          ? { renamed: [...renamedMap].map(([requested, stored]) => ({ requested, stored })) }
-          : {}),
       },
       { status: 201 },
     );
@@ -326,7 +332,10 @@ interface RoomPatchBody {
 
 function normalizePatch(raw: RoomPatchBody): Prisma.RoomUpdateInput {
   const data: Prisma.RoomUpdateInput = {};
-  if (typeof raw.id === "string" && raw.id.trim()) data.id = raw.id.trim();
+  // "id" pada patch = NOMOR/NAMA KAMAR BARU yang diketik pengguna — disanitasi
+  // suffix "(n)" dan disimpan ke kolom nomor (kunci internal id TIDAK berubah —
+  // relasi tagihan/penghuni/tiket tetap utuh tanpa cascade rename).
+  if (typeof raw.id === "string" && raw.id.trim()) data.nomor = sanitizeRoomNomor(raw.id);
   if (Number.isFinite(Number(raw.floor))) data.floor = Number(raw.floor);
   if (typeof raw.type === "string") data.type = raw.type;
   if (Number.isFinite(Number(raw.price))) data.price = Math.max(0, Math.round(Number(raw.price)));
@@ -372,44 +381,32 @@ export async function PATCH(request: NextRequest) {
     }
 
     const updated: Prisma.RoomGetPayload<{ include: typeof ROOM_INCLUDE }>[] = [];
-    // Nomor pengganti yang diubah otomatis (tabrakan lintas properti) —
-    // dilaporkan ke klien agar toast bisa menjelaskan penamaan otomatis.
-    const renamedMap = new Map<string, string>();
     for (const { id, patch } of updates) {
       try {
         // Isolasi: hanya kamar milik properti owner yang boleh diubah
         const target = await db.room.findFirst({
           where: { id, propertyId: { in: propertyIds } },
-          select: { id: true, propertyId: true },
+          select: { id: true, propertyId: true, nomor: true },
         });
         if (!target) return notOwned(`Kamar "${id}" tidak ditemukan.`);
         const data = normalizePatch(patch);
-        // Ganti nomor kamar — aturan sama dgn tambah kamar: nomor yang dipakai
-        // kamar properti LAIN tidak memblokir (varian otomatis "B-2 (2)");
-        // nomor milik properti INI tetap ditolak 409 (duplikat sungguhan).
-        if (typeof data.id === "string" && data.id !== id) {
-          const clash = await db.room.findUnique({
-            where: { id: data.id },
-            select: { propertyId: true },
-          });
-          if (clash && clash.propertyId === target.propertyId) {
+        // Ganti nomor kamar — VALIDASI MURNI PER PROPERTI: bila kamar lain di
+        // properti INI sudah memakai nomor itu → 409 (pesan jelas). Nomor milik
+        // properti LAIN tidak pernah memblokir & tidak pernah diubah otomatis.
+        if (typeof data.nomor === "string") {
+          const newNomor = data.nomor;
+          if (!newNomor) {
             return NextResponse.json(
-              { error: `Nomor kamar "${data.id}" sudah dipakai di properti ini — gunakan nomor lain.` },
-              { status: 409 },
+              { error: "Nomor kamar tidak valid — gunakan nomor tanpa akhiran dalam kurung." },
+              { status: 400 },
             );
           }
-          if (clash) {
-            let finalId = data.id;
-            for (let n = 2; n <= 99; n += 1) {
-              const variant = `${data.id} (${n})`;
-              const taken = await db.room.findUnique({ where: { id: variant }, select: { id: true } });
-              if (!taken) {
-                finalId = variant;
-                break;
-              }
-            }
-            renamedMap.set(String(data.id), finalId);
-            data.id = finalId;
+          if (newNomor !== target.nomor) {
+            const dup = await db.room.findFirst({
+              where: { propertyId: target.propertyId, nomor: newNomor, id: { not: target.id } },
+              select: { id: true },
+            });
+            if (dup) return duplicateNomorResponse(newNomor);
           }
         }
         const room = await db.room.update({
@@ -437,9 +434,6 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({
       rooms: updated.map(toClientRoom),
-      ...(renamedMap.size > 0
-        ? { renamed: [...renamedMap].map(([requested, stored]) => ({ requested, stored })) }
-        : {}),
     });
   } catch (err) {
     // MUTASI TIDAK PERNAH fail-open — kegagalan update wajib terlihat.

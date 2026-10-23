@@ -13,6 +13,7 @@ import {
 import {
   formatIDR,
   initialsOf,
+  roomNomor,
   STATUS_META,
   waLink,
   type Room,
@@ -114,7 +115,7 @@ export function RoomDrawer({
                 Detail Kamar
               </SheetDescription>
               <SheetTitle className="text-[15px] font-bold tracking-tight text-zinc-900">
-                Kamar {room.id} — {room.type}
+                Kamar {roomNomor(room)} — {room.type}
               </SheetTitle>
               <p className="text-[12.5px] tabular-nums text-zinc-700">
                 Lantai {room.floor} · {formatIDR(room.price)} / bulan
@@ -132,7 +133,7 @@ export function RoomDrawer({
                     <p className="text-[13px] font-semibold text-zinc-700">Kamar ini kosong</p>
                     <p className="max-w-[260px] text-xs leading-5 text-zinc-700">
                       Belum ada penyewa terdaftar. Lakukan check-in untuk mengisi kamar{" "}
-                      {room.id}.
+                      {roomNomor(room)}.
                     </p>
                     {canManage && (
                       <Button

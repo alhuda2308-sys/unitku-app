@@ -70,7 +70,10 @@ export interface Invoice {
 }
 
 export interface Room {
-  id: string; // "101", "A-01", "Paviliun Barat"
+  id: string; // kunci internal stabil — kamar lama: nomornya sendiri; kamar baru: "properti::nomor" bila nomor dipakai properti lain. TIDAK untuk label.
+  /** Nomor/nama kamar MURNI utk tampilan (tanpa suffix "(n)") — unik per properti.
+   *  Dataset/demo tanpa nomor memakai fallback id (lihat roomNomor()). */
+  nomor?: string;
   floor: number;
   type: string; // "Tipe A - AC"
   price: number; // monthly rent, IDR (sewa harian utk properti Villa/Homestay)
@@ -96,6 +99,16 @@ export interface Property {
 }
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
+
+/**
+ * Nomor kamar untuk TAMPILAN — murni tanpa suffix "(n)".
+ * "Kamar A-1" harus tampil "A-1", bukan "A-1 (3)": label selalu dari kolom
+ * `nomor` (unik per properti); `id` hanya fallback utk dataset/demo lama.
+ */
+export function roomNomor(room: Pick<Room, "id"> & { nomor?: string | null }): string {
+  const n = room.nomor?.trim();
+  return n ? n : room.id;
+}
 
 const idr = new Intl.NumberFormat("id-ID", {
   style: "currency",

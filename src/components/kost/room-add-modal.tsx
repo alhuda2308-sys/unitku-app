@@ -26,6 +26,7 @@ import {
   FACILITY_OPTIONS,
   formatIDRShort,
   ROOM_TYPE_OPTIONS,
+  roomNomor,
   type Room,
 } from "@/lib/kost-data";
 import type { FacilityItem } from "@/lib/app-settings";
@@ -150,11 +151,10 @@ export function RoomAddModal({
   const [bulkFloor, setBulkFloor] = useState(1);
 
   // Validasi TER-SCOPE properti aktif: allRooms hanya berisi kamar milik
-  // properti yang SEDANG dikelola (dashboard memuat ter-scope ?propertyId=),
-  // jadi nomor kamar milik properti lain TIDAK pernah memblokir di sini —
-  // bila ternyata bentrok global di database, server otomatis membuat varian
-  // "A-1 (2)" alih-alih menolak.
-  const existingIds = new Set(allRooms.map((r) => r.id.toLowerCase()));
+  // properti yang SEDANG dikelola (dashboard memuat ter-scope ?propertyId=).
+  // Nomor unik cukup PER PROPERTI dan TANPA penamaan otomatis "(2)" — nomor
+  // milik properti lain tidak pernah memblokir & tidak pernah diubah server.
+  const existingIds = new Set(allRooms.map((r) => roomNomor(r).toLowerCase()));
   const maxFloor = allRooms.reduce((m, r) => Math.max(m, r.floor), 0);
   const floorChoices = Array.from({ length: maxFloor + 1 }, (_, i) => i + 1); // 1..max+1
 
@@ -210,6 +210,7 @@ export function RoomAddModal({
       onAdd([
         {
           id: singleId,
+          nomor: singleId,
           floor,
           type,
           price,
@@ -223,6 +224,7 @@ export function RoomAddModal({
       onAdd(
         bulkNew.map((id) => ({
           id,
+          nomor: id,
           floor: bulkFloor,
           type,
           price,

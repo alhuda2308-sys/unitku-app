@@ -145,7 +145,7 @@ function buildTeknisiWaText(
   const lokasi =
     ticket.sumber === "fasilitas"
       ? `${ticket.lokasi ?? "Fasilitas Umum"} (${ticket.reporterName})`
-      : `Kamar ${ticket.roomId ?? "—"} (${ticket.reporterName})`;
+      : `Kamar ${ticket.roomNomor || ticket.roomId || "—"} (${ticket.reporterName})`;
   return [
     `Halo ${tech.name}, butuh bantuan perbaikan di ${propertyName}:`,
     `- Lokasi: ${lokasi}`,
@@ -660,7 +660,7 @@ export function MaintenancePanel({
         (t) =>
           !q ||
           t.id.toLowerCase().includes(q) ||
-          (t.roomId ?? "").toLowerCase().includes(q) ||
+          (t.roomNomor || t.roomId || "").toLowerCase().includes(q) ||
           (t.lokasi ?? "").toLowerCase().includes(q) ||
           t.judul.toLowerCase().includes(q) ||
           t.reporterName.toLowerCase().includes(q) ||

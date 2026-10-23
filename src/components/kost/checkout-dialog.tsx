@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatIDR, todayISO, type Room } from "@/lib/kost-data";
+import { formatIDR, roomNomor, todayISO, type Room } from "@/lib/kost-data";
 import { RupiahInput } from "./rupiah-input";
 
 export interface CheckoutPayload {
@@ -62,7 +62,7 @@ export function CheckoutDialog({ room, open, onOpenChange, onSubmit }: CheckoutD
             Proses Check-out
           </DialogTitle>
           <DialogDescription className="text-[12.5px] text-zinc-700">
-            {room.tenant?.name} · Kamar {room.id} · sewa sejak{" "}
+            {room.tenant?.name} · Kamar {roomNomor(room)} · sewa sejak{" "}
             <span className="tabular-nums">{room.tenant?.moveInDate}</span>
           </DialogDescription>
         </DialogHeader>
@@ -71,7 +71,7 @@ export function CheckoutDialog({ room, open, onOpenChange, onSubmit }: CheckoutD
           <div className="flex items-start gap-2.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" strokeWidth={1.75} aria-hidden="true" />
             <p className="text-[12.5px] leading-5 text-amber-800">
-              Check-out akan mengosongkan kamar <span className="font-semibold">Kamar {room.id}</span>,
+              Check-out akan mengosongkan kamar <span className="font-semibold">Kamar {roomNomor(room)}</span>,
               mengarsipkan data penyewa, dan mencatat refund deposit ke Buku Kas UnitKu.
             </p>
           </div>

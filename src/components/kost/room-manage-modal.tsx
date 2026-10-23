@@ -37,6 +37,7 @@ import {
   formatIDR,
   OPERATIONAL_META,
   ROOM_TYPE_OPTIONS,
+  roomNomor,
   type OperationalStatus,
   type Room,
 } from "@/lib/kost-data";
@@ -132,7 +133,9 @@ export function RoomManageModal({
       .filter((f) => !baseCatalog.some((c) => c.label === f))
       .map((label) => ({ id: `legacy_${label}`, label })),
   ];
-  const [roomId, setRoomId] = useState(room?.id ?? "");
+  // Nilai awal = NOMOR kamar murni (bukan kunci internal) — mengedit nomor
+  // tidak pernah mengubah identitas kamar (id) di database.
+  const [roomId, setRoomId] = useState(room ? roomNomor(room) : "");
   const [floor, setFloor] = useState<number>(room?.floor ?? 1);
   const [customFloor, setCustomFloor] = useState(String(room?.floor ?? 1));
   const [floorMode, setFloorMode] = useState<"select" | "custom">("select");
@@ -146,8 +149,9 @@ export function RoomManageModal({
 
   const occupied = room.status !== "kosong" && !!room.tenant;
   const trimmedId = roomId.trim();
+  // Duplikat divalidasi PER PROPERTI lewat NOMOR tampilan (murni tanpa suffix)
   const duplicate = allRooms.some(
-    (r) => r.id !== room.id && r.id.toLowerCase() === trimmedId.toLowerCase()
+    (r) => r.id !== room.id && roomNomor(r).toLowerCase() === trimmedId.toLowerCase()
   );
   const idInvalid = trimmedId.length === 0 || duplicate;
   const customFloorNum = Number(customFloor);
@@ -185,7 +189,7 @@ export function RoomManageModal({
               <span className="flex size-7 items-center justify-center rounded-md border border-border bg-zinc-50">
                 <DoorOpen className="size-4 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
               </span>
-              Kelola Kamar {room.id}
+              Kelola Kamar {roomNomor(room)}
             </DialogTitle>
             <DialogDescription className="text-[12.5px] text-zinc-700">
               Ubah nomor, tipe, tarif, fasilitas, atau status operasional kamar.
@@ -404,9 +408,9 @@ export function RoomManageModal({
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent className="sm:max-w-[420px]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-[15px]">Hapus Kamar {room.id}?</AlertDialogTitle>
+            <AlertDialogTitle className="text-[15px]">Hapus Kamar {roomNomor(room)}?</AlertDialogTitle>
             <AlertDialogDescription className="text-[12.5px] leading-5">
-              Kamar {room.id} — {room.type} ({formatIDR(room.price)}/bln) akan dihapus permanen dari denah.
+              Kamar {roomNomor(room)} — {room.type} ({formatIDR(room.price)}/bln) akan dihapus permanen dari denah.
               Riwayat transaksi kas tetap tersimpan di UnitKu. Tindakan ini tidak dapat dibatalkan.
             </AlertDialogDescription>
           </AlertDialogHeader>

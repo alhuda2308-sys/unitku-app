@@ -111,7 +111,7 @@ function MobileInvoiceCard({ invoice: inv, ...handlers }: { invoice: Invoice } &
           </span>
           <span className="min-w-0 leading-tight">
             <span className="block truncate text-[13px] font-semibold tabular-nums text-zinc-900">
-              Kamar {inv.roomId}
+              Kamar {inv.roomNomor ?? inv.roomId}
             </span>
             <span
               className={cn(
@@ -302,7 +302,7 @@ export function InvoiceTable({
                     </span>
                     <span className="leading-tight">
                       <span className="block text-[13px] font-semibold tabular-nums text-zinc-900">
-                        Kamar {inv.roomId}
+                        Kamar {inv.roomNomor ?? inv.roomId}
                       </span>
                       <span
                         className={

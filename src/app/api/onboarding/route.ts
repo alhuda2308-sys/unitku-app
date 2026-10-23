@@ -92,21 +92,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Slot kamar awal — nomor urut "01", "02", … (auto-suffix bila nomor
-    // global sudah dipakai properti lain; label kamar unik lintas akun).
+    // Slot kamar awal — nomor urut "01", "02", … MURNI tanpa suffix. Kunci
+    // internal kamar memakai komposit "propertyId::nomor" sehingga nomor yang
+    // sama dipakai properti/akun lain TIDAK pernah memicu penamaan otomatis.
     let roomsCreated = 0;
     for (let i = 1; i <= roomCount; i += 1) {
-      const base = String(i).padStart(2, "0");
-      let roomId = base;
-      let seq = 2;
-      while (await db.room.findUnique({ where: { id: roomId } })) {
-        roomId = `${base}-${seq}`;
-        seq += 1;
-      }
+      const nomor = String(i).padStart(2, "0");
       try {
         await db.room.create({
           data: {
-            id: roomId,
+            id: `${property.id}::${nomor}`,
+            nomor,
             propertyId: property.id,
             floor: 1,
             type: "",

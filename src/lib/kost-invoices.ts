@@ -37,7 +37,9 @@ export interface InvoiceLine {
 
 export interface Invoice {
   id: string; // "#INV-202609-101"
-  roomId: string; // "101"
+  roomId: string; // kunci internal kamar — TIDAK untuk ditampilkan
+  /** Nomor kamar murni (tanpa suffix "(n)") — utk label "Kamar …"; fallback roomId */
+  roomNomor?: string;
   tenantName: string | null; // null = kamar kosong (tagihan periode terakhir)
   tenantPhone: string | null;
   roomType: string;

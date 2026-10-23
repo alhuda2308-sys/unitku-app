@@ -30,6 +30,7 @@ import { addMonths, formatIDR, MONTH_NAMES, type Room } from "@/lib/kost-data";
 import { cycleMonths, type BillingCycle } from "@/lib/property-types";
 import { useUnitLabels } from "@/lib/property-store";
 import { CyclePicker } from "./cycle-picker";
+import { roomNomor } from "@/lib/kost-data";
 
 export interface InvoiceCreateDraft {
   roomId: string;
@@ -136,7 +137,7 @@ export function InvoiceCreateModal({ open, onOpenChange, billableRooms, onSubmit
                   )}
                   {billableRooms.map((r) => (
                     <SelectItem key={r.id} value={r.id} className="text-[13px]">
-                      {unit.label(r.id)} — {r.tenant?.name ?? "Tanpa nama"} · {formatIDR(r.price)}/bln
+                      {unit.label(roomNomor(r))} — {r.tenant?.name ?? "Tanpa nama"} · {formatIDR(r.price)}/bln
                     </SelectItem>
                   ))}
                 </SelectContent>

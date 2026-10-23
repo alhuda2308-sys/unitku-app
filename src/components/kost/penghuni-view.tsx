@@ -24,6 +24,7 @@ import {
   formatIDR,
   initialsOf,
   parseDateLabel,
+  roomNomor,
   waLink,
   type Room,
 } from "@/lib/kost-data";
@@ -93,7 +94,7 @@ function MobileTenantCard({
             <span className="block truncate text-[13px] font-semibold text-zinc-900">{t.name}</span>
             <span className="mt-1 flex items-center gap-1.5">
               <span className="inline-flex h-5 shrink-0 items-center rounded-md border border-border bg-zinc-50 px-1.5 text-xs font-semibold tabular-nums text-zinc-700">
-                {room.id}
+                {roomNomor(room)}
               </span>
               <span className="truncate text-xs text-zinc-700">Lt {room.floor} · {room.type}</span>
             </span>
@@ -230,7 +231,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
       list = list.filter(
         (r) =>
           r.tenant!.name.toLowerCase().includes(q) ||
-          r.id.toLowerCase().includes(q) ||
+          roomNomor(r).toLowerCase().includes(q) ||
           r.tenant!.phone.replace(/[^0-9]/g, "").includes(q.replace(/[^0-9]/g, ""))
       );
     }
@@ -341,7 +342,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
                   {/* Kamar */}
                   <td className="px-3 py-2">
                     <span className="inline-flex h-5 items-center rounded-md border border-border bg-zinc-50 px-1.5 text-xs font-semibold tabular-nums text-zinc-700">
-                      {room.id}
+                      {roomNomor(room)}
                     </span>
                     <span className="ml-1.5 text-xs text-zinc-700">Lt {room.floor}</span>
                   </td>

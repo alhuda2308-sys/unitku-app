@@ -163,7 +163,11 @@ model StaffMember {
 // ── Kamar / Unit ─────────────────────────────────────────────────────────────
 
 model Room {
-  id          String  @id // nomor/label alami kamar — "101", "A-01", "Paviliun Barat"
+  id String @id // KUNCI STABIL (internal) — kamar lama: nomornya sendiri ("101"); kamar baru: nomor bila bebas global, selain itu "properti::nomor" — TIDAK pernah ditampilkan
+  // NOMOR/NAMA KAMAR utk tampilan — murni tanpa suffix "(n)", unik PER PROPERTI
+  // (divalidasi aplikasi). Isolasi multi-cabang: dua properti boleh sama-sama
+  // punya "A-1" tanpa penamaan otomatis.
+  nomor       String  @default("")
   propertyId  String
   floor       Int     @default(1)
   type        String  @default("") // "Tipe A - AC"

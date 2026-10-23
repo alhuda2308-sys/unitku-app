@@ -29,6 +29,9 @@ export interface BackupTenant {
 
 export interface BackupRoom {
   id: string;
+  // Nomor/nama kamar murni (tanpa suffix "(n)") — cadangan lama tanpa nomor
+  // memakai id sebagai nomor (id kamar lama = nomornya sendiri)
+  nomor?: string;
   floor: number;
   type: string;
   price: number;
@@ -142,6 +145,8 @@ export function downloadTextFile(filename: string, content: string, mime: string
 function roomToBackup(room: Room): BackupRoom {
   return {
     id: room.id,
+    // Nomor murni (tanpa suffix) — cadangan lama tidak punya field ini
+    nomor: room.nomor || room.id,
     floor: room.floor,
     type: room.type,
     price: room.price,

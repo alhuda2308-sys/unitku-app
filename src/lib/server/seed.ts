@@ -105,6 +105,8 @@ async function runSeed(): Promise<void> {
       db.room.create({
         data: {
         id: room.id,
+        // Nomor tampilan murni — dataset demo tidak pernah menyertakan suffix
+        nomor: room.id,
         propertyId: SEED_PROPERTY_ID,
         floor: room.floor,
         type: room.type,

@@ -41,7 +41,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import type { Room } from "@/lib/kost-data";
+import { roomNomor, type Room } from "@/lib/kost-data";
 import {
   ANNOUNCEMENT_KATEGORI_META,
   ANNOUNCEMENT_TODAY_ISO,
@@ -241,7 +241,7 @@ export function AnnouncementPanel({
   const resolveTenant = useCallback(
     (tenantId: string) => {
       const room = rooms.find((r) => r.tenant?.id === tenantId);
-      return room?.tenant ? `${room.tenant.name} — Kamar ${room.id}` : undefined;
+      return room?.tenant ? `${room.tenant.name} — Kamar ${roomNomor(room)}` : undefined;
     },
     [rooms]
   );

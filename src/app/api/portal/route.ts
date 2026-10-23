@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         room: toClientRoom(roomWithTenant),
-        invoices: invoices.map(toClientInvoice),
+        invoices: invoices.map((i) => toClientInvoice(i, tenant.room.nomor ?? tenant.roomId)),
         propertyName: property.name,
         // Banner pengumuman aktif — penyewa melihat yang sama di perangkat mana pun
         announcements: announcements.map(toClientAnnouncement),

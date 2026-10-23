@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { distinctFloors, type Room } from "@/lib/kost-data";
+import { distinctFloors, roomNomor, type Room } from "@/lib/kost-data";
 import {
   ANNOUNCEMENT_KATEGORI,
   ANNOUNCEMENT_KATEGORI_META,
@@ -95,7 +95,7 @@ export function AnnouncementModal({
         .filter((r) => r.tenant && r.status !== "kosong" && r.tenant.id)
         .map((r) => ({
           id: r.tenant!.id as string,
-          label: `${r.tenant!.name} — Kamar ${r.id}`,
+          label: `${r.tenant!.name} — Kamar ${roomNomor(r)}`,
         })),
     [rooms]
   );

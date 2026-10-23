@@ -76,6 +76,7 @@ import {
   newPortalToken,
   parseIsoDate,
   ROOMS,
+  roomNomor,
   waLink,
   dateToLabel,
   type Room,
@@ -888,7 +889,9 @@ export default function IndoKostPage() {
     const q = query.trim().toLowerCase();
     if (!q) return rooms;
     return rooms.filter(
-      (r) => r.id.toLowerCase().includes(q) || (r.tenant?.name.toLowerCase().includes(q) ?? false)
+      (r) =>
+        roomNomor(r).toLowerCase().includes(q) ||
+        (r.tenant?.name.toLowerCase().includes(q) ?? false)
     );
   }, [rooms, query]);
 
@@ -1078,6 +1081,7 @@ export default function IndoKostPage() {
       toast.info(`Kamar ${roomId} tidak ada di denah saat ini.`);
       return;
     }
+    const roomLabel = roomNomor(room);
     const now = new Date();
     const todayLabel = dateToLabel(now);
     const periodKey = stateInv?.periodKey ?? currentPeriodKey();
@@ -1121,12 +1125,12 @@ export default function IndoKostPage() {
       dateSort: dateSortFromLabel(todayLabel),
       type: "masuk",
       category: "Sewa Kamar",
-      description: `Kamar ${roomId} · ${paidInvoice.tenantName ?? "Penyewa"} — Sewa ${periodShortLabel(paidInvoice.periodKey)}`,
+      description: `Kamar ${roomLabel} · ${paidInvoice.tenantName ?? "Penyewa"} — Sewa ${periodShortLabel(paidInvoice.periodKey)}`,
       amount: paidInvoice.total,
     };
     updateCashEntries((prev) => [entry, ...prev]);
     toast.success("Tagihan berhasil ditandai lunas!", {
-      description: `Kamar ${roomId} · ${formatIDR(paidInvoice.total)} diterima ${todayLabel} · pemasukan dicatat ke Buku Kas${
+      description: `Kamar ${roomLabel} · ${formatIDR(paidInvoice.total)} diterima ${todayLabel} · pemasukan dicatat ke Buku Kas${
         dbState === "offline" && !instantDemo && !isDemoSession
           ? " (lokal — database sedang offline)"
           : " (mode demo)"
@@ -1183,7 +1187,7 @@ export default function IndoKostPage() {
       .markInvoicePaid(stateInvoice?.id ?? null, roomId, stateInvoice?.periodKey)
       .then(({ invoice, room, cashEntry, created }) => {
         applyServerPayment(invoice, room, cashEntry, stateInvoice?.id);
-        toast.success(`Pembayaran Kamar ${room.id} dicatat lunas`, {
+        toast.success(`Pembayaran Kamar ${roomNomor(room)} dicatat lunas`, {
           description: created
             ? `Tagihan periode terkait dibuat otomatis · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""} · tersimpan ke cloud.`
             : `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""} · tersimpan ke cloud.`,
@@ -1207,7 +1211,7 @@ export default function IndoKostPage() {
       .markInvoicePaid(inv.id, inv.roomId, inv.periodKey)
       .then(({ invoice, room, cashEntry, created }) => {
         applyServerPayment(invoice, room, cashEntry, inv.id);
-        toast.success(`Kamar ${inv.roomId} ditandai lunas`, {
+        toast.success(`Kamar ${inv.roomNomor ?? inv.roomId} ditandai lunas`, {
           description: created
             ? `${invoice.id} (dibuat otomatis) · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""}.`
             : `${invoice.id} · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""}.`,
@@ -1248,7 +1252,7 @@ export default function IndoKostPage() {
       .then(({ invoice }) => {
         updateInvoices((prev) => prev.map((i) => (i.id === invoice.id ? invoice : i)));
         toast.success(`Rincian ${invoice.id} disimpan — siap ditagih`, {
-          description: `Kamar ${invoice.roomId} · total ${formatIDR(invoice.total)} (${invoice.lines.length} baris biaya).`,
+          description: `Kamar ${invoice.roomNomor ?? invoice.roomId} · total ${formatIDR(invoice.total)} (${invoice.lines.length} baris biaya).`,
         });
       })
       .catch((err: unknown) =>
@@ -1280,13 +1284,13 @@ export default function IndoKostPage() {
     const digits = (inv.tenantPhone ?? "").replace(/[^0-9]/g, "");
     if (!digits) {
       toast.error("Nomor WhatsApp penyewa belum tersedia", {
-        description: `Kamar ${inv.roomId} — lengkapi No. WhatsApp penghuni terlebih dahulu.`,
+        description: `Kamar ${inv.roomNomor ?? inv.roomId} — lengkapi No. WhatsApp penghuni terlebih dahulu.`,
       });
       return;
     }
     const waUrl = `${waLink(digits)}?text=${encodeURIComponent(message)}`;
     openExternal(waUrl);
-    toast.success(`${label} — Kamar ${inv.roomId}`, {
+    toast.success(`${label} — Kamar ${inv.roomNomor ?? inv.roomId}`, {
       description: `${inv.tenantName ?? "Penyewa"} · ${formatIDR(inv.total)} → draf WhatsApp terbuka.`,
     });
   };
@@ -1304,7 +1308,7 @@ export default function IndoKostPage() {
   const handleInvoiceCancel = (inv: Invoice) => {
     updateInvoices((prev) => prev.filter((i) => i.id !== inv.id));
     toast.warning(`Tagihan ${inv.id} dibatalkan`, {
-      description: `Kamar ${inv.roomId} · ${formatIDR(inv.total)} dihapus dari daftar.`,
+      description: `Kamar ${inv.roomNomor ?? inv.roomId} · ${formatIDR(inv.total)} dihapus dari daftar.`,
     });
     api.cancelInvoice(inv.id).catch((err: unknown) => {
       toast.error("Gagal membatalkan tagihan di database", { description: errMsg(err) });
@@ -1345,7 +1349,7 @@ export default function IndoKostPage() {
     const amount = room.invoice?.amount ?? 0;
     if (!digits) {
       toast.error("Nomor WhatsApp penyewa belum tersedia", {
-        description: `Kamar ${room.id} — lengkapi No. WhatsApp penghuni terlebih dahulu.`,
+        description: `Kamar ${roomNomor(room)} — lengkapi No. WhatsApp penghuni terlebih dahulu.`,
       });
       return;
     }
@@ -1356,7 +1360,7 @@ export default function IndoKostPage() {
     let body = fillWaTemplate(tpl, {
       nama: room.tenant?.name ?? "Penyewa",
       kos: settings.propertyProfile.nama,
-      kamar: room.id,
+      kamar: roomNomor(room),
       nominal: formatIDR(amount),
       tempo: (room.invoice?.dueLabel ?? "").replace("Tempo: ", ""),
       rekening: block,
@@ -1375,7 +1379,7 @@ export default function IndoKostPage() {
     const message = [body, BRAND_WA_FOOTER].join("\n\n");
     const waUrl = `${waLink(digits)}?text=${encodeURIComponent(message)}`;
     openExternal(waUrl);
-    toast.success(`Draf WhatsApp dibuka — Kamar ${room.id}`, {
+    toast.success(`Draf WhatsApp dibuka — Kamar ${roomNomor(room)}`, {
       description: `${room.tenant?.name ?? "Penyewa"} · ${formatIDR(amount)} → ${phone}`,
     });
   };
@@ -1409,6 +1413,7 @@ export default function IndoKostPage() {
         toast.info(`Kamar ${p.roomId} tidak ada di denah saat ini.`);
         return;
       }
+      const roomLabel = roomNomor(room);
       if (isHarian && (!p.tanggalCheckout || nights < 1 || !p.totalTagihan)) {
         toast.error("Rentang menginap belum valid", {
           description: "Tanggal check-out harus minimal 1 malam setelah check-in.",
@@ -1548,7 +1553,7 @@ export default function IndoKostPage() {
             : r,
         ),
       );
-      toast.success(`Kontrak Kamar ${room.id} diperpanjang +${months} bulan`, {
+      toast.success(`Kontrak Kamar ${roomNomor(room)} diperpanjang +${months} bulan`, {
         description: `${room.tenant?.name} · kontrak berakhir ${newEndDate} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
       });
       return;
@@ -1557,7 +1562,7 @@ export default function IndoKostPage() {
       .renewTenant(room.id, newEndDate)
       .then(({ room: updated }) => {
         updateRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
-        toast.success(`Kontrak Kamar ${room.id} diperpanjang +${months} bulan`, {
+        toast.success(`Kontrak Kamar ${roomNomor(room)} diperpanjang +${months} bulan`, {
           description: `${room.tenant?.name} · kontrak berakhir ${newEndDate}. Pengingat otomatis H-14 via WA.`,
         });
       })
@@ -1589,12 +1594,12 @@ export default function IndoKostPage() {
           dateSort: dateSortFromLabel(dateLabel),
           type: "keluar",
           category: "Refund Deposit",
-          description: `Refund deposit — ${tenantName} (Kamar ${room.id}) · ${payload.alasan}`,
+          description: `Refund deposit — ${tenantName} (Kamar ${roomNomor(room)}) · ${payload.alasan}`,
           amount: payload.refund,
         };
         updateCashEntries((prev) => [entry, ...prev]);
       }
-      toast.success(`Check-out Kamar ${room.id} diproses`, {
+      toast.success(`Check-out Kamar ${roomNomor(room)} diproses`, {
         description:
           payload.refund > 0
             ? `${tenantName} keluar (${payload.alasan}) · refund ${formatIDR(payload.refund)} tercatat di Buku Kas · tersimpan di sesi demo.`
@@ -1613,7 +1618,7 @@ export default function IndoKostPage() {
             .addCash({
               type: "keluar",
               category: "Refund Deposit",
-              description: `Refund deposit — ${tenantName} (Kamar ${room.id}) · ${payload.alasan}`,
+              description: `Refund deposit — ${tenantName} (Kamar ${roomNomor(room)}) · ${payload.alasan}`,
               amount: payload.refund,
               dateLabel,
               // Isolasi multi-cabang — kas masuk buku cabang yang dikelola
@@ -1625,7 +1630,7 @@ export default function IndoKostPage() {
             );
         }
 
-        toast.success(`Check-out Kamar ${room.id} diproses`, {
+        toast.success(`Check-out Kamar ${roomNomor(room)} diproses`, {
           description:
             payload.refund > 0
               ? `${tenantName} keluar (${payload.alasan}) · refund ${formatIDR(payload.refund)} tercatat di Buku Kas.`
@@ -2109,7 +2114,7 @@ export default function IndoKostPage() {
           ? "Kamar baru berhasil ditambahkan ke simulasi denah!"
           : `${newRooms.length} kamar baru berhasil ditambahkan ke simulasi denah!`,
         {
-          description: `${newRooms.map((r) => r.id).join(", ")} · ${newRooms[0]?.type ?? "Kamar"} · ${formatIDR(newRooms[0]?.price ?? 0)}/bln · status Kosong — tersimpan di sesi demo; dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+          description: `${newRooms.map((r) => roomNomor(r)).join(", ")} · ${newRooms[0]?.type ?? "Kamar"} · ${formatIDR(newRooms[0]?.price ?? 0)}/bln · status Kosong — tersimpan di sesi demo; dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
         },
       );
       return;
@@ -2133,7 +2138,7 @@ export default function IndoKostPage() {
         activeEntry?.name ?? settings.propertyProfile.nama,
         activeEntry?.tipe ?? settings.propertyProfile.tipe,
       )
-      .then(({ rooms: created, renamed }) => {
+      .then(({ rooms: created }) => {
         if (created.length === 0) {
           // Server 2xx tanpa satu pun kamar — JANGAN tampil toast sukses palsu
           // "0 kamar baru ditambahkan"; perlakukan sebagai kegagalan simpan.
@@ -2144,15 +2149,12 @@ export default function IndoKostPage() {
           return;
         }
         updateRooms((prev) => [...prev, ...created]);
-        // Nomor yang diubah otomatis server (dipakai kamar PROPERTI LAIN —
-        // tidak memblokir; kamar tetap dibuat dgn varian "A-1 (2)")
-        const renameNote = (renamed ?? [])
-          .map((r) => `nomor "${r.requested}" dipakai properti lain → disimpan sebagai "${r.stored}"`)
-          .join(" · ");
+        // Nomor kamar tersimpan PERSIS seperti diminta — tanpa penamaan otomatis
+        // "(2)"/"(3)" (nomor unik cukup per properti; duplikat ditolak server).
         toast.success(`${created.length} kamar baru ditambahkan`, {
-          description: `${created.map((r) => r.id).join(", ")} · ${created[0]?.type ?? newRooms[0].type} · ${formatIDR(
+          description: `${created.map((r) => roomNomor(r)).join(", ")} · ${created[0]?.type ?? newRooms[0].type} · ${formatIDR(
             created[0]?.price ?? newRooms[0].price,
-          )}/bln · status kosong · tersimpan ke cloud.${renameNote ? ` Catatan: ${renameNote}.` : ""}`,
+          )}/bln · status kosong · tersimpan ke cloud.`,
         });
         // Sinkronkan daftar properti switcher (jumlah kamar terbaru & baris
         // properti yang baru saja di-provision server) — senyap, non-kritis.
@@ -2229,7 +2231,10 @@ export default function IndoKostPage() {
   };
 
   const handleUpdateRoom = (room: Room, patch: RoomPatch) => {
-    const idChanged = patch.id !== room.id;
+    // "patch.id" = NOMOR/NAMA kamar baru (bukan kunci internal) — nomor kini
+    // MURNI tanpa suffix; identitas kamar (id) tetap sehingga tagihan, tiket &
+    // penghuni tidak perlu dinomori ulang.
+    const nomorChanged = patch.id !== roomNomor(room);
     const inDemo = instantDemo || isDemoSession;
 
     // MODE DEMO: perubahan kamar cukup di state lokal — dataset simulasi tidak
@@ -2240,7 +2245,8 @@ export default function IndoKostPage() {
           r.id === room.id
             ? {
                 ...r,
-                id: patch.id,
+                // id kunci TIDAK berubah — hanya nomor tampilan yang diperbarui
+                nomor: patch.id,
                 floor: patch.floor,
                 type: patch.type,
                 price: patch.price,
@@ -2250,18 +2256,9 @@ export default function IndoKostPage() {
             : r
         )
       );
-      // Renumber propagates to invoice & ticket datasets so nothing dangles
-      if (idChanged) {
-        updateInvoices((prev) =>
-          prev.map((i) => (i.roomId === room.id ? { ...i, roomId: patch.id } : i))
-        );
-        setTickets((prev) =>
-          prev.map((t) => (t.roomId === room.id ? { ...t, roomId: patch.id } : t))
-        );
-      }
-      toast.success(`Kamar ${room.id} diperbarui`, {
-        description: idChanged
-          ? `Nomor kamar berubah menjadi "${patch.id}" — tagihan & tiket ikut diperbarui (sesi demo).`
+      toast.success(`Kamar ${patch.id} diperbarui`, {
+        description: nomorChanged
+          ? `Nomor kamar berubah menjadi "${patch.id}" — tagihan, tiket & penghuni tetap tersambung otomatis (sesi demo).`
           : `${patch.type} · ${formatIDR(patch.price)}/bln · Lantai ${patch.floor} · tersimpan di sesi demo.`,
       });
       return;
@@ -2281,25 +2278,17 @@ export default function IndoKostPage() {
       })
       .then(({ rooms: [updated] }) => {
         if (updated) updateRooms((prev) => prev.map((r) => (r.id === room.id ? updated : r)));
-        if (idChanged) {
-          // Server meng-cascade perubahan id ke invoice & tiket (FK onUpdate) —
-          // state lokal ikut dinomori ulang agar denah konsisten.
-          updateInvoices((prev) =>
-            prev.map((i) => (i.roomId === room.id ? { ...i, roomId: patch.id } : i))
-          );
-          setTickets((prev) =>
-            prev.map((t) => (t.roomId === room.id ? { ...t, roomId: patch.id } : t))
-          );
-        }
-        toast.success(`Kamar ${patch.id} diperbarui`, {
-          description: idChanged
-            ? `Nomor kamar berubah menjadi "${patch.id}" — tagihan & tiket ikut diperbarui · tersimpan ke cloud.`
+        // Kunci id kamar tidak berubah — invoice/tiket/penghuni otomatis tetap
+        // tersambung; tidak ada penomoran ulang apa pun.
+        toast.success(`Kamar ${updated ? roomNomor(updated) : patch.id} diperbarui`, {
+          description: nomorChanged
+            ? `Nomor kamar berubah menjadi "${patch.id}" — tagihan, tiket & penghuni tetap tersambung otomatis · tersimpan ke cloud.`
             : `${patch.type} · ${formatIDR(patch.price)}/bln · Lantai ${patch.floor} · tersimpan ke cloud.`,
         });
       })
       .catch((err: unknown) =>
         toast.error("Gagal menyimpan ke server", {
-          description: `Perubahan Kamar ${room.id} belum masuk database — ${errMsg(err)}`,
+          description: `Perubahan Kamar ${roomNomor(room)} belum masuk database — ${errMsg(err)}`,
         }),
       );
   };
@@ -2321,7 +2310,7 @@ export default function IndoKostPage() {
       updateInvoices((prev) => prev.filter((i) => i.roomId !== room.id));
       if (selectedRoomId === room.id) setSelectedRoomId(null);
       if (manageRoomId === room.id) setManageRoomId(null);
-      toast.success(`Kamar ${room.id} dihapus`, {
+      toast.success(`Kamar ${roomNomor(room)} dihapus`, {
         description: `${room.type} (${formatIDR(room.price)}/bln) dikeluarkan dari denah & daftar tagihan di sesi demo.`,
       });
       return;
@@ -2333,12 +2322,12 @@ export default function IndoKostPage() {
       updateInvoices((prev) => prev.filter((i) => i.roomId !== room.id));
       if (selectedRoomId === room.id) setSelectedRoomId(null);
       if (manageRoomId === room.id) setManageRoomId(null);
-      toast.success(`Kamar ${room.id} dihapus`, {
+      toast.success(`Kamar ${roomNomor(room)} dihapus`, {
         description: `${room.type} (${formatIDR(room.price)}/bln) dihapus permanen dari database.`,
       });
     }).catch((err: unknown) =>
       toast.error("Gagal menyimpan ke server", {
-        description: `Kamar ${room.id} belum terhapus di database — ${errMsg(err)}`,
+        description: `Kamar ${roomNomor(room)} belum terhapus di database — ${errMsg(err)}`,
       }),
     );
   };
@@ -3156,10 +3145,10 @@ export default function IndoKostPage() {
         <AlertDialogContent className="sm:max-w-[420px]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-[15px]">
-              Hapus Kamar {confirmDeleteRoom?.id}?
+              Hapus Kamar {confirmDeleteRoom ? roomNomor(confirmDeleteRoom) : ""}?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-[12.5px] leading-5">
-              Kamar {confirmDeleteRoom?.id} — {confirmDeleteRoom?.type} ({formatIDR(
+              Kamar {confirmDeleteRoom ? roomNomor(confirmDeleteRoom) : ""} — {confirmDeleteRoom?.type} ({formatIDR(
                 confirmDeleteRoom?.price ?? 0
               )}
               /bln) akan dihapus permanen dari denah beserta tagihannya. Riwayat transaksi kas tetap

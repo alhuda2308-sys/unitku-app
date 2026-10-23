@@ -40,6 +40,11 @@ export const dynamic = "force-dynamic";
 
 const INVOICE_INCLUDE = { lines: { orderBy: { id: "asc" as const } } } satisfies Prisma.InvoiceInclude;
 
+/** Nomor kamar murni (tanpa suffix) — fallback id utk data lama/rusak */
+function nomorFallback(roomId: string, nomor?: string | null): string {
+  return nomor?.trim() || roomId;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser();
@@ -60,7 +65,20 @@ export async function GET(request: NextRequest) {
       include: INVOICE_INCLUDE,
       orderBy: [{ periodKey: "desc" }, { roomId: "asc" }],
     });
-    return NextResponse.json({ success: true, invoices: invoices.map(toClientInvoice) });
+    // Label kamar murni — kunci internal rooms.id tidak pernah ditampilkan
+    const roomIds = [...new Set(invoices.map((i) => i.roomId))];
+    const nomorById = new Map<string, string>();
+    if (roomIds.length > 0) {
+      const roomRows = await db.room.findMany({
+        where: { id: { in: roomIds } },
+        select: { id: true, nomor: true },
+      });
+      for (const r of roomRows) nomorById.set(r.id, r.nomor);
+    }
+    return NextResponse.json({
+      success: true,
+      invoices: invoices.map((i) => toClientInvoice(i, nomorFallback(i.roomId, nomorById.get(i.roomId)))),
+    });
   } catch (err) {
     // Kredensial database tidak terbaca / query gagal → JANGAN 500: dashboard
     // memperlakukan kegagalan muat awal sebagai mode offline fatal. Fail-open
@@ -123,6 +141,10 @@ export async function POST(request: NextRequest) {
       include: { tenant: true },
       orderBy: { id: "asc" },
     });
+    // Nomor murni per kamar — dipakai id invoice (rapi) & label respons
+    const nomorByRoomId = new Map<string, string>(
+      occupiedRooms.map((r) => [r.id, nomorFallback(r.id, r.nomor)]),
+    );
 
     // 2) Kamar yang sudah ditagih pada periode ini — anti duplikasi
     const existing = await db.invoice.findMany({
@@ -179,8 +201,9 @@ export async function POST(request: NextRequest) {
       const status = diffDays < 0 ? "menunggak" : "belumBayar";
       const dayOffset = diffDays < 0 ? -diffDays : null;
 
-      // ID unik — hindari tabrakan dgn arsip (#INV-202610-106, -2, -3, …)
-      const baseInvoiceId = `#INV-${periodKey.replace("-", "")}-${room.id}`;
+      // ID unik — hindari tabrakan dgn arsip (#INV-202610-106, -2, -3, …).
+      // Basis memakai NOMOR kamar (bukan kunci internal) agar id tetap rapi.
+      const baseInvoiceId = `#INV-${periodKey.replace("-", "")}-${nomorByRoomId.get(room.id) ?? room.id}`;
       let invoiceId = baseInvoiceId;
       let seq = 2;
       while (existingIds.has(invoiceId) || (await db.invoice.findUnique({ where: { id: invoiceId } }))) {
@@ -225,7 +248,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        created: created.map(toClientInvoice),
+        created: created.map((i) => toClientInvoice(i, nomorByRoomId.get(i.roomId) ?? i.roomId)),
         scanned: occupiedRooms.length,
         skipped: occupiedRooms.length - pendingRooms.length,
       },
@@ -330,7 +353,7 @@ export async function PATCH(request: NextRequest) {
             ];
             const total = lines.reduce((a, l) => a + l.amount, 0);
 
-            const baseInvoiceId = `#INV-${periodKey.replace("-", "")}-${room.id}`;
+            const baseInvoiceId = `#INV-${periodKey.replace("-", "")}-${nomorFallback(room.id, room.nomor)}`;
             let invoiceId = baseInvoiceId;
             let seq = 2;
             while (await db.invoice.findUnique({ where: { id: invoiceId }, select: { id: true } })) {
@@ -398,7 +421,11 @@ export async function PATCH(request: NextRequest) {
         data: { lines: { create: parsed }, total },
         include: INVOICE_INCLUDE,
       });
-      return NextResponse.json({ invoice: toClientInvoice(invoice) });
+      const nomorRow = await db.room.findUnique({
+        where: { id: invoice.roomId },
+        select: { nomor: true },
+      });
+      return NextResponse.json({ invoice: toClientInvoice(invoice, nomorFallback(invoice.roomId, nomorRow?.nomor)) });
     }
 
     // ── Mode B: ubah status (lunas / verifikasi) ────────────────────────────
@@ -441,7 +468,8 @@ export async function PATCH(request: NextRequest) {
           id: await nextCashId(),
           type: "masuk",
           category: "Sewa Kamar",
-          description: `Kamar ${invoice.roomId} · ${invoice.tenantName ?? "Penyewa"} — Sewa ${periodShortLabel(invoice.periodKey)}`,
+          // Deskripsi memakai NOMOR kamar murni — bukan kunci internal
+          description: `Kamar ${nomorFallback(room.id, room.nomor)} · ${invoice.tenantName ?? "Penyewa"} — Sewa ${periodShortLabel(invoice.periodKey)}`,
           amount: invoice.total,
           entryDate: new Date(),
           dateLabel,
@@ -454,7 +482,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     return NextResponse.json({
-      invoice: toClientInvoice(invoice),
+      invoice: toClientInvoice(invoice, nomorFallback(room.id, room.nomor)),
       room: toClientRoom(room),
       ...(cashEntryJson ? { cashEntry: cashEntryJson } : {}),
       ...(autoCreated ? { created: true } : {}),

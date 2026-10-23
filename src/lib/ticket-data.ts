@@ -33,8 +33,10 @@ export interface TicketContact {
 
 export interface Ticket {
   id: string; // "#TKT-041"
-  /** Kamar number for tenant-reported tickets ("102") — absent for facility tickets */
+  /** Kunci internal kamar — TIDAK untuk ditampilkan (lihat roomNomor) */
   roomId?: string;
+  /** Nomor kamar murni (tanpa suffix "(n)") utk label "Kamar …" — fallback roomId */
+  roomNomor?: string;
   /** Common-area location for facility maintenance tickets ("Area Parkir", …) */
   lokasi?: string;
   sumber: TicketSource;
@@ -127,10 +129,12 @@ export const TICKET_URGENSI_META: Record<
 export const TICKET_URGENSI: TicketUrgensi[] = ["rendah", "sedang", "darurat"];
 
 /** "Kamar 102" / "Area Parkir" — table & toasts use this for both sources */
-export function ticketSubject(ticket: Pick<Ticket, "sumber" | "roomId" | "lokasi">): string {
+export function ticketSubject(
+  ticket: Pick<Ticket, "sumber" | "roomId" | "roomNomor" | "lokasi">,
+): string {
   return ticket.sumber === "fasilitas"
     ? (ticket.lokasi ?? "Fasilitas Umum")
-    : `Kamar ${ticket.roomId ?? "—"}`;
+    : `Kamar ${ticket.roomNomor || ticket.roomId || "—"}`;
 }
 
 // ── On-call teknisi (used when a ticket has no assigned teknisi) ─────────────
