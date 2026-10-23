@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import Image from "next/image";
-import { ChevronsUpDown, DatabaseBackup, LayoutGrid, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, ShieldCheck, Smartphone, Users, Wallet, Wrench } from "lucide-react";
+import { Check, ChevronsUpDown, DatabaseBackup, LayoutGrid, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, ShieldCheck, Smartphone, Users, Wallet, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STAFF_ROLE_META, type StaffAccessRole } from "@/lib/staff-access";
 import { CloudSyncBadge } from "@/components/kost/cloud-sync-badge";
@@ -223,21 +223,41 @@ export function Sidebar({
                 )}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuLabel className="text-xs text-zinc-700">Properti Saya</DropdownMenuLabel>
+            <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuLabel className="text-xs text-zinc-700">
+                Properti Saya{properties.length > 1 ? ` — ${properties.length} cabang` : ""}
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {properties.map((p) => (
-                <DropdownMenuItem
-                  key={p.id}
-                  onClick={() => onPropertyChange(p.id)}
-                  className="justify-between text-[13px]"
-                >
-                  <span className="truncate">{p.name}</span>
-                  <span className="text-xs tabular-nums text-zinc-700">
-                    {p.unitCount} {PROPERTY_TYPE_META[p.type].unit}
-                  </span>
-                </DropdownMenuItem>
-              ))}
+              {properties.map((p) => {
+                const isActive = p.name === property;
+                return (
+                  <DropdownMenuItem
+                    key={p.id}
+                    onClick={() => onPropertyChange(p.id)}
+                    aria-current={isActive ? "true" : undefined}
+                    className={cn(
+                      "justify-between gap-2 text-[13px]",
+                      isActive && "bg-[var(--ik-accent-soft)] font-semibold text-zinc-900",
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {/* Tanda centang properti aktif — pola sama dgn kartu atas */}
+                      <Check
+                        className={cn(
+                          "size-3.5 shrink-0 text-emerald-600",
+                          !isActive && "invisible",
+                        )}
+                        strokeWidth={2.25}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 truncate" title={p.name}>{p.name}</span>
+                    </span>
+                    <span className="shrink-0 text-xs tabular-nums text-zinc-700">
+                      {p.unitCount} {PROPERTY_TYPE_META[p.type].unit}
+                    </span>
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
           )}

@@ -10,6 +10,7 @@ import {
   subscribeLeadsAlert,
 } from "@/lib/leads-alert-store";
 import {
+  ArrowLeftRight,
   BedDouble,
   Building2,
   Camera,
@@ -152,6 +153,13 @@ interface SettingsViewProps {
   tab: string;
   onTabChange: (tab: string) => void;
   settings: IndoKostSettings;
+  /** Daftar properti switcher GABUNGAN (DB + Pengaturan) — sumber tampilan
+   *  tabel "Daftar & Kelola Properti" agar seluruh properti (termasuk yang
+   *  hanya terdaftar di database) ikut tampil. Kosong → settings.properties. */
+  switcherProperties?: PropertyEntry[];
+  /** Beralih mengelola properti langsung dari tabel Pengaturan
+   *  (id ATAU nama) — tanpa lewat sidebar. */
+  onSwitchProperty?: (idOrName: string) => void;
   onUpdateSettings: (patch: Partial<IndoKostSettings>) => void;
   /** Ganti tema — server-first utk akun riil (Task 109 sinkron lintas
    *  perangkat); bila tidak diberikan, jatuh ke onUpdateSettings lokal. */
@@ -184,6 +192,8 @@ export function SettingsView({
   tab,
   onTabChange,
   settings,
+  switcherProperties,
+  onSwitchProperty,
   onUpdateSettings,
   onThemeChange,
   staffSession,
@@ -371,9 +381,14 @@ export function SettingsView({
           isDemoMode={isDemoMode}
         />
         <PropertiListTab
-          properties={settings.properties}
+          properties={
+            switcherProperties && switcherProperties.length > 0
+              ? switcherProperties
+              : settings.properties
+          }
           activeName={propertyName}
           onChange={(properties) => commitSettings({ properties })}
+          onSwitch={onSwitchProperty}
           isDemoMode={isDemoMode}
         />
         <StaffAccessTab
@@ -943,12 +958,15 @@ function PropertiListTab({
   properties,
   activeName,
   onChange,
+  onSwitch,
   isDemoMode,
 }: {
   properties: PropertyEntry[];
   activeName: string;
   /** Server-first — resolve true = tersimpan (cloud/sesi demo). */
   onChange: (properties: PropertyEntry[]) => Promise<boolean>;
+  /** Pilih & kelola properti ini langsung dari tabel (id ATAU nama). */
+  onSwitch?: (idOrName: string) => void;
   isDemoMode?: boolean;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
@@ -1041,7 +1059,7 @@ function PropertiListTab({
 
         {/* Desktop table */}
         <div className="hidden overflow-x-auto rounded-lg border border-border bg-white md:block">
-          <table className="w-full min-w-[640px] border-collapse text-[13px]">
+          <table className="w-full min-w-[720px] border-collapse text-[13px]">
             <caption className="sr-only">Daftar properti multi-cabang</caption>
             <thead>
               <tr>
@@ -1059,29 +1077,42 @@ function PropertiListTab({
                   <tr key={p.id} className="border-b border-border last:border-0 hover:bg-zinc-50/70">
                     <td className="max-w-[280px] py-2.5 pl-4 pr-3">
                       <p className="truncate font-semibold text-zinc-900">{p.name}</p>
-                      <p className="truncate text-[12.5px] text-zinc-700">{p.address || "Alamat belum diisi"}</p>
+                      <p className="max-w-[210px] truncate text-[12.5px] text-zinc-700">{p.address || "Alamat belum diisi"}</p>
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className="px-2.5 py-2.5">
                       <Badge variant="outline" className="h-5 border-zinc-200 bg-zinc-50 px-1.5 text-xs font-semibold text-zinc-600">
                         {PROPERTY_TYPE_META[p.type].label}
                       </Badge>
                     </td>
-                    <td className="px-3 py-2.5 text-center tabular-nums text-zinc-700">
+                    <td className="px-2.5 py-2.5 text-center tabular-nums text-zinc-700">
                       {p.unitCount} {PROPERTY_TYPE_META[p.type].unit}
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className="px-2.5 py-2.5">
                       {isActive ? (
-                        <span className="inline-flex h-5 items-center rounded-full bg-[var(--ik-accent)] px-2 text-xs font-semibold text-[var(--ik-accent-fg)]">
-                          Aktif — dikelola
+                        <span className="inline-flex h-5 items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-600 px-2 text-xs font-semibold text-white">
+                          <span className="size-1.5 rounded-full bg-emerald-200" aria-hidden="true" />
+                          Aktif Dikelola
                         </span>
                       ) : (
-                        <span className="inline-flex h-5 items-center rounded-full border border-border bg-zinc-50 px-2 text-xs font-medium text-zinc-700">
-                          Cadangan
+                        <span className="inline-flex h-5 items-center whitespace-nowrap rounded-full border border-zinc-200 bg-zinc-50 px-2 text-xs font-medium text-zinc-600">
+                          Tersimpan
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 pl-3 pr-4">
+                    <td className="py-2.5 pl-1.5 pr-3">
                       <div className="flex items-center justify-end gap-1">
+                        {!isActive && onSwitch && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onSwitch(p.id)}
+                            className="h-7 border-zinc-200 bg-white px-2 text-[12.5px] font-semibold text-zinc-800 shadow-none hover:bg-zinc-50"
+                            aria-label={`Pilih dan kelola ${p.name}`}
+                            title={`Pilih & kelola ${p.name} tanpa lewat sidebar`}
+                          >
+                            Kelola Ini
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1124,9 +1155,14 @@ function PropertiListTab({
                     <p className="truncate text-[13px] font-semibold text-zinc-900">{p.name}</p>
                     <p className="mt-0.5 truncate text-[12.5px] text-zinc-700">{p.address || "Alamat belum diisi"}</p>
                   </div>
-                  {isActive && (
-                    <span className="shrink-0 rounded-full bg-[var(--ik-accent)] px-2 py-0.5 text-xs font-semibold text-[var(--ik-accent-fg)]">
-                      Aktif
+                  {isActive ? (
+                    <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">
+                      <span className="size-1.5 rounded-full bg-emerald-200" aria-hidden="true" />
+                      Aktif Dikelola
+                    </span>
+                  ) : (
+                    <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-600">
+                      Tersimpan
                     </span>
                   )}
                 </div>
@@ -1139,6 +1175,16 @@ function PropertiListTab({
                   </span>
                 </div>
                 <div className="mt-2.5 flex items-center gap-2">
+                  {!isActive && onSwitch && (
+                    <Button
+                      onClick={() => onSwitch(p.id)}
+                      className="h-8 flex-1 bg-[var(--ik-accent)] px-2 text-[12.5px] font-semibold text-[var(--ik-accent-fg)] shadow-none hover:bg-[var(--ik-accent-hover)]"
+                      aria-label={`Pilih dan kelola ${p.name}`}
+                    >
+                      <ArrowLeftRight className="size-3" strokeWidth={1.75} />
+                      Kelola Ini
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     onClick={() => openEdit(p)}
@@ -1163,8 +1209,8 @@ function PropertiListTab({
         </div>
 
         <p className="rounded-md border border-border bg-zinc-50 px-3 py-2.5 text-[12.5px] leading-5 text-zinc-700">
-          Gunakan pemilih properti di sidebar untuk berpindah cabang yang sedang dikelola. Data kamar per cabang
-          mengikuti dataset aktif.
+          Gunakan pemilih properti di sidebar atau tombol “Kelola Ini” di atas untuk berpindah cabang yang sedang
+          dikelola — kamar, tagihan &amp; buku kas otomatis dimuat ulang sesuai properti terpilih.
         </p>
       </div>
 

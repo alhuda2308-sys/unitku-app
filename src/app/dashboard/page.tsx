@@ -1741,23 +1741,31 @@ export default function IndoKostPage() {
 
   // ── Pengaturan ─────────────────────────────────────────────────────────────
 
-  /** Daftar properti utk switcher (kartu atas & sidebar) — prioritas tabel
-   *  `properties` DATABASE (dgn jumlah kamar riil); fallback daftar Pengaturan
-   *  (sesi demo / offline). */
-  const switcherProperties: PropertyEntry[] = useMemo(
-    () =>
-      dbProperties.length > 0
-        ? dbProperties.map((p) => ({
-            id: p.id,
-            name: p.name,
-            type: (p.tipe in PROPERTY_TYPE_META ? p.tipe : "kost") as PropertyEntry["type"],
-            unitCount: p.roomCount,
-            address: p.alamat ?? "",
-            photoUrl: p.fotoUrl ?? undefined,
-          }))
-        : settings.properties,
-    [dbProperties, settings.properties],
-  );
+  /** Daftar properti utk switcher (sidebar & kartu atas) — GABUNGAN tabel
+   *  `properties` DATABASE (dgn jumlah kamar riil) + daftar Pengaturan
+   *  (owner_settings). Entri Pengaturan yang belum terdaftar di database
+   *  tetap tampil — tidak lagi tertimpa seluruhnya oleh daftar DB
+   *  (dedupe by id ATAU nama, DB menang utk entri yang sama). */
+  const switcherProperties: PropertyEntry[] = useMemo(() => {
+    if (dbProperties.length === 0) return settings.properties;
+    const fromDb: PropertyEntry[] = dbProperties.map((p) => ({
+      id: p.id,
+      name: p.name,
+      type: (p.tipe in PROPERTY_TYPE_META ? p.tipe : "kost") as PropertyEntry["type"],
+      unitCount: p.roomCount,
+      address: p.alamat ?? "",
+      photoUrl: p.fotoUrl ?? undefined,
+    }));
+    const extras = settings.properties.filter(
+      (s) =>
+        !fromDb.some(
+          (p) =>
+            p.id === s.id ||
+            p.name.trim().toLowerCase() === s.name.trim().toLowerCase(),
+        ),
+    );
+    return [...fromDb, ...extras];
+  }, [dbProperties, settings.properties]);
 
   /** Ganti properti aktif (dropdown kartu atas / pemilih sidebar) — kamar,
    *  tagihan & buku kas dimuat ULANG dari database sesuai propertyId terpilih.
@@ -2651,6 +2659,8 @@ export default function IndoKostPage() {
                 tab={settingsTab}
                 onTabChange={setSettingsTab}
                 settings={settings}
+                switcherProperties={switcherProperties}
+                onSwitchProperty={handleSwitchProperty}
                 onUpdateSettings={updateSettings}
                 onThemeChange={handleThemeChange}
                 dangerCounts={{
