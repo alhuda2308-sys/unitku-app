@@ -120,8 +120,8 @@ function MobileTenantCard({
   const dl = info?.dl;
   const soon = dl !== undefined && dl <= 30;
   // Status EFEKTIF kamar menang atas status tagihan (aturan global single
-  // source of truth): kamar yang dinamis MENUNGGAK (kontrak lewat tanpa
-  // pembayaran baru) TIDAK BOLEH tampil badge "Lunas" biru dari tagihan
+  // source of truth): kamar yang dinamis MENUNGGAK (kontrak lewat — aturan
+  // murni tanggal) TIDAK BOLEH tampil badge "Lunas" biru dari tagihan
   // bulan berjalan — owner harus melihat alarm yang sama di semua layar.
   const badge =
     room.status === "menunggak"

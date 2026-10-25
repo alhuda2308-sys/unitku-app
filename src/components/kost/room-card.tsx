@@ -80,9 +80,10 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
     (room.tenant?.moveInDate && room.tenant.moveInDate !== "—" ? room.tenant.moveInDate : "");
   const habisLabel = contractEndOf(room).label;
   /** Lewat tempo: status efektif "menunggak" — hari ini sudah melewati tanggal
-   *  habis kontrak tanpa pembayaran baru (dihitung terpusat di room-status.ts
-   *  oleh dashboard). Baris Habis tampil MERAH + sufiks "(Lewat Tempo)".
-   *  Kamar "jatuhTempo" (jendela H-3..H+0) belum lewat — tanpa sufiks ini. */
+   *  habis kontrak (dihitung terpusat di room-status.ts oleh dashboard, aturan
+   *  murni tanggal — tanpa pengecualian pembayaran). Baris Habis tampil MERAH +
+   *  sufiks "(Lewat Tempo)". Kamar "jatuhTempo" (jendela H-3..H+0) belum lewat
+   *  — tanpa sufiks ini. */
   const isLewatTempo = !isVacant && room.status === "menunggak" && isContractPastEnd(room);
   const vacantLabel =
     op === "siap" ? (

@@ -83,6 +83,7 @@ import {
   type TenantProfilePayload,
 } from "@/lib/kost-data";
 import { useEffectiveRooms } from "@/hooks/use-effective-rooms";
+import { isContractPastEnd } from "@/lib/room-status";
 import {
   INVOICES,
   buildBillingWaMessage,
@@ -260,14 +261,14 @@ export default function IndoKostPage() {
   // ── Status kamar DINAMIS — SINGLE SOURCE OF TRUTH (src/lib/room-status.ts) ──
   // HOOK UTAMA penampil data kamar (hooks/use-effective-rooms): status database
   // TIDAK dipercaya mentah-mentah — status efektif dihitung realtime dari
-  // selisih hari ini vs tanggal habis kontrak + pembayaran tagihan baru
-  // (H-3..H+0 → jatuh tempo kuning; lewat → menunggak merah). Berlaku UNIVERSAL
-  // untuk semua jenis akun (Admin/Pemilik/Staf/Demo) & semua properti. Hasilnya
-  // dipakai SEMUA permukaan penampil status — kartu denah, kartu statistik,
-  // tab filter, drawer, direktori penghuni, pratinjau portal & mirror —
-  // sehingga kamar 01-01 yang kontraknya lewat PASTI tampil menunggak di
-  // semuanya sekaligus, tanpa menunggu sinkron server (mode demo pun akurat).
-  const effectiveRooms = useEffectiveRooms(rooms, invoices);
+  // selisih hari ini vs tanggal habis kontrak (H-3..H+0 → jatuh tempo kuning;
+  // lewat → menunggak merah, TANPA kecuali pembayaran). Berlaku UNIVERSAL
+  // untuk semua jenis akun (Admin/Pemilik/Staf/Demo) & semua properti, demo
+  // maupun Supabase. "Hari ini" mengikuti ticker pergantian tanggal — dashboard
+  // yang dibiarkan terbuka melewati tengah malam bergeser statusnya sendiri
+  // (kartu denah, kartu statistik, tab filter, drawer, direktori penghuni,
+  // pratinjau portal & mirror) tanpa reload.
+  const effectiveRooms = useEffectiveRooms(rooms);
   const [tickets, setTickets] = useState<Ticket[]>(() =>
     // Mock TIDAK PERNAH tampil utk akun riil — hanya sesi demo (?demo=1);
     // akun riil mulai kosong lalu diisi dari database (empty state bila 0).
@@ -1120,7 +1121,9 @@ export default function IndoKostPage() {
         ? prev.map((i) => (i.id === inv.id ? paidInvoice : i))
         : [paidInvoice, ...prev],
     );
-    // Kartu kamar: badge hijau "Lunas" + hilangkan tanda H+n/H-n pada tempo
+    // Kartu kamar: status dasar "lunas" (cermin server). Kartu Denah tetap
+    // mengikuti derivasi dinamis — bila kontrak sudah lewat, kartu TETAP
+    // "Menunggak" (aturan murni tanggal) sampai kontrak diperpanjang.
     updateRooms((prev) =>
       prev.map((r) =>
         r.id === roomId
@@ -1496,9 +1499,10 @@ export default function IndoKostPage() {
         total: invoiceTotal,
         status: "lunas",
         // Pembayaran pertama = saat check-in (tanggal masuk), BUKAN hari ini —
-        // check-in mundur tidak boleh dianggap "pembayaran baru" oleh kalkulasi
-        // status dinamis (room-status.ts) — cek shield jadi tidak melindungi
-        // kamar yang kontraknya sudah lewat (kasus kamar lewat tempo 01-01).
+        // label paidAt yang jujur menjaga arsip & kwitansi WA akurat. Status
+        // kamar dinamis (room-status.ts) murni tanggal: kontrak yang lewat
+        // tetap tampil "Menunggak" apa pun pembayaran — sampai kontrak
+        // diperpanjang (Perpanjang Sewa) atau penghuni check-out.
         paidAt: moveInLabel,
         ...(isHarian
           ? { checkIn: moveInLabel, checkOut: checkOutLabel, nights }
@@ -1591,13 +1595,22 @@ export default function IndoKostPage() {
   const handleRenew = (room: Room, newEndDate: string, months: number) => {
     // MODE DEMO: perpanjangan kontrak cukup di state lokal — dataset simulasi
     // tidak ada di database; PATCH /api/tenants hanya memicu toast merah.
+    // Alarm "Jatuh Tempo/Menunggak" yang bersumber dari kontrak lama yang
+    // kedaluwarsa ikut dinonaktifkan (kamar kembali Lunas) — cermin perilaku
+    // PATCH /api/tenants di server.
     if (instantDemo || isDemoSession) {
       updateRooms((prev) =>
-        prev.map((r) =>
-          r.id === room.id && r.contract
-            ? { ...r, contract: { ...r.contract, endDate: newEndDate } }
-            : r,
-        ),
+        prev.map((r) => {
+          if (r.id !== room.id || !r.contract) return r;
+          const alarmFromExpired =
+            (r.status === "menunggak" || r.status === "jatuhTempo") &&
+            isContractPastEnd(r, new Date());
+          return {
+            ...r,
+            status: alarmFromExpired ? "lunas" : r.status,
+            contract: { ...r.contract, endDate: newEndDate },
+          };
+        }),
       );
       toast.success(`Kontrak Kamar ${roomNomor(room)} diperpanjang +${months} bulan`, {
         description: `${room.tenant?.name} · kontrak berakhir ${newEndDate} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,

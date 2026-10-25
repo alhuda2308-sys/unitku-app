@@ -295,6 +295,17 @@ export function RoomDrawer({
                       </Button>
                     </div>
                     )}
+                    {/* Alarm kontrak murni tanggal (room-status.ts) — pembayaran
+                        tidak menghapusnya. Panduan eksplisit agar pemilik tidak
+                        menyangka app rusak saat kartu tetap merah setelah lunas. */}
+                    {canManage && (room.status === "menunggak" || room.status === "jatuhTempo") && (
+                      <p className="mt-2 text-[11.5px] leading-4 text-zinc-500">
+                        Status kamar mengikuti masa kontrak (otomatis per tanggal). Menandai
+                        lunas tidak mengubah alarm — gunakan{" "}
+                        <span className="font-semibold text-zinc-700">Perpanjang Sewa</span> agar
+                        kamar kembali Lunas.
+                      </p>
+                    )}
                   </SectionCard>
 
                   {/* Contract — room.contract opsional (penyewa lama/kamar

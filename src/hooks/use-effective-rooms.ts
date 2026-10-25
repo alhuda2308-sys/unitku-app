@@ -9,48 +9,102 @@
 // denormalisasi / dataset statis). Status efektif DIHITUNG realtime dari:
 //   • contract_end_date (atau fallback kanonik masuk + 1 siklus sewa)
 //   • selisih terhadap HARI INI (tengah malam lokal, stabil lintas zona waktu)
-//   • pembayaran tagihan terakhir (shield alarm palsu — periode baru dibayar)
 //
 // Klasifikasi (aturan di src/lib/room-status.ts — dipakai bersama server):
-//   lewat tanggal habis (diffDays > 0 vs today-endDate) → "menunggak"
-//   H-3 s.d. H+0                                        → "jatuhTempo"
-//   masa sewa aman                                       → "lunas" (status dasar)
-//   kosong / tanpa tanggal habis                         → status dasar
+//   lewat tanggal habis (today > endDate) → "menunggak"  — TANPA kecuali
+//   H-3 s.d. H+0                          → "jatuhTempo"
+//   masa sewa aman                         → status dasar (lunas)
+//   kosong / tanpa tanggal habis           → status dasar
+//
+// ── Update OTOMATIS saat tanggal berganti ────────────────────────────────────
+// "Hari ini" TIDAK dibekukan seumur halaman: ticker modul memeriksa kalender
+// tiap 30 detik + instan saat tab kembali terlihat/fokus. Saat tanggal
+// berganti (melewati tengah malam jatuh tempo), `now` dihitung ulang →
+// seluruh status, kartu statistik & tab filter bergeser sendiri TANPA reload
+// — laporan pemilik: "harusnya update otomatis ketika tanggal melewati jatuh
+// tempo". Pembedaan hari memakai key string sehingga re-render hanya terjadi
+// sekali per pergantian tanggal, bukan tiap interval.
 //
 // Konsumen wajib memakai hasil hook ini untuk SEMUA permukaan yang menampilkan
 // status kamar (denah, kartu statistik, tab filter, direktori penghuni, portal
 // mirror, dsb.) — kamar kontraknya lewat MUSTAHIL tampil "Lunas" di mana pun.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import type { Room } from "@/lib/kost-data";
-import {
-  deriveRoomStatuses,
-  lastPaymentDates,
-  type PaymentDated,
-} from "@/lib/room-status";
+import { deriveRoomStatuses } from "@/lib/room-status";
+
+// ── Ticker pergantian tanggal (modul-level — satu interval utk semua konsumen)
+
+const DAY_TICK_MS = 30_000;
+
+let dayKeyCache = "";
+let tickTimer: ReturnType<typeof setInterval> | null = null;
+const dayListeners = new Set<() => void>();
+
+/** Key kalender lokal "YYYY-M-D" — berubah tepat saat tanggal berganti. */
+function currentDayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function checkDayRollover(): void {
+  const next = currentDayKey();
+  if (next !== dayKeyCache) {
+    dayKeyCache = next;
+    dayListeners.forEach((l) => l());
+  }
+}
+
+function subscribeDayTicker(listener: () => void): () => void {
+  dayListeners.add(listener);
+  if (dayListeners.size === 1 && typeof window !== "undefined") {
+    dayKeyCache = currentDayKey();
+    tickTimer = setInterval(checkDayRollover, DAY_TICK_MS);
+    // Tab yang sempat ditidurkan (HP ketiduran / laptop sleep) harus menangkap
+    // pergantian tanggal SEGERA saat dibuka kembali — bukan menunggu tick.
+    document.addEventListener("visibilitychange", checkDayRollover);
+    window.addEventListener("focus", checkDayRollover);
+  }
+  return () => {
+    dayListeners.delete(listener);
+    if (dayListeners.size === 0 && tickTimer !== null) {
+      clearInterval(tickTimer);
+      tickTimer = null;
+      document.removeEventListener("visibilitychange", checkDayRollover);
+      window.removeEventListener("focus", checkDayRollover);
+    }
+  };
+}
+
+function getDayKeySnapshot(): string {
+  return dayKeyCache;
+}
+
+/** Snapshot server: kosong — identik dgn render klien pertama (anti hidrasi). */
+function getServerDayKeySnapshot(): string {
+  return "";
+}
 
 /**
  * Kamar berstatus EFEKTIF (dinamis berbasis tanggal kontrak vs hari ini).
  *
- * @param rooms    kamar aktif properti terpilih — mentah dari demo (demoData)
- *                 maupun cloud (Supabase `rooms` + `tenants`)
- * @param invoices daftar tagihan klien (label paidAt Indonesia) — sumber shield
+ * @param rooms kamar aktif properti terpilih — mentah dari demo (demoData)
+ *              maupun cloud (Supabase `rooms` + `tenants`)
+ * @param today taruh hanya untuk pengujian; produksi mengikuti ticker hari
  * @returns array BARU immutable; kamar tak berubah dipakai ulang referensinya
- *          agar memo/React aman. Taruh `today` hanya untuk pengujian.
+ *          agar memo/React aman
  */
-export function useEffectiveRooms(
-  rooms: Room[],
-  invoices: PaymentDated[],
-  today?: Date,
-): Room[] {
-  // "Hari ini" dibekukan per commit render (bukan per kamar) supaya seluruh
-  // permukaan dalam satu frame memakai tanggal yang sama — tidak ada flicker
-  // klasifikasi saat lintas tengah malam.
-  const now = useMemo(() => today ?? new Date(), [today]);
-  const payments = useMemo(() => lastPaymentDates(invoices), [invoices]);
-  return useMemo(
-    () => deriveRoomStatuses(rooms, now, payments),
-    [rooms, now, payments],
+export function useEffectiveRooms(rooms: Room[], today?: Date): Room[] {
+  // Berubah sekali per pergantian tanggal (atau saat tab fokus ulang) —
+  // pemicu tunggal recompute status di seluruh dashboard.
+  const dayKey = useSyncExternalStore(
+    subscribeDayTicker,
+    getDayKeySnapshot,
+    getServerDayKeySnapshot,
   );
+  // "Hari ini" konsisten utk seluruh kamar dalam satu frame — tidak ada
+  // flicker klasifikasi; dibekukan per-hari, bukan per-render.
+  const now = useMemo(() => today ?? new Date(), [today, dayKey]);
+  return useMemo(() => deriveRoomStatuses(rooms, now), [rooms, now]);
 }

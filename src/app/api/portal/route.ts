@@ -64,15 +64,10 @@ export async function GET(request: NextRequest) {
     const clientRoom = toClientRoom(roomWithTenant);
     // ── Status EFEKTIF DINAMIS (aturan global — satu sumber dgn dashboard) ──
     // Status kolom database TIDAK dikirim mentah ke portal publik: dihitung
-    // ulang dari hari ini vs tanggal habis kontrak (H-3..H+0 → jatuh tempo;
-    // lewat → menunggak, kecuali ada pembayaran tagihan baru). Penyewa dgn
-    // kontrak basi TIDAK MUNGKIN melihat status "Lunas" palsu di portal-nya.
-    let lastPaidAt: Date | null = null;
-    for (const inv of invoices) {
-      if (inv.status !== "lunas" || !inv.paidAt) continue;
-      if (!lastPaidAt || inv.paidAt > lastPaidAt) lastPaidAt = inv.paidAt;
-    }
-    clientRoom.status = deriveRoomStatus(clientRoom, new Date(), lastPaidAt);
+    // ulang MURNI dari hari ini vs tanggal habis kontrak (H-3..H+0 → jatuh
+    // tempo; lewat → menunggak, TANPA kecuali pembayaran). Penyewa dgn kontrak
+    // basi TIDAK MUNGKIN melihat status "Lunas" palsu di portal-nya.
+    clientRoom.status = deriveRoomStatus(clientRoom, new Date());
 
     return NextResponse.json(
       {

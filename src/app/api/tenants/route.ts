@@ -189,10 +189,10 @@ export async function POST(request: NextRequest) {
       dueDate: moveIn,
       status: "lunas",
       // Pembayaran pertama terjadi SAAT CHECK-IN (= tanggal masuk), bukan hari
-      // eksekusi API — check-in mundur (penghuni lama didata, masuk berbulan-bulan
-      // lalu) tidak boleh tercatat "membayar hari ini", yang keliru membuat cek
-      // "sudah ada pembayaran baru" pada kalkulasi status dinamis kamar
-      // (room-status.ts) melindungi kamar yang kontraknya sudah lewat.
+      // eksekusi API — check-in mundur (penghuni lama didata, masuk berbulan-
+      // bulan lalu) tidak boleh tercatat "membayar hari ini" agar arsip &
+      // kwitansi WA tetap jujur. Status kamar dinamis (room-status.ts) murni
+      // tanggal: kontrak lewat tetap tampil "Menunggak" apa pun paidAt.
       paidAt: moveIn,
       total: isHarian ? totalHarian : Math.round(totalPerBulan),
       checkIn: isHarian ? moveIn : null,
@@ -303,6 +303,20 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: "Format tanggal kontrak tidak valid." }, { status: 400 });
       }
       data.contractEnd = parsed;
+      // Perpanjangan kontrak menonaktifkan alarm "Jatuh Tempo/Menunggak" yang
+      // bersumber dari kontrak LAMA yang sudah kedaluwarsa — kamar kembali
+      // "lunas" (aksi eksplisit pemilik, bukan penurunan otomatis). Tunggakan
+      // nyata periode baru tetap bisa ditandai lewat Tagihan; sinkron dinamis
+      // (room-status-sync) kembali menaikkan status bila kontrak berikutnya
+      // benar-benar lewat. Tanpa ini, kamar yang diperpanjang tetap merah
+      // selamanya meski kontraknya sudah sehat ke depan.
+      if (
+        (room.status === "menunggak" || room.status === "jatuhTempo") &&
+        room.contractEnd &&
+        room.contractEnd.getTime() <= Date.now()
+      ) {
+        data.status = "lunas";
+      }
     }
     if (Number.isFinite(Number(body.deposit))) data.deposit = Math.max(0, Math.round(Number(body.deposit)));
 

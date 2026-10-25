@@ -10,21 +10,26 @@
 // hasil derivasi klien. SPLIT-BRAIN.
 //
 // Solusi: status efektif TIDAK dibaca mentah dari database, melainkan DIHITUNG
-// dari selisih hari ini terhadap tanggal habis kontrak + pembayaran tagihan
-// baru. Satu fungsi inti (deriveStatusFromContract) dipakai bersama oleh:
+// MURNI dari selisih hari ini terhadap tanggal habis kontrak. Satu fungsi
+// inti (deriveStatusFromContract) dipakai bersama oleh:
 //   • Klien  — dashboard (kartu denah, kartu statistik, tab filter, drawer)
 //   • Server — room-status-sync (persist best-effort saat GET /api/rooms)
 //
-// ── Aturan status dinamis ─────────────────────────────────────────────────────
+// ── Aturan status dinamis (murni tanggal — TANPA pengecualian pembayaran) ─────
 //   kosong                        → kosong (tidak pernah disentuh)
 //   tanpa tanggal habis           → status dasar (tidak bisa dihitung)
 //   H-3 s.d. H+0                  → "jatuhTempo" (kuning — segera jatuh tempo)
 //   hari ini > habis kontrak      → "menunggak" (merah — lewat tempo)
-//       kecuali status dasar "lunas" DAN sudah ada pembayaran tagihan baru
-//       (invoice lunas pada/setelah tanggal habis kontrak) → tetap "lunas"
-//       (pemilik menerima pembayaran periode baru namun belum memperpanjang
-//       kontrak — jangan bunyikan alarm palsu)
 //   masa depan di luar jendela H  → status dasar
+//
+// PENTING (keputusan produk 25 Okt 2026 — laporan pemilik akun riil):
+// pembayaran tagihan baru TIDAK lagi menahan alarm. Kontrak yang lewat tanggal
+// habisnya WAJIB tampil berbeda warna ("harusnya update otomatis ketika
+// tanggal melewati jatuh tempo harus ada pembeda warna") — invoice baru-lunas
+// tidak memperpanjang kontrak; alarm hilang hanya lewat Perpanjang Sewa
+// (menyetel status kembali "lunas" — lihat PATCH /api/tenants) atau check-out.
+// Ini menghapus "shield" pembayaran versi lama yang membuat kamar kontraknya
+// lewat tetap tampil "Lunas" tanpa batas waktu.
 //
 // Status hanya pernah NAIK otomatis (lunas → jatuhTempo → menunggak);
 // "menunggak" eksplisit dari pemilik tidak pernah diturunkan otomatis di
@@ -116,48 +121,32 @@ export function contractDaysLeft(contractEnd: Date, today: Date): number {
 
 /**
  * ── INTI ATURAN STATUS DINAMIS (satu untuk klien & server) ───────────────────
+ * Murni fungsi tanggal — TANPA pengecualian pembayaran (lihat header modul):
+ * kamar yang kontraknya lewat SELALU "menunggak", apa pun riwayat bayarnya.
  *
  * @param base          status tersimpan di database (tidak dipercaya mentah)
  * @param contractEnd   tanggal habis kontrak (Date apa pun — dinormalisasi)
  * @param today         hari ini
- * @param lastPaymentAt tanggal pembayaran tagihan terakhir (invoice lunas),
- *                      null bila belum pernah membayar
  * @returns status efektif yang HARUS tampil di seluruh UI
  */
 export function deriveStatusFromContract(
   base: RoomStatus,
   contractEnd: Date | null,
   today: Date,
-  lastPaymentAt?: Date | null,
 ): RoomStatus {
   if (base === "kosong" || !contractEnd) return base;
   const daysLeft = contractDaysLeft(contractEnd, today);
   // H-3 s.d. H+0 → segera jatuh tempo (kuning)
   if (daysLeft >= 0 && daysLeft <= DUE_SOON_DAYS) return "jatuhTempo";
-  // Hari ini > tanggal habis kontrak → lewat tempo
-  if (daysLeft < 0) {
-    if (
-      base === "lunas" &&
-      lastPaymentAt &&
-      midnightLocal(lastPaymentAt).getTime() >= midnightLocal(contractEnd).getTime()
-    ) {
-      // Pembayaran periode baru sudah masuk (pada/setelah tanggal habis) —
-      // pemilik belum sempat memperpanjang kontrak → tetap Lunas, tanpa alarm.
-      return "lunas";
-    }
-    return "menunggak";
-  }
+  // Hari ini > tanggal habis kontrak → lewat tempo (merah) — TANPA kecuali
+  if (daysLeft < 0) return "menunggak";
   // Masa depan di luar jendela → status dasar dipertahankan
   return base;
 }
 
 /** Status efektif satu kamar — membaca tanggal habis dari objek Room (label). */
-export function deriveRoomStatus(
-  room: Room,
-  today: Date = new Date(),
-  lastPaymentAt?: Date | null,
-): RoomStatus {
-  return deriveStatusFromContract(room.status, contractEndOf(room).date, today, lastPaymentAt);
+export function deriveRoomStatus(room: Room, today: Date = new Date()): RoomStatus {
+  return deriveStatusFromContract(room.status, contractEndOf(room).date, today);
 }
 
 /** true bila kontrak kamar SUDAH LEWAT tanggal habisnya — dasar penanda
@@ -169,37 +158,9 @@ export function isContractPastEnd(room: Room, today: Date = new Date()): boolean
 
 /** Versi massal — kamar → kamar berstatus efektif (array baru, immutable;
  *  kamar yang tidak berubah dipakai ulang referensinya agar memo aman). */
-export function deriveRoomStatuses(
-  rooms: Room[],
-  today: Date = new Date(),
-  lastPayments?: Map<string, Date>,
-): Room[] {
+export function deriveRoomStatuses(rooms: Room[], today: Date = new Date()): Room[] {
   return rooms.map((r) => {
-    const next = deriveRoomStatus(r, today, lastPayments?.get(r.id) ?? null);
+    const next = deriveRoomStatus(r, today);
     return next === r.status ? r : { ...r, status: next };
   });
-}
-
-/** Bentuk minimum invoice yang dibutuhkan — cocok dgn Invoice kost-invoices. */
-export interface PaymentDated {
-  roomId: string;
-  status: string;
-  paidAt?: string | null;
-}
-
-/**
- * Tanggal pembayaran tagihan TERAKHIR per kamar (invoice lunas, paidAt label
- * Indonesia) — sumber cek "belum ada pembayaran baru" pada aturan dinamis di
- * sisi klien. Label kosong/tak valid diabaikan.
- */
-export function lastPaymentDates(invoices: PaymentDated[]): Map<string, Date> {
-  const map = new Map<string, Date>();
-  for (const inv of invoices) {
-    if (inv.status !== "lunas" || !inv.paidAt) continue;
-    const d = parseDateLabel(inv.paidAt);
-    if (Number.isNaN(d.getTime())) continue;
-    const prev = map.get(inv.roomId);
-    if (prev === undefined || d.getTime() > prev.getTime()) map.set(inv.roomId, d);
-  }
-  return map;
 }
