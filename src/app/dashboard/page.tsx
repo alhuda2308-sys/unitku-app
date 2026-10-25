@@ -1604,7 +1604,9 @@ export default function IndoKostPage() {
       );
   };
 
-  const handleRenew = (room: Room, newEndDate: string, months: number) => {
+  /** durationLabel: "+6 bulan" / "+15 hari" (durasi kustom atur bebas) /
+   *  "hingga {tgl}" (tanggal akhir manual) — hanya utk teks toast. */
+  const handleRenew = (room: Room, newEndDate: string, durationLabel: string) => {
     // MODE DEMO: perpanjangan kontrak cukup di state lokal — dataset simulasi
     // tidak ada di database; PATCH /api/tenants hanya memicu toast merah.
     // Alarm "Jatuh Tempo/Menunggak" yang bersumber dari kontrak lama yang
@@ -1624,7 +1626,7 @@ export default function IndoKostPage() {
           };
         }),
       );
-      toast.success(`Kontrak Kamar ${roomNomor(room)} diperpanjang +${months} bulan`, {
+      toast.success(`Kontrak Kamar ${roomNomor(room)} diperpanjang ${durationLabel}`, {
         description: `${room.tenant?.name} · kontrak berakhir ${newEndDate} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
       });
       return;
@@ -1633,7 +1635,7 @@ export default function IndoKostPage() {
       .renewTenant(room.id, newEndDate)
       .then(({ room: updated }) => {
         updateRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
-        toast.success(`Kontrak Kamar ${roomNomor(room)} diperpanjang +${months} bulan`, {
+        toast.success(`Kontrak Kamar ${roomNomor(room)} diperpanjang ${durationLabel}`, {
           description: `${room.tenant?.name} · kontrak berakhir ${newEndDate}. Pengingat otomatis H-14 via WA.`,
         });
       })
@@ -3219,11 +3221,13 @@ export default function IndoKostPage() {
 
       {/* Perpanjang Sewa — aksi cepat menu kebab kartu Denah Kamar. Modal
           otomatis menampilkan nama penyewa, nomor kamar, tarif & tanggal
-          berakhir kontrak aktif; opsi durasi +1/+2/+3/+6/+12 bulan (bisa
-          disetel manual). Simpan → PATCH /api/tenants (akun riil) atau state
-          demo lokal → contract_end_date terbarui & denah berubah REALTIME
-          tanpa reload (updateRooms → useEffectiveRooms menghitung ulang
-          status kartu, statistik & tab filter). */}
+          berakhir kontrak aktif; opsi durasi +1/+2/+3/+6/+12 bulan + ATUR
+          BEBAS (durasi kustom bulan/hari dgn kalkulasi dua arah — input
+          durasi → tanggal terisi otomatis, edit datepicker → durasi dihitung
+          mundur; ringkasan realtime). Simpan → PATCH /api/tenants (akun
+          riil) atau state demo lokal → contract_end_date terbarui & denah
+          berubah REALTIME tanpa reload (updateRooms → useEffectiveRooms
+          menghitung ulang status kartu, statistik & tab filter). */}
       <RenewDialog
         key={`renew-card-${renewCardRoomId ?? "none"}`}
         room={renewCardRoom}
@@ -3231,7 +3235,7 @@ export default function IndoKostPage() {
         onOpenChange={(o) => {
           if (!o) setRenewCardRoomId(null);
         }}
-        onSubmit={(room, end, months) => handleRenew(room, end, months)}
+        onSubmit={(room, end, dur) => handleRenew(room, end, dur)}
       />
 
       {/* Kebab delete confirmation */}

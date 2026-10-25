@@ -42,7 +42,8 @@ interface PenghuniViewProps {
   invoices: Invoice[];
   query: string;
   onQueryChange: (q: string) => void;
-  onRenew: (room: Room, newEndDate: string, months: number) => void;
+  /** durationLabel: "+6 bulan" / "+15 hari" (durasi kustom) / "hingga {tgl}" */
+  onRenew: (room: Room, newEndDate: string, durationLabel: string) => void;
   onCheckout: (room: Room, payload: CheckoutPayload) => void;
   /** Edit Data Penghuni — simpan profil penyewa (termasuk kolom kustom) */
   onEditTenant: (room: Room, payload: TenantProfilePayload) => void;
@@ -574,7 +575,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
         onOpenChange={(o) => {
           if (!o) setRenewRoomId(null);
         }}
-        onSubmit={(room, end, months) => onRenew(room, end, months)}
+        onSubmit={(room, end, dur) => onRenew(room, end, dur)}
       />
       <TenantEditDialog
         key={`edit-${editRoomId ?? "none"}`}

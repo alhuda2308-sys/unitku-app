@@ -305,13 +305,16 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
   );
 }
 
-/** Shared helper: next contract end date from an existing end (or cycle end).
- *  Kontrak rolling (tanpa endDate) → basis HARI INI — tanggal masuk lama pada
- *  kontrak rolling bukan dasar perpanjangan yang sehat (derivasinya basi);
- *  perpanjangan menyelamatkan dari alarm menunggak dgn masa sewa baru mulai
- *  hari aksi. Kontrak dgn endDate eksplisit tetap melanjutkan dari endDate. */
-export function nextEndDate(room: Room, months: number): string {
+/** Shared helper: tanggal DASAR perpanjangan — endDate eksplisit kontrak, atau
+ *  HARI INI utk kontrak rolling (tanggal masuk lama pada kontrak rolling bukan
+ *  dasar perpanjangan yang sehat — derivasinya basi; perpanjangan menyelamatkan
+ *  dari alarm menunggak dgn masa sewa baru mulai hari aksi). */
+export function renewBaseDate(room: Room): Date {
   const explicit = room.contract?.endDate?.trim();
-  const base = explicit ? parseDateLabel(explicit) : new Date();
-  return dateToLabel(addMonths(base, months));
+  return explicit ? parseDateLabel(explicit) : new Date();
+}
+
+/** Shared helper: next contract end date from an existing end (or cycle end). */
+export function nextEndDate(room: Room, months: number): string {
+  return dateToLabel(addMonths(renewBaseDate(room), months));
 }
