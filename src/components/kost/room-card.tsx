@@ -10,14 +10,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
-  addMonths,
-  dateToLabel,
   formatIDR,
   OPERATIONAL_META,
-  parseDateLabel,
   roomNomor,
   type Room,
 } from "@/lib/kost-data";
+import { contractEndOf, isContractPastEnd } from "@/lib/room-status";
 import { isVillaType } from "@/lib/app-settings";
 import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { StatusBadge, STATUS_SKIN } from "./status-badge";
@@ -38,33 +36,6 @@ interface RoomCardProps {
   propertyType?: string;
 }
 
-/** Durasi kontrak → panjang 1 siklus sewa dalam bulan (aturan sama dgn check-in:
- *  "Per 3 Bulan"→3, "Tahunan"→12, selain itu bulanan). */
-const DURATION_MONTHS: Record<string, number> = {
-  "Per 3 Bulan": 3,
-  "Tahunan": 12,
-};
-
-/**
- * Turunkan label "Habis" dari tanggal masuk + 1 siklus sewa — aturan kanonik
- * yang sama dipakai check-in saat mengunci rooms.contractEnd (Bulanan→+1 bln,
- * dst.; Harian→+1 hari). Data kontrak lama tanpa endDate tetap tampil baris
- * "Habis:" di kartu; gagal parse → "" (baris disembunyikan, tidak pernah "—").
- */
-function deriveHabisLabel(masukLabel: string, duration?: string): string {
-  if (!masukLabel) return "";
-  try {
-    const start = parseDateLabel(masukLabel);
-    if (Number.isNaN(start.getTime())) return "";
-    if (duration === "Harian") {
-      return dateToLabel(new Date(start.getTime() + 86_400_000));
-    }
-    return dateToLabel(addMonths(start, DURATION_MONTHS[duration ?? ""] ?? 1));
-  } catch {
-    return "";
-  }
-}
-
 /**
  * Kartu kamar SOLID — seluruh permukaan terisi warna blok sesuai status
  * (lunas/jatuh tempo/menunggak/kosong) dan tema aktif. Tinggi h-[176px]
@@ -74,6 +45,11 @@ function deriveHabisLabel(masukLabel: string, duration?: string): string {
  *   5) badge tipe kamar.
  * Kartu KOSONG menyembunyikan nama penyewa & baris tanggal; CTA iklan
  * menggantikan baris tipe (tarif tepat di atas tombol aksen).
+ *
+ * Status yang tampil adalah status DINAMIS (single source of truth di
+ * src/lib/room-status.ts): dashboard sudah menggeser kamar kontraknya lewat
+ * menjadi menunggak (merah/merah muda — bukan biru/hijau lunas), sehingga
+ * baris "Habis" kamar lewat tempo tampil MERAH + sufiks "(Lewat Tempo)".
  */
 export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCreateAd, canManage = true, propertyType }: RoomCardProps) {
   const isVacant = room.status === "kosong";
@@ -93,21 +69,21 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
    *  custom ditambah / tarif tipe diedit karena kartu murni render data room). */
   const priceLabel = `${formatIDR(room.price)}${periodeSuffix}`;
 
-  // ── Baris 4: tanggal sewa — label Indonesia siap tampil dari kontrak.
-  //    "Masuk" fallback ke tanggal masuk penyewa; "Habis" dari kontrak, dan
-  //    bila kontrak belum mencatat endDate (data lama / kontrak rolling),
-  //    diturunkan dari aturan kanonik aplikasi saat check-in: masuk + 1 siklus
-  //    sewa — sehingga SEMUA kartu terisi (Lunas/Jatuh Tempo/Menunggak) SELALU
-  //    menampilkan baris Habis, bukan hanya kamar lewat tempo.
+  // ── Baris 4: tanggal sewa — label Indonesia siap tampil dari SATU fungsi
+  //    bersama contractEndOf (room-status.ts): endDate kontrak eksplisit,
+  //    fallback kanonik masuk + 1 siklus sewa — fungsi yang sama dipakai
+  //    kalkulasi status, sehingga tanggal tampil & status TIDAK mungkin
+  //    berbeda sumber (tanpa split-brain). SEMUA kartu terisi (Lunas/Jatuh
+  //    Tempo/Menunggak) selalu menampilkan baris Habis, bukan hanya lewat tempo.
   const masukLabel =
     room.contract?.startDate?.trim() ||
     (room.tenant?.moveInDate && room.tenant.moveInDate !== "—" ? room.tenant.moveInDate : "");
-  const habisLabel = room.contract?.endDate?.trim() || deriveHabisLabel(masukLabel, room.contract?.duration);
-  /** Lewat tempo: hari ini > habis kontrak & belum ada pembayaran tagihan
-   *  baru. Kondisi ini dievaluasi server (room-status-sync) saat GET
-   *  /api/rooms — status kartu sudah digeser ke jatuhTempo/menunggak, jadi
-   *  status itulah sumber kebenaran untuk penandaan "(Lewat Tempo)". */
-  const isOverdue = !isVacant && (room.status === "jatuhTempo" || room.status === "menunggak");
+  const habisLabel = contractEndOf(room).label;
+  /** Lewat tempo: status efektif "menunggak" — hari ini sudah melewati tanggal
+   *  habis kontrak tanpa pembayaran baru (dihitung terpusat di room-status.ts
+   *  oleh dashboard). Baris Habis tampil MERAH + sufiks "(Lewat Tempo)".
+   *  Kamar "jatuhTempo" (jendela H-3..H+0) belum lewat — tanpa sufiks ini. */
+  const isLewatTempo = !isVacant && room.status === "menunggak" && isContractPastEnd(room);
   const vacantLabel =
     op === "siap" ? (
       <span className="text-sm italic opacity-90">Tersedia</span>
@@ -155,7 +131,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
           isVacant
             ? `Kamar ${roomNomor(room)}, ${OPERATIONAL_META[op].label}, ${room.type}, ${formatIDR(room.price)} ${perLabel}`
             : `Kamar ${roomNomor(room)}, ${room.tenant?.name ?? ""}, Masuk ${masukLabel || "—"}${
-                habisLabel ? `, Habis ${habisLabel}${isOverdue ? " (Lewat Tempo)" : ""}` : ""
+                habisLabel ? `, Habis ${habisLabel}${isLewatTempo ? " (Lewat Tempo)" : ""}` : ""
               }, ${formatIDR(room.price)} ${perLabel}`
         }
         className={cn(
@@ -181,7 +157,9 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
             (status tetap jelas dr warna kartu + chip Lewat Tempo). */}
         <div className="flex items-center justify-between gap-1 pr-6">
           <span className="ik-head shrink-0 truncate text-base font-extrabold leading-6 tabular-nums sm:text-lg sm:leading-7">{roomNomor(room)}</span>
-          <StatusBadge room={room} solid className="min-w-0 shrink px-1.5 text-[11px] tracking-normal" />
+          {/* px-1 (bukan px-1.5): label penuh "Jatuh Tempo" (77px @11px) butuh
+              ~2px lagi agar tidak ellipsis fraksional di grid 6 kolom desktop. */}
+          <StatusBadge room={room} solid className="min-w-0 shrink px-1 text-[11px] tracking-normal" />
         </div>
 
         {isVacant ? (
@@ -206,8 +184,10 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
             <div className="flex min-w-0 items-center">{priceChip}</div>
 
             {/* Baris 4: tanggal sewa — Masuk & Habis, SATU baris per info
-                (text-xs, tabular-nums). Habis lewat tempo → teks tebal +
-                chip "(Lewat Tempo)" kontras penuh per tema (skin.pill). */}
+                (text-xs, tabular-nums). Lewat tempo → SELURUH baris MERAH tebal
+                + sufiks "(Lewat Tempo)" persis teks spesifikasi:
+                "Habis: 22 Okt 2026 (Lewat Tempo)". Warna merah via var tema
+                --ik-card-late-alert agar terbaca di 12 tema (fallback fg kartu). */}
             {(masukLabel || habisLabel) && (
               <div className="mt-1.5 min-w-0 space-y-0.5">
                 {masukLabel && (
@@ -216,25 +196,19 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
                   </p>
                 )}
                 {habisLabel && (
-                  // flex-wrap: chip "Lewat Tempo" turun ke baris kedua di kartu
-                  // sempit (grid 6 kolom desktop / 2 kolom mobile) alih-alih
+                  // flex-wrap: sufiks "(Lewat Tempo)" turun ke baris kedua di
+                  // kartu sempit (grid 6 kolom desktop / 2 kolom mobile) alih-alih
                   // memangkas tanggal — tanggal habis kontrak SELALU terbaca.
                   <p
                     className={cn(
                       "ik-num flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 text-xs leading-4 tabular-nums opacity-90",
-                      isOverdue && "font-bold opacity-100"
+                      isLewatTempo &&
+                        "font-bold opacity-100 [color:var(--ik-card-late-alert,var(--ik-card-late-fg))]"
                     )}
                   >
                     <span className="truncate">Habis: {habisLabel}</span>
-                    {isOverdue && (
-                      <span
-                        className={cn(
-                          "ik-num inline-flex shrink-0 items-center rounded-full px-1.5 py-px text-[10px] font-bold leading-none whitespace-nowrap",
-                          skin.pill
-                        )}
-                      >
-                        Lewat Tempo
-                      </span>
+                    {isLewatTempo && (
+                      <span className="shrink-0 whitespace-nowrap">(Lewat Tempo)</span>
                     )}
                   </p>
                 )}

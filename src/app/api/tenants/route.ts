@@ -188,7 +188,12 @@ export async function POST(request: NextRequest) {
         : `1 ${monthName} – ${lastDay} ${monthName} ${moveIn.getFullYear()}`,
       dueDate: moveIn,
       status: "lunas",
-      paidAt: new Date(),
+      // Pembayaran pertama terjadi SAAT CHECK-IN (= tanggal masuk), bukan hari
+      // eksekusi API — check-in mundur (penghuni lama didata, masuk berbulan-bulan
+      // lalu) tidak boleh tercatat "membayar hari ini", yang keliru membuat cek
+      // "sudah ada pembayaran baru" pada kalkulasi status dinamis kamar
+      // (room-status.ts) melindungi kamar yang kontraknya sudah lewat.
+      paidAt: moveIn,
       total: isHarian ? totalHarian : Math.round(totalPerBulan),
       checkIn: isHarian ? moveIn : null,
       checkOut: isHarian ? checkOut : null,

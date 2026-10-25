@@ -191,6 +191,7 @@
   --ik-card-due-pill-fg: #fef3c7;
   --ik-card-late-bg: #ea580c;
   --ik-card-late-fg: #ffffff;
+  --ik-card-late-alert: #ffffff;
   --ik-card-late-muted: #ffedd5;
   --ik-card-late-line: #c2410c;
   --ik-card-late-pill-bg: #ffffff;
@@ -230,6 +231,7 @@
   --ik-card-due-pill-fg: #f2f7a0;
   --ik-card-late-bg: #f2f7a0;
   --ik-card-late-fg: #1e40af;
+  --ik-card-late-alert: #b91c1c;
   --ik-card-late-muted: #2373f4;
   --ik-card-late-line: #2373f4;
   --ik-card-late-pill-bg: #2373f4;
@@ -266,6 +268,7 @@
   --ik-card-due-pill-fg: #fff8cf;
   --ik-card-late-bg: #fbe6c2;
   --ik-card-late-fg: #7c2d12;
+  --ik-card-late-alert: #b91c1c;
   --ik-card-late-muted: #9a3412;
   --ik-card-late-line: #f0d0a0;
   --ik-card-late-pill-bg: #7c2d12;
@@ -302,6 +305,7 @@
   --ik-card-due-pill-fg: #fae3cc;
   --ik-card-late-bg: #ec5b38;
   --ik-card-late-fg: #ffffff;
+  --ik-card-late-alert: #ffffff;
   --ik-card-late-muted: #ffe1d6;
   --ik-card-late-line: #d1482a;
   --ik-card-late-pill-bg: #ffffff;
@@ -338,6 +342,7 @@
   --ik-card-due-pill-fg: #dfe6ee;
   --ik-card-late-bg: #7f8caa;
   --ik-card-late-fg: #ffffff;
+  --ik-card-late-alert: #ffffff;
   --ik-card-late-muted: #e2e8f0;
   --ik-card-late-line: #5f7091;
   --ik-card-late-pill-bg: #ffffff;
@@ -397,6 +402,7 @@
   --ik-card-due-pill-fg: #fde68a;
   --ik-card-late-bg: #c2410c;
   --ik-card-late-fg: #ffffff;
+  --ik-card-late-alert: #ffffff;
   --ik-card-late-muted: #ffedd5;
   --ik-card-late-line: #18181b;
   --ik-card-late-pill-bg: #fee2e2;
@@ -524,6 +530,7 @@
   --ik-card-due-pill-fg: #9f1239;
   --ik-card-late-bg: #f5e4de;
   --ik-card-late-fg: #7c2d12;
+  --ik-card-late-alert: #b91c1c;
   --ik-card-late-muted: #9a3412;
   --ik-card-late-line: #e8cfc5;
   --ik-card-late-pill-bg: rgba(255, 228, 230, 0.6);
@@ -649,6 +656,7 @@
   --ik-card-due-pill-fg: #422006;
   --ik-card-late-bg: rgba(251, 113, 133, 0.16);
   --ik-card-late-fg: #fecdd3;
+  --ik-card-late-alert: #fecdd3;
   --ik-card-late-muted: #fb7185;
   --ik-card-late-line: rgba(251, 113, 133, 0.45);
   --ik-card-late-pill-bg: #fb7185;
@@ -855,6 +863,7 @@
   --ik-card-due-pill-fg: #fef3c7;
   --ik-card-late-bg: #ffe4e6;
   --ik-card-late-fg: #9f1239;
+  --ik-card-late-alert: #b91c1c;
   --ik-card-late-muted: #be123c;
   --ik-card-late-line: #fecdd3;
   --ik-card-late-pill-bg: #e11d48;
@@ -937,6 +946,7 @@
   --ik-card-due-pill-fg: #f1e5cb;
   --ik-card-late-bg: #c28e47;
   --ik-card-late-fg: #2f2410;
+  --ik-card-late-alert: #7c2d12;
   --ik-card-late-muted: #5f451a;
   --ik-card-late-line: #a97a38;
   --ik-card-late-pill-bg: #2f2410;
@@ -1020,6 +1030,7 @@
   --ik-card-due-pill-fg: #fcd34d;
   --ik-card-late-bg: rgba(76, 5, 25, 0.6);
   --ik-card-late-fg: #fb7185;
+  --ik-card-late-alert: #fb7185;
   --ik-card-late-muted: #fda4af;
   --ik-card-late-line: rgba(244, 63, 94, 0.5);
   --ik-card-late-pill-bg: rgba(76, 5, 25, 0.9);
@@ -1230,6 +1241,7 @@
   --ik-card-due-pill-fg: #f5e6cd;
   --ik-card-late-bg: #f8d7b0;
   --ik-card-late-fg: #5f3a0e;
+  --ik-card-late-alert: #b91c1c;
   --ik-card-late-muted: #7a4a1a;
   --ik-card-late-line: #e8c18c;
   --ik-card-late-pill-bg: #b45309;

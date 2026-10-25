@@ -76,11 +76,11 @@ function InfoRow({
   );
 }
 
-/** Full status label for drawer: "Menunggak H+2" / "Jatuh Tempo H-2" / "Lunas" */
+/** Label status penuh drawer — MURNI dari status efektif (dinamis, dihitung
+ *  terpusat di room-status.ts & sudah digeser dashboard): "Lunas" /
+ *  "Jatuh Tempo" / "Menunggak" / "Kosong". Bahasa sama dgn badge kartu &
+ *  tab filter; kode H±N invoice tidak dipakai agar tidak ambigu. */
 function invoiceStatusLabel(room: Room): string {
-  const off = room.invoice?.dayOffset;
-  if (room.status === "menunggak" && off !== undefined) return `Menunggak H+${off}`;
-  if (room.status === "jatuhTempo" && off !== undefined) return `Jatuh Tempo H-${off}`;
   return STATUS_META[room.status].label;
 }
 

@@ -82,6 +82,7 @@ import {
   type Room,
   type TenantProfilePayload,
 } from "@/lib/kost-data";
+import { deriveRoomStatuses, lastPaymentDates } from "@/lib/room-status";
 import {
   INVOICES,
   buildBillingWaMessage,
@@ -255,6 +256,18 @@ export default function IndoKostPage() {
     getServerDashboardSnapshot,
   );
   const { rooms, invoices, cashEntries, status: dbState } = dash;
+
+  // ── Status kamar DINAMIS — SINGLE SOURCE OF TRUTH (src/lib/room-status.ts) ──
+  // Status database TIDAK dipercaya mentah-mentah: status efektif dihitung dari
+  // selisih hari ini vs tanggal habis kontrak + pembayaran tagihan baru
+  // (H-3..H+0 → jatuh tempo kuning; lewat → menunggak merah). Hasilnya
+  // memegangi SEMUA permukaan Denah Kamar — kartu, kartu statistik, tab filter
+  // — sehingga kamar 01-01 yang kontraknya lewat PASTI tampil menunggak di
+  // ketiganya sekaligus, tanpa menunggu sinkron server (mode demo pun akurat).
+  const effectiveRooms = useMemo(() => {
+    const payments = lastPaymentDates(invoices);
+    return deriveRoomStatuses(rooms, new Date(), payments);
+  }, [rooms, invoices]);
   const [tickets, setTickets] = useState<Ticket[]>(() =>
     // Mock TIDAK PERNAH tampil utk akun riil — hanya sesi demo (?demo=1);
     // akun riil mulai kosong lalu diisi dari database (empty state bila 0).
@@ -355,8 +368,8 @@ export default function IndoKostPage() {
   const [confirmDeleteRoom, setConfirmDeleteRoom] = useState<Room | null>(null);
 
   const selectedRoom = useMemo(
-    () => rooms.find((r) => r.id === selectedRoomId) ?? null,
-    [rooms, selectedRoomId]
+    () => effectiveRooms.find((r) => r.id === selectedRoomId) ?? null,
+    [effectiveRooms, selectedRoomId]
   );
 
   const adRoom = useMemo(
@@ -885,21 +898,21 @@ export default function IndoKostPage() {
     [rooms]
   );
 
-  // Tab counts reflect the current search query (Denah view)
+  // Tab counts reflect the current search query (Denah view) — status dinamis
   const searchedRooms = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rooms;
-    return rooms.filter(
+    if (!q) return effectiveRooms;
+    return effectiveRooms.filter(
       (r) =>
         roomNomor(r).toLowerCase().includes(q) ||
         (r.tenant?.name.toLowerCase().includes(q) ?? false)
     );
-  }, [rooms, query]);
+  }, [effectiveRooms, query]);
 
   const invoiceAlerts = useMemo(
     () =>
-      rooms.filter((r) => r.status === "jatuhTempo" || r.status === "menunggak").length,
-    [rooms]
+      effectiveRooms.filter((r) => r.status === "jatuhTempo" || r.status === "menunggak").length,
+    [effectiveRooms]
   );
 
   const ticketAlerts = useMemo(
@@ -933,8 +946,8 @@ export default function IndoKostPage() {
   // Mirror state → localStorage: halaman publik /portal (tab baru) membaca
   // data terkini (lunas, check-in baru, banner pengumuman, reset) tanpa backend.
   useEffect(() => {
-    savePortalMirror({ rooms, invoices, announcements, propertyName: property });
-  }, [rooms, invoices, announcements, property]);
+    savePortalMirror({ rooms: effectiveRooms, invoices, announcements, propertyName: property });
+  }, [effectiveRooms, invoices, announcements, property]);
 
   const handleNavigate = (key: string) => {
     setMobileOpen(false);
@@ -1432,7 +1445,6 @@ export default function IndoKostPage() {
       const lastDay = new Date(moveIn.getFullYear(), moveIn.getMonth() + 1, 0).getDate();
       const periodKey = `${moveIn.getFullYear()}-${String(moveIn.getMonth() + 1).padStart(2, "0")}`;
       const phoneDisplay = `+62 ${formatPhone(p.phone.replace(/\D/g, ""))}`;
-      const todayLabel = dateToLabel(new Date());
       const invoiceTotal = isHarian ? Math.round(p.totalTagihan ?? 0) : Math.round(p.totalPerBulan);
 
       const updatedRoom: Room = {
@@ -1483,7 +1495,11 @@ export default function IndoKostPage() {
             ],
         total: invoiceTotal,
         status: "lunas",
-        paidAt: todayLabel,
+        // Pembayaran pertama = saat check-in (tanggal masuk), BUKAN hari ini —
+        // check-in mundur tidak boleh dianggap "pembayaran baru" oleh kalkulasi
+        // status dinamis (room-status.ts) — cek shield jadi tidak melindungi
+        // kamar yang kontraknya sudah lewat (kasus kamar lewat tempo 01-01).
+        paidAt: moveInLabel,
         ...(isHarian
           ? { checkIn: moveInLabel, checkOut: checkOutLabel, nights }
           : {}),
@@ -3037,7 +3053,7 @@ export default function IndoKostPage() {
                   <MetricStripSkeleton />
                 ) : (
                   <MetricStrip
-                    rooms={rooms}
+                    rooms={effectiveRooms}
                     unit={PROPERTY_TYPE_META[settings.propertyProfile.tipe].unit}
                   />
                 )}
@@ -3049,7 +3065,7 @@ export default function IndoKostPage() {
                 ) : (
                   <RoomMatrix
                     rooms={searchedRooms}
-                    totalRooms={rooms.length}
+                    totalRooms={effectiveRooms.length}
                     activeTab={activeTab}
                     onTabChange={setActiveTab}
                     onSelectRoom={(room) => setSelectedRoomId(room.id)}

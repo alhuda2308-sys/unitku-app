@@ -246,13 +246,15 @@ export const STATUS_META: Record<
   },
 };
 
-/** Badge text on a room card: "Lunas", "H-2", "H+3", "Kosong" */
+/**
+ * Badge text on a room card — label status MURNI: "Lunas" / "Jatuh Tempo" /
+ * "Menunggak" / "Kosong". Kode H±N tidak dipakai di kartu kamar: status dinamis
+ * dihitung dari tanggal habis kontrak (src/lib/room-status.ts) dan badge wajib
+ * konsisten dengan bahasa tab filter & kartu statistik (spesifikasi kamar
+ * lewat tempo: badge "Menunggak"/"Lewat Tempo", bukan kode H+N).
+ */
 export function invoiceBadgeText(room: Room): string {
-  if (room.status === "kosong") return "Kosong";
-  const off = room.invoice?.dayOffset;
-  if (room.status === "jatuhTempo" && off !== undefined) return `H-${off}`;
-  if (room.status === "menunggak" && off !== undefined) return `H+${off}`;
-  return STATUS_META[room.status].label;
+  return room.status === "kosong" ? "Kosong" : STATUS_META[room.status].label;
 }
 
 // ── Date helpers (Indonesian short labels, e.g. "1 Okt 2026") ───────────────
@@ -330,13 +332,17 @@ export const PROPERTIES: Property[] = [
 ];
 
 // ── Mock rooms ───────────────────────────────────────────────────────────────
-// Floor 1: 12 rooms — 8 lunas, 1 jatuh tempo, 1 menunggak, 2 kosong.
+// Floor 1: 12 rooms — 8 lunas, 1 jatuh tempo (H-2 DINAMIS), 1 menunggak, 2 kosong.
 // SETIAP kamar terisi wajib punya contract.endDate — kartu Denah Kamar
 // menampilkan baris "Habis: [tanggal]" untuk semua status (Lunas/Jatuh
 // Tempo/Menunggak), bukan hanya kamar lewat tempo. Lunas = endDate masa
 // depan (mulai hidup +1 tahun), Menunggak = endDate lewat.
-// Floor 2: 12 rooms — 9 lunas, 1 jatuh tempo, 2 kosong
-// Total: 24 rooms — 17 lunas, 2 jatuh tempo, 1 menunggak, 4 kosong (20 terisi = 83.3%)
+// Total: 12 rooms — 8 lunas, 1 jatuh tempo, 1 menunggak, 2 kosong (10 terisi = 83.3%)
+
+/** Kamar 103 — habis kontrak 2 HARI LAGI (dinamis mengikuti tanggal berjalan):
+ *  demo selalu memperagakan jendela "Jatuh Tempo" H-3..H+0 (kartu kuning)
+ *  apa pun hari ini — status turunan jatuhTempo dihitung room-status.ts. */
+const DUE_SOON_LABEL = dateToLabel(new Date(Date.now() + 2 * 86_400_000));
 
 export const ROOMS: Room[] = seedRoomData([
   // ── Lantai 1 ──────────────────────────────────────────────────────────────
@@ -370,8 +376,8 @@ export const ROOMS: Room[] = seedRoomData([
       moveInDate: "20 Jun 2026",
       emergencyContact: { name: "Ibu Halimah (Ibu)", phone: "+62 812-9931-2245" },
     },
-    invoice: { amount: 1_100_000, periodLabel: "Sewa Sep 2026", dueLabel: "Tempo: 28 Sep", dayOffset: 2 },
-    contract: { duration: "Bulanan", startDate: "20 Jun 2026", endDate: "30 Sep 2026", deposit: 500_000, depositHeld: true },
+    invoice: { amount: 1_100_000, periodLabel: "Sewa Sep 2026", dueLabel: `Tempo: ${DUE_SOON_LABEL.replace(/\s\d{4}$/, "")}`, dayOffset: 2 },
+    contract: { duration: "Bulanan", startDate: "20 Jun 2026", endDate: DUE_SOON_LABEL, deposit: 500_000, depositHeld: true },
   },
   {
     id: "104", floor: 1, type: "Tipe AC Deluxe", price: 1_750_000, status: "menunggak",
