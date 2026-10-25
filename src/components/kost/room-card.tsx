@@ -32,9 +32,13 @@ interface RoomCardProps {
 
 /**
  * Kartu kamar SOLID — seluruh permukaan terisi warna blok sesuai status
- * (lunas/jatuh tempo/menunggak/kosong) dan tema aktif. Tinggi seragam
- * h-[124px]; badge tarif sewa selalu tampil di area tengah kartu
- * (kosong/terisi/custom), CTA iklan → tarif tepat di atas tombol aksen.
+ * (lunas/jatuh tempo/menunggak/kosong) dan tema aktif. Tinggi h-[176px]
+ * menampung susunan vertikal 5 baris kartu TERISI:
+ *   1) nomor kamar + badge status   2) nama penyewa (text-sm font-bold)
+ *   3) badge tarif sewa             4) tanggal sewa "Masuk:"/"Habis:" (text-xs)
+ *   5) badge tipe kamar.
+ * Kartu KOSONG menyembunyikan nama penyewa & baris tanggal; CTA iklan
+ * menggantikan baris tipe (tarif tepat di atas tombol aksen).
  */
 export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCreateAd, canManage = true, propertyType }: RoomCardProps) {
   const isVacant = room.status === "kosong";
@@ -53,10 +57,19 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
    *  (kosong/terisi/custom). Sumber: room.price (ikut ter-update saat kamar
    *  custom ditambah / tarif tipe diedit karena kartu murni render data room). */
   const priceLabel = `${formatIDR(room.price)}${periodeSuffix}`;
-  /** Tanggal tempo ringkas utk baris bawah kartu ("28 Sep") — prefix "Tempo:"
-   *  dilepas agar muat sebaris dgn chip tipe; pill status (H-1/H+3/Lunas) di
-   *  atas sudah memberi konteks, label penuh tetap ada di drawer & aria-label. */
-  const dueDateShort = room.invoice?.dueLabel?.replace(/^Tempo:\s*/i, "");
+
+  // ── Baris 4: tanggal sewa — label Indonesia siap tampil dari kontrak.
+  //    "Masuk" fallback ke tanggal masuk penyewa; "Habis" hanya dari kontrak
+  //    (kontrak rolling tanpa endDate → baris disembunyikan, bukan "—").
+  const masukLabel =
+    room.contract?.startDate?.trim() ||
+    (room.tenant?.moveInDate && room.tenant.moveInDate !== "—" ? room.tenant.moveInDate : "");
+  const habisLabel = room.contract?.endDate?.trim() ?? "";
+  /** Lewat tempo: hari ini > habis kontrak & belum ada pembayaran tagihan
+   *  baru. Kondisi ini dievaluasi server (room-status-sync) saat GET
+   *  /api/rooms — status kartu sudah digeser ke jatuhTempo/menunggak, jadi
+   *  status itulah sumber kebenaran untuk penandaan "(Lewat Tempo)". */
+  const isOverdue = !isVacant && (room.status === "jatuhTempo" || room.status === "menunggak");
   const vacantLabel =
     op === "siap" ? (
       <span className="text-sm italic opacity-90">Tersedia</span>
@@ -83,6 +96,17 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
       <span className="truncate">{priceLabel}</span>
     </span>
   );
+  /** Badge tipe kamar — baris 5 (paling bawah) kartu terisi/kosong non-CTA */
+  const typeChip = (
+    <span
+      className={cn(
+        "ik-num inline-flex max-w-full min-w-0 items-center rounded border px-2 py-0.5 text-xs font-semibold leading-4 whitespace-nowrap",
+        skin.chip
+      )}
+    >
+      <span className="truncate">{room.type}</span>
+    </span>
+  );
 
   return (
     <div className="group relative">
@@ -92,11 +116,16 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
         aria-label={
           isVacant
             ? `Kamar ${roomNomor(room)}, ${OPERATIONAL_META[op].label}, ${room.type}, ${formatIDR(room.price)} ${perLabel}`
-            : `Kamar ${roomNomor(room)}, ${room.tenant?.name}, ${room.invoice?.dueLabel ?? ""}, ${formatIDR(room.price)} ${perLabel}`
+            : `Kamar ${roomNomor(room)}, ${room.tenant?.name ?? ""}, Masuk ${masukLabel || "—"}${
+                habisLabel ? `, Habis ${habisLabel}${isOverdue ? " (Lewat Tempo)" : ""}` : ""
+              }, ${formatIDR(room.price)} ${perLabel}`
         }
         className={cn(
           // ik-card: hook struktural tema karakter (brutalis/arsip/blueprint)
-          "ik-card flex h-[124px] w-full cursor-pointer flex-col justify-between rounded-lg border p-3 text-left transition-all duration-100",
+          // min-h (bukan h): kartu lewat tempo melar seadanya saat chip
+          // "Lewat Tempo" turun baris di grid sempit — tinggi seragam per baris
+          // grid tetap terjaga (align stretch).
+          "ik-card flex h-full min-h-[176px] w-full cursor-pointer flex-col rounded-lg border p-3 text-left transition-all duration-100",
           // CTA iklan overlay di bawah → reserve ruang agar tarif tidak tertutup
           showAdCta && "pb-10",
           "hover:shadow-[0_4px_14px_rgba(15,23,42,0.16)] hover:brightness-[0.97] active:brightness-[0.94]",
@@ -105,54 +134,78 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
           isVacant && "border-dashed"
         )}
       >
-        {/* Baris 1: nomor kamar + pill status solid di pojok kanan atas */}
-        <div className="flex items-center justify-between gap-1.5 pr-6">
-          <span className="ik-head truncate text-base font-extrabold leading-6 tabular-nums sm:text-lg sm:leading-7">{roomNomor(room)}</span>
-          <StatusBadge room={room} solid />
+        {/* Baris 1: nomor kamar + pill status solid di pojok kanan atas.
+            Nomor shrink-0 = tidak pernah menyusut/terpotong "…"; badge yang
+            menyusut sendirian saat baris sempit — defect lama: nomor tergerus
+            sampai hilang. Badge versi ringkas utk kartu (text-[11px], px-2,
+            tanpa tracking) supaya label penuh "Jatuh Tempo"/"Menunggak" muat
+            di grid 6 kolom desktop; mobile ekstrem terpotong rapi dgn "…"
+            (status tetap jelas dr warna kartu + chip Lewat Tempo). */}
+        <div className="flex items-center justify-between gap-1 pr-6">
+          <span className="ik-head shrink-0 truncate text-base font-extrabold leading-6 tabular-nums sm:text-lg sm:leading-7">{roomNomor(room)}</span>
+          <StatusBadge room={room} solid className="min-w-0 shrink px-1.5 text-[11px] tracking-normal" />
         </div>
 
-        {/* Baris 2: tarif sewa — SELALU tampil (kosong/terisi/custom), area
-            tengah kartu tepat di bawah nomor/status & di atas nama penyewa.
-            Kartu dgn CTA iklan: tarif dipindah ke baris 3 (tepat di atas
-            tombol "Buat Iklan"). */}
-        {showAdCta ? (
-          <div className="flex-1 overflow-hidden pt-1">{vacantLabel}</div>
+        {isVacant ? (
+          // ── Kartu KOSONG: nama penyewa & baris tanggal disembunyikan —
+          //    label status operasional + tarif (+ tipe bila tanpa CTA iklan).
+          <>
+            <div className="min-h-0 flex-1 overflow-hidden pt-1">{vacantLabel}</div>
+            <div className="flex min-w-0 items-center">{priceChip}</div>
+            {!showAdCta && <div className="mt-1.5 flex min-w-0 items-center">{typeChip}</div>}
+          </>
         ) : (
-          <div className="flex min-w-0 items-center pt-0.5">{priceChip}</div>
-        )}
-
-        {/* Baris 3 (CTA iklan): badge tarif tepat di atas tombol aksen */}
-        {showAdCta && <div className="flex min-w-0 items-center">{priceChip}</div>}
-
-        {/* Baris 3/4: nama penyewa (terisi) + chip tipe + tanggal tempo */}
-        {showAdCta ? null : (
-        <>
-          {!isVacant && (
-            <div className="flex-1 overflow-hidden pt-1">
+          <>
+            {/* Baris 2: nama penyewa — text-sm font-bold, DI ATAS tarif agar
+                pemilik langsung membaca siapa penghuninya sebelum tarif */}
+            <div className="min-h-0 flex-1 overflow-hidden pt-1">
               <span className="block truncate text-sm font-bold leading-5">
-                {room.tenant?.name}
+                {room.tenant?.name ?? "—"}
               </span>
             </div>
-          )}
-          {isVacant && <div className="flex-1 overflow-hidden pt-1">{vacantLabel}</div>}
-          {/* nowrap + truncate: baris ini WAJIB satu baris — bila wrap,
-              baris nama penyewa (flex-1) di atasnya tergenting & kolaps */}
-          <div className="flex items-center justify-between gap-x-1.5">
-            <span
-              className={cn(
-                "ik-num inline-flex min-w-0 items-center truncate rounded border px-2 py-0.5 text-xs font-semibold leading-4 whitespace-nowrap",
-                skin.chip
-              )}
-            >
-              <span className="truncate">{room.type}</span>
-            </span>
-            {!isVacant && dueDateShort && (
-              <span className="ik-num ml-auto shrink-0 text-xs font-semibold tabular-nums whitespace-nowrap">
-                {dueDateShort}
-              </span>
+
+            {/* Baris 3: badge tarif sewa */}
+            <div className="flex min-w-0 items-center">{priceChip}</div>
+
+            {/* Baris 4: tanggal sewa — Masuk & Habis, SATU baris per info
+                (text-xs, tabular-nums). Habis lewat tempo → teks tebal +
+                chip "(Lewat Tempo)" kontras penuh per tema (skin.pill). */}
+            {(masukLabel || habisLabel) && (
+              <div className="mt-1.5 min-w-0 space-y-0.5">
+                {masukLabel && (
+                  <p className="ik-num truncate text-xs font-medium leading-4 tabular-nums opacity-90">
+                    Masuk: {masukLabel}
+                  </p>
+                )}
+                {habisLabel && (
+                  // flex-wrap: chip "Lewat Tempo" turun ke baris kedua di kartu
+                  // sempit (grid 6 kolom desktop / 2 kolom mobile) alih-alih
+                  // memangkas tanggal — tanggal habis kontrak SELALU terbaca.
+                  <p
+                    className={cn(
+                      "ik-num flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 text-xs leading-4 tabular-nums opacity-90",
+                      isOverdue && "font-bold opacity-100"
+                    )}
+                  >
+                    <span className="truncate">Habis: {habisLabel}</span>
+                    {isOverdue && (
+                      <span
+                        className={cn(
+                          "ik-num inline-flex shrink-0 items-center rounded-full px-1.5 py-px text-[10px] font-bold leading-none whitespace-nowrap",
+                          skin.pill
+                        )}
+                      >
+                        Lewat Tempo
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
             )}
-          </div>
-        </>
+
+            {/* Baris 5: badge tipe kamar */}
+            <div className="mt-1.5 flex min-w-0 items-center">{typeChip}</div>
+          </>
         )}
       </button>
 
