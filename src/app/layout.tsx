@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { MetaPixel } from "@/components/meta-pixel";
+import { SITE_URL } from "@/lib/landing-config";
 
 const jakarta = Plus_Jakarta_Sans({
   variable: "--font-jakarta",
@@ -17,6 +18,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  // Domain kanonik absolut — anchor utk canonical (alternates), OG image &
+  // metadata URL lain agar selalu resolve ke https://unitku.my.id
+  metadataBase: new URL(SITE_URL),
   title: "UnitKu — Kelola Kost, Kontrakan & Unit Sewa Tanpa Ribet",
   description:
     "Kelola kost, kontrakan & unit sewa tanpa ribet: denah kamar, tagihan & invoice, data penghuni, buku kas, dan portal penyewa.",

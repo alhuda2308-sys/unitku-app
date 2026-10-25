@@ -14,6 +14,12 @@ export const BRAND = {
   tagline: "Kelola Kost, Kontrakan & Unit Sewa",
 };
 
+/** Domain kanonik produksi — sumber tunggal utk sitemap, robots.txt, JSON-LD
+ *  & metadataBase. SENGAJA hardcode (bukan env): sitemap/robots/OG tetap
+ *  menunjuk domain kanonik di SEMUA deployment (termasuk preview Vercel),
+ *  sehingga mesin pencari tidak pernah mengindeks URL non-kanonik. */
+export const SITE_URL = "https://unitku.my.id";
+
 /** Nomor WhatsApp Admin UnitKu — pintu tunggal pembelian & bantuan */
 export const SUPPORT_WA_NUMBER = (
   process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP ?? "6285187813569"

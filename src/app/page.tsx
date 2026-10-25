@@ -42,16 +42,41 @@ import { SiteFooter } from "@/components/landing/site-footer";
 import {
   BRAND,
   LICENSE_PRICE_LABEL,
+  SITE_URL,
 } from "@/lib/landing-config";
 
 export const metadata: Metadata = {
   title: "UnitKu — Kelola Puluhan Pintu Sewa Tanpa Capek Nagih | Elvindigital",
   description:
     "Aplikasi pengelola kost, kontrakan & unit sewa paling praktis: denah kamar visual, tagihan WhatsApp otomatis, buku kas laba bersih, dan portal penyewa. Lisensi seumur hidup — sekali bayar Rp399.000, tanpa langganan bulanan.",
+  // URL kanonik absolut — butuh metadataBase dari root layout
+  alternates: { canonical: "/" },
 };
 
 /** Harga referensi sebelum diskon early adopter — sinkron dgn /checkout */
 const OLD_PRICE_LABEL = "Rp799.000";
+
+/* ── Schema Markup JSON-LD (SoftwareApplication) ──────────────────────────── */
+/* Rich result Google: nama produk, kategori aplikasi bisnis, deskripsi &      */
+/* harga lisensi (Offer). Dirender sebagai <script type="application/ld+json"> */
+/* di root <main> landing page — hanya halaman ini yang memuatnya (schema      */
+/* menjelaskan PRODUK, bukan tiap halaman).                                    */
+const SOFTWARE_APP_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "UnitKu",
+  operatingSystem: "Web Browser",
+  applicationCategory: "BusinessApplication",
+  description:
+    "Aplikasi pengelola kost, kontrakan & unit sewa paling praktis dengan denah kamar visual, reminder WhatsApp otomatis, dan buku kas laba bersih.",
+  url: SITE_URL,
+  offers: {
+    "@type": "Offer",
+    price: "399000",
+    priceCurrency: "IDR",
+    availability: "https://schema.org/InStock",
+  },
+};
 
 /* ── Data mockup ───────────────────────────────────────────────────────────── */
 
@@ -252,6 +277,12 @@ export default async function LandingPage() {
 
   return (
     <main className="flex min-h-dvh flex-col bg-white text-zinc-900">
+      {/* Schema Markup JSON-LD (SoftwareApplication) — dibaca Google utk rich
+          result; posisi root <main> landing page (rute publik "/"). */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(SOFTWARE_APP_JSON_LD) }}
+      />
       {/* ── Navbar ─────────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
