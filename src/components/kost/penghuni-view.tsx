@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarClock, Eye, LogOut, MoreHorizontal, MessageCircle, Search, UserX, Wallet } from "lucide-react";
+import { CalendarClock, Eye, LogOut, MoreHorizontal, MessageCircle, PencilLine, Search, UserX, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,6 +14,7 @@ import { SegmentedTabs, type SegmentedTabItem } from "./segmented-tabs";
 import { MobileFilterSelect } from "./mobile-filter-select";
 import { TenantDetailDrawer } from "./tenant-detail-drawer";
 import { RenewDialog } from "./renew-dialog";
+import { TenantEditDialog } from "./tenant-edit-dialog";
 import { CheckoutDialog, type CheckoutPayload } from "./checkout-dialog";
 import {
   CURRENT_PERIOD_KEY,
@@ -21,12 +22,15 @@ import {
   type Invoice,
 } from "@/lib/kost-invoices";
 import {
+  formatDateLabel,
   formatIDR,
   initialsOf,
   parseDateLabel,
   roomNomor,
+  todayISO,
   waLink,
   type Room,
+  type TenantProfilePayload,
 } from "@/lib/kost-data";
 import { tenantTermFor } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
@@ -39,6 +43,8 @@ interface PenghuniViewProps {
   onQueryChange: (q: string) => void;
   onRenew: (room: Room, newEndDate: string, months: number) => void;
   onCheckout: (room: Room, payload: CheckoutPayload) => void;
+  /** Edit Data Penghuni — simpan profil penyewa (termasuk kolom kustom) */
+  onEditTenant: (room: Room, payload: TenantProfilePayload) => void;
   /** Nama properti — tampil pada QR & tautan portal penyewa */
   propertyName: string;
   /** Tipe properti aktif — Villa/Homestay → sebutan "Tamu / Penyewa" */
@@ -47,11 +53,35 @@ interface PenghuniViewProps {
 
 type DirTab = "semua" | "aktif" | "keluar";
 
-/** Snapshot 26 Sep 2026 — fixed for deterministic mock rendering */
-const SNAPSHOT = new Date(2026, 8, 26);
-
+/** Sisa hari kontrak dihitung dari HARI INI (bukan snapshot mock) —
+ *  negatif = kontrak sudah lewat n hari. */
 function daysLeft(endLabel: string): number {
-  return Math.ceil((parseDateLabel(endLabel).getTime() - SNAPSHOT.getTime()) / 86_400_000);
+  const now = new Date();
+  const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.ceil((parseDateLabel(endLabel).getTime() - todayMid.getTime()) / 86_400_000);
+}
+
+const TODAY_LABEL = formatDateLabel(todayISO());
+
+/** Pill "Masa Habis Kontrak" — merah bila sudah lewat, kuning ≤30 hari lagi */
+function ContractEndPill({ end, dl }: { end: string; dl: number }) {
+  const expired = dl < 0;
+  const soon = dl <= 30;
+  return (
+    <span
+      className={cn(
+        "inline-flex h-5 items-center gap-1 rounded-full border px-1.5 text-xs font-semibold tabular-nums",
+        expired
+          ? "border-rose-200 bg-rose-50 text-rose-700"
+          : soon
+            ? "border-amber-200 bg-amber-50 text-amber-700"
+            : "border-zinc-200 bg-zinc-50 text-zinc-600"
+      )}
+    >
+      {end}
+      {expired ? ` · +${-dl} hr` : soon ? ` · H-${Math.max(dl, 0)}` : ""}
+    </span>
+  );
 }
 
 const HEAD_CELL =
@@ -65,12 +95,14 @@ function MobileTenantCard({
   invoice,
   onDetail,
   onRenew,
+  onEdit,
   onCheckout,
 }: {
   room: Room;
   invoice: Invoice | undefined;
   onDetail: () => void;
   onRenew: () => void;
+  onEdit: () => void;
   onCheckout: () => void;
 }) {
   const t = room.tenant!;
@@ -138,10 +170,18 @@ function MobileTenantCard({
             <span
               className={cn(
                 "ml-auto inline-flex h-5 shrink-0 items-center rounded-full border px-1.5 text-xs font-semibold tabular-nums",
-                soon ? "border-amber-200 bg-amber-50 text-amber-700" : "border-zinc-200 bg-zinc-50 text-zinc-600"
+                (dl ?? 0) < 0
+                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                  : soon
+                    ? "border-amber-200 bg-amber-50 text-amber-700"
+                    : "border-zinc-200 bg-zinc-50 text-zinc-600"
               )}
             >
-              {soon ? `Habis ${end} · H-${Math.max(dl ?? 0, 0)}` : `s/d ${end}`}
+              {(dl ?? 0) < 0
+                ? `Habis ${end} · +${-(dl ?? 0)} hr`
+                : soon
+                  ? `Habis ${end} · H-${Math.max(dl ?? 0, 0)}`
+                  : `s/d ${end}`}
             </span>
           )}
         </p>
@@ -188,6 +228,10 @@ function MobileTenantCard({
               <CalendarClock className="size-3.5 text-zinc-700" strokeWidth={1.75} />
               Perpanjang Sewa
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={onEdit} className="text-[13px]">
+              <PencilLine className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+              Edit Penghuni
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={onCheckout}
@@ -203,10 +247,11 @@ function MobileTenantCard({
   );
 }
 
-export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, onCheckout, propertyName, propertyType }: PenghuniViewProps) {
+export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, onCheckout, onEditTenant, propertyName, propertyType }: PenghuniViewProps) {
   const [tab, setTab] = useState<DirTab>("semua");
   const [detailRoomId, setDetailRoomId] = useState<string | null>(null);
   const [renewRoomId, setRenewRoomId] = useState<string | null>(null);
+  const [editRoomId, setEditRoomId] = useState<string | null>(null);
   const [checkoutRoomId, setCheckoutRoomId] = useState<string | null>(null);
 
   const tenants = useMemo(() => rooms.filter((r) => r.tenant && r.status !== "kosong"), [rooms]);
@@ -258,6 +303,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
 
   const detailRoom = rooms.find((r) => r.id === detailRoomId) ?? null;
   const renewRoom = rooms.find((r) => r.id === renewRoomId) ?? null;
+  const editRoom = rooms.find((r) => r.id === editRoomId) ?? null;
   const checkoutRoom = rooms.find((r) => r.id === checkoutRoomId) ?? null;
 
   return (
@@ -269,7 +315,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
             {tenantTerm === "Penyewa" ? "Direktori Penghuni" : "Direktori Tamu / Penyewa"}
           </h1>
           <p className="mt-0.5 text-[12.5px] text-zinc-700">
-            {tenants.length} {tenantTerm === "Penyewa" ? "penghuni" : "tamu/penyewa"} terdaftar dari {rooms.length} kamar · data per 26 Sep 2026
+            {tenants.length} {tenantTerm === "Penyewa" ? "penghuni" : "tamu/penyewa"} terdaftar dari {rooms.length} kamar · data per {TODAY_LABEL}
           </p>
         </div>
         {/* Search */}
@@ -364,17 +410,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
                   {/* Habis kontrak */}
                   <td className="px-3 py-2">
                     {end ? (
-                      <span
-                        className={cn(
-                          "inline-flex h-5 items-center gap-1 rounded-full border px-1.5 text-xs font-semibold tabular-nums",
-                          soon
-                            ? "border-amber-200 bg-amber-50 text-amber-700"
-                            : "border-zinc-200 bg-zinc-50 text-zinc-600"
-                        )}
-                      >
-                        {end}
-                        {soon && `· H-${Math.max(dl ?? 0, 0)}`}
-                      </span>
+                      <ContractEndPill end={end} dl={dl!} />
                     ) : (
                       <span className="text-[12.5px] text-zinc-700">Auto-renew</span>
                     )}
@@ -416,6 +452,10 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
                         <DropdownMenuItem onClick={() => setRenewRoomId(room.id)} className="text-[13px]">
                           <CalendarClock className="size-3.5 text-zinc-700" strokeWidth={1.75} />
                           Perpanjang Sewa
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setEditRoomId(room.id)} className="text-[13px]">
+                          <PencilLine className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+                          Edit Penghuni
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
@@ -472,6 +512,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
                 invoice={invoiceByRoom.get(room.id)}
                 onDetail={() => setDetailRoomId(room.id)}
                 onRenew={() => setRenewRoomId(room.id)}
+                onEdit={() => setEditRoomId(room.id)}
                 onCheckout={() => setCheckoutRoomId(room.id)}
               />
             ))}
@@ -499,6 +540,15 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
           if (!o) setRenewRoomId(null);
         }}
         onSubmit={(room, end, months) => onRenew(room, end, months)}
+      />
+      <TenantEditDialog
+        key={`edit-${editRoomId ?? "none"}`}
+        room={editRoom}
+        open={editRoomId !== null && editRoom?.tenant != null}
+        onOpenChange={(o) => {
+          if (!o) setEditRoomId(null);
+        }}
+        onSubmit={(room, payload) => onEditTenant(room, payload)}
       />
       <CheckoutDialog
         key={`co-${checkoutRoomId ?? "none"}-${checkoutRoomId !== null && checkoutRoom?.tenant != null}`}

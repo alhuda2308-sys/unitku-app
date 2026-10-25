@@ -208,6 +208,15 @@ model Tenant {
   emergencyName  String?
   emergencyPhone String?
   portalToken    String    @unique // magic-link Portal Penyewa — "tok_101_xxxxxx"
+
+  // ── Profil lengkap penyewa (modal "Edit Data Penghuni") ──
+  occupation     String? // Pekerjaan / Profesi
+  maritalStatus  String? // Belum Kawin | Kawin | Cerai Hidup | Cerai Mati
+  guardianName   String? // Nama Orang Tua / Wali
+  addressKtp     String? // Alamat Asal / Alamat KTP
+  notes          String? // Catatan Tambahan
+  customFields   Json?   // [{ label, value }] — kolom kustom fleksibel buatan pengguna
+
   // Isolasi multi-cabang — kolom langsung (denormalisasi dari room.propertyId,
   // di-backfill otomatis oleh self-heal skema) agar reset/filter per properti
   // tidak perlu join. SELALU diisi saat create (check-in / seed / restore).

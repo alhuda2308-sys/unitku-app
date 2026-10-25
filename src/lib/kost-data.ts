@@ -49,6 +49,34 @@ export interface EmergencyContact {
   phone: string;
 }
 
+/** Satu baris kolom kustom buatan pengguna di "Edit Data Penghuni" —
+ *  contoh: { label: "Nomor Plat Motor", value: "B 1234 CD" } */
+export interface TenantCustomField {
+  label: string;
+  value: string;
+}
+
+/** Payload form "Edit Data Penghuni" — dikirim ke PATCH /api/tenants */
+export interface TenantProfilePayload {
+  name: string;
+  phone: string; // digits tanpa prefiks 62/0 (dinormalisasi dialog & server)
+  occupation: string;
+  maritalStatus: string; // Belum Kawin | Kawin | Cerai Hidup | Cerai Mati | ""
+  guardianName: string;
+  emergencyPhone: string;
+  addressKtp: string;
+  notes: string;
+  customFields: TenantCustomField[];
+}
+
+/** Opsi Status Perkawinan pada form Edit Data Penghuni */
+export const MARITAL_STATUS_OPTIONS = [
+  "Belum Kawin",
+  "Kawin",
+  "Cerai Hidup",
+  "Cerai Mati",
+] as const;
+
 export interface Tenant {
   /** Id Prisma (cloud) — dipakai filter pengumuman "Khusus Penyewa" di portal.
    *  Opsional: dataset mock/seed lokal tidak punya id database. */
@@ -59,6 +87,14 @@ export interface Tenant {
   emergencyContact: EmergencyContact;
   /** Magic-link token akses Portal Penyewa (unik per penghuni) — "tok_102_98ad2f" */
   portalToken: string;
+  // ── Profil lengkap (modal "Edit Data Penghuni") — opsional utk data lama ──
+  occupation?: string; // Pekerjaan / Profesi
+  maritalStatus?: string; // Belum Kawin | Kawin | Cerai Hidup | Cerai Mati
+  guardianName?: string; // Nama Orang Tua / Wali
+  addressKtp?: string; // Alamat Asal / Alamat KTP
+  notes?: string; // Catatan Tambahan
+  /** Kolom kustom fleksibel — pasangan label:isi buatan pengguna */
+  customFields?: TenantCustomField[];
 }
 
 export interface Invoice {
@@ -242,7 +278,12 @@ export function dateToLabel(d: Date): string {
 
 export function addMonths(date: Date, months: number): Date {
   const d = new Date(date);
+  const day = d.getDate();
+  d.setDate(1);
   d.setMonth(d.getMonth() + months);
+  // Clamp ujung bulan: 31 Jan + 1 bulan → 28/29 Feb (bukan meluber ke Maret)
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
   return d;
 }
 

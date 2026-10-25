@@ -26,6 +26,7 @@ import { Prisma, type Property } from "@prisma/client";
 import { db } from "@/lib/prisma";
 import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientRoom } from "@/lib/server/mappers";
+import { syncContractOverdueStatuses } from "@/lib/server/room-status-sync";
 import { getAuthUser } from "@/lib/auth/server";
 import type { AuthUser } from "@/lib/auth/server";
 import {
@@ -81,7 +82,11 @@ export async function GET(request: NextRequest) {
       include: ROOM_INCLUDE,
       orderBy: [{ floor: "asc" }, { id: "asc" }],
     });
-    return NextResponse.json({ success: true, rooms: rooms.map(toClientRoom) });
+    // Sinkronisasi otomatis status kontrak: "lunas" + masa habis kontrak lewat
+    // + belum ada pembayaran tagihan baru → "jatuhTempo" (kuning) / "menunggak"
+    // (merah) — badge & tab filter denah akurat tanpa input manual.
+    const synced = await syncContractOverdueStatuses(rooms);
+    return NextResponse.json({ success: true, rooms: synced.map(toClientRoom) });
   } catch (err) {
     // HANYA GET yang fail-open: bootstrap dashboard memperlakukan kegagalan
     // muat awal sebagai mode offline fatal. Fail-open 200 dgn data kosong;

@@ -24,7 +24,8 @@ interface RenewDialogProps {
   onSubmit: (room: Room, newEndDate: string, months: number) => void;
 }
 
-const DURATIONS = [3, 6, 12];
+// Pilihan durasi lengkap — +1 & +2 bulan ditambahkan atas masukan pengguna
+const DURATIONS = [1, 2, 3, 6, 12];
 
 const inputCls =
   "h-9 border-zinc-200 bg-white text-[13px] text-zinc-900 placeholder:text-zinc-600 focus-visible:ring-zinc-900/5";
@@ -68,7 +69,7 @@ export function RenewDialog({ room, open, onOpenChange, onSubmit }: RenewDialogP
         <div className="space-y-4 bg-zinc-50 p-5">
           <div className="space-y-2">
             <Label className="text-[12.5px] text-zinc-600">Durasi Perpanjangan</Label>
-            <div className="grid grid-cols-3 gap-2" role="group" aria-label="Durasi perpanjangan">
+            <div className="grid grid-cols-5 gap-2" role="group" aria-label="Durasi perpanjangan">
               {DURATIONS.map((m) => (
                 <button
                   key={m}

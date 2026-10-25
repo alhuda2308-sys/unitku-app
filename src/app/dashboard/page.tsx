@@ -80,6 +80,7 @@ import {
   waLink,
   dateToLabel,
   type Room,
+  type TenantProfilePayload,
 } from "@/lib/kost-data";
 import {
   INVOICES,
@@ -1542,6 +1543,35 @@ export default function IndoKostPage() {
 
   // ── Data Penghuni: perpanjang & check-out ──────────────────────────────────
 
+  /** Edit Data Penghuni — simpan profil penyewa (termasuk kolom kustom JSONB).
+   *  Respons PATCH berisi room terbaru (tenant ter-mapping) → UI ter-update
+   *  langsung tanpa reload manual. */
+  const handleEditTenant = (room: Room, payload: TenantProfilePayload) => {
+    // MODE DEMO: profil cukup di state lokal — dataset simulasi tidak ada di DB.
+    if (instantDemo || isDemoSession) {
+      updateRooms((prev) =>
+        prev.map((r) =>
+          r.id === room.id && r.tenant ? { ...r, tenant: { ...r.tenant, ...payload } } : r,
+        ),
+      );
+      toast.success(`Data penghuni ${payload.name} diperbarui`, {
+        description: `Kamar ${roomNomor(room)} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+      });
+      return;
+    }
+    api
+      .updateTenantProfile(room.id, payload)
+      .then(({ room: updated }) => {
+        updateRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+        toast.success(`Data penghuni ${updated.tenant?.name ?? payload.name} diperbarui`, {
+          description: `Kamar ${roomNomor(room)} · profil lengkap & keterangan kustom tersimpan ke database.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal memperbarui data penghuni", { description: errMsg(err) }),
+      );
+  };
+
   const handleRenew = (room: Room, newEndDate: string, months: number) => {
     // MODE DEMO: perpanjangan kontrak cukup di state lokal — dataset simulasi
     // tidak ada di database; PATCH /api/tenants hanya memicu toast merah.
@@ -2859,6 +2889,7 @@ export default function IndoKostPage() {
                 onQueryChange={setQuery}
                 onRenew={handleRenew}
                 onCheckout={handleCheckout}
+                onEditTenant={handleEditTenant}
                 propertyName={property}
                 propertyType={settings.propertyProfile.tipe}
               />

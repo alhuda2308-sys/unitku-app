@@ -240,7 +240,23 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ── PATCH (perpanjang kontrak / ubah deposit) ────────────────────────────────
+// ── PATCH (perpanjang kontrak / ubah deposit / edit data penghuni) ───────────
+
+/** Baris kolom kustom JSONB — sanitasi ketat sebelum masuk database */
+function sanitizeCustomFields(raw: unknown): Prisma.InputJsonValue {
+  if (!Array.isArray(raw)) return [];
+  const clean = raw
+    .map((item) => {
+      if (typeof item !== "object" || item === null) return null;
+      const rec = item as Record<string, unknown>;
+      const label = typeof rec.label === "string" ? rec.label.trim().slice(0, 80) : "";
+      const value = typeof rec.value === "string" ? rec.value.trim().slice(0, 300) : "";
+      return label ? { label, value } : null;
+    })
+    .filter((v): v is { label: string; value: string } => v !== null)
+    .slice(0, 25);
+  return clean as unknown as Prisma.InputJsonValue;
+}
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -252,6 +268,16 @@ export async function PATCH(request: NextRequest) {
       roomId?: unknown;
       contractEnd?: unknown; // label "30 Mar 2026"
       deposit?: unknown;
+      // ── Edit Data Penghuni (profil penyewa — kolom tabel tenants) ──
+      name?: unknown;
+      phone?: unknown;
+      occupation?: unknown;
+      maritalStatus?: unknown;
+      guardianName?: unknown;
+      emergencyPhone?: unknown;
+      addressKtp?: unknown;
+      notes?: unknown;
+      customFields?: unknown; // [{ label, value }]
     };
     const roomId = typeof body.roomId === "string" ? body.roomId : "";
     const room = await db.room.findFirst({
@@ -274,13 +300,50 @@ export async function PATCH(request: NextRequest) {
       data.contractEnd = parsed;
     }
     if (Number.isFinite(Number(body.deposit))) data.deposit = Math.max(0, Math.round(Number(body.deposit)));
-    if (Object.keys(data).length === 0) {
+
+    // ── Profil penyewa — partial update: hanya kolom yang dikirim yang berubah
+    const tenantData: Prisma.TenantUpdateInput = {};
+    if (typeof body.name === "string") {
+      const n = body.name.trim().slice(0, 120);
+      if (!n) {
+        return NextResponse.json({ error: "Nama lengkap penyewa tidak boleh kosong." }, { status: 400 });
+      }
+      tenantData.name = n;
+    }
+    if (typeof body.phone === "string") {
+      // Terima bentuk apa pun ("+62 812-…", "0812…", "812…") → tampilan konsisten
+      let digits = body.phone.replace(/\D/g, "");
+      if (digits.startsWith("62")) digits = digits.slice(2);
+      else if (digits.startsWith("0")) digits = digits.slice(1);
+      if (!digits) {
+        return NextResponse.json({ error: "Nomor WhatsApp tidak valid." }, { status: 400 });
+      }
+      tenantData.phone = formatPhoneDisplay(digits);
+    }
+    if (typeof body.occupation === "string") tenantData.occupation = body.occupation.trim().slice(0, 120) || null;
+    if (typeof body.maritalStatus === "string") tenantData.maritalStatus = body.maritalStatus.trim().slice(0, 40) || null;
+    if (typeof body.guardianName === "string") tenantData.guardianName = body.guardianName.trim().slice(0, 120) || null;
+    if (typeof body.emergencyPhone === "string") {
+      const digits = body.emergencyPhone.replace(/\D/g, "");
+      tenantData.emergencyPhone = digits ? body.emergencyPhone.trim().slice(0, 40) : null;
+    }
+    if (typeof body.addressKtp === "string") tenantData.addressKtp = body.addressKtp.trim().slice(0, 400) || null;
+    if (typeof body.notes === "string") tenantData.notes = body.notes.trim().slice(0, 1000) || null;
+    if (body.customFields !== undefined) tenantData.customFields = sanitizeCustomFields(body.customFields);
+
+    if (Object.keys(data).length === 0 && Object.keys(tenantData).length === 0) {
       return NextResponse.json({ error: "Tidak ada perubahan yang dikirim." }, { status: 400 });
     }
 
-    const updated = await db.room.update({
+    if (Object.keys(data).length > 0) {
+      await db.room.update({ where: { id: roomId }, data });
+    }
+    if (Object.keys(tenantData).length > 0) {
+      // roomId @unique → update by roomId; keberadaan tenant sudah dipastikan di atas
+      await db.tenant.update({ where: { roomId }, data: tenantData });
+    }
+    const updated = await db.room.findUniqueOrThrow({
       where: { id: roomId },
-      data,
       include: { tenant: true, invoices: { orderBy: { periodKey: "desc" }, take: 1 } },
     });
     return NextResponse.json({ room: toClientRoom(updated) });

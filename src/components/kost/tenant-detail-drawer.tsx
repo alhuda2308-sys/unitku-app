@@ -275,8 +275,9 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
   );
 }
 
-/** Shared helper: next contract end date from an existing end (or cycle end) */
+/** Shared helper: next contract end date from an existing end (or cycle end).
+ *  Kontrak rolling (tanpa endDate) → basis HARI INI, bukan snapshot tetap. */
 export function nextEndDate(room: Room, months: number): string {
-  const base = room.contract?.endDate ? parseDateLabel(room.contract.endDate) : new Date(2026, 8, 30);
+  const base = room.contract?.endDate ? parseDateLabel(room.contract.endDate) : new Date();
   return dateToLabel(addMonths(base, months));
 }

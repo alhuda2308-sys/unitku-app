@@ -72,6 +72,26 @@ function tenantToClient(tenant: Tenant): ClientTenant {
       phone: tenant.emergencyPhone ?? "—",
     },
     portalToken: tenant.portalToken,
+    // Profil lengkap (modal "Edit Data Penghuni") — opsional, aman utk data lama
+    ...(tenant.occupation ? { occupation: tenant.occupation } : {}),
+    ...(tenant.maritalStatus ? { maritalStatus: tenant.maritalStatus } : {}),
+    ...(tenant.guardianName ? { guardianName: tenant.guardianName } : {}),
+    ...(tenant.addressKtp ? { addressKtp: tenant.addressKtp } : {}),
+    ...(tenant.notes ? { notes: tenant.notes } : {}),
+    ...(() => {
+      // Kolom kustom JSONB [{ label, value }] — sanitasi defensif bentuk apa pun
+      if (!Array.isArray(tenant.customFields)) return {};
+      const fields = (tenant.customFields as unknown[])
+        .map((f) => {
+          if (typeof f !== "object" || f === null) return null;
+          const rec = f as Record<string, unknown>;
+          const label = typeof rec.label === "string" ? rec.label : "";
+          const value = typeof rec.value === "string" ? rec.value : "";
+          return label ? { label, value } : null;
+        })
+        .filter((f): f is { label: string; value: string } => f !== null);
+      return fields.length > 0 ? { customFields: fields } : {};
+    })(),
   };
 }
 

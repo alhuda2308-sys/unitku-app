@@ -13,7 +13,11 @@ import {
   notifySyncStart,
   notifySyncSuccess,
 } from "@/lib/sync-status";
-import type { Room as ClientRoom, RoomStatus } from "@/lib/kost-data";
+import type {
+  Room as ClientRoom,
+  RoomStatus,
+  TenantProfilePayload,
+} from "@/lib/kost-data";
 import type { Invoice as ClientInvoice } from "@/lib/kost-invoices";
 import type { CashEntry as ClientCashEntry, CashType } from "@/lib/kost-cashflow";
 import type { Ticket as ClientTicket } from "@/lib/ticket-data";
@@ -360,6 +364,14 @@ export const api = {
     request<{ room: ClientRoom }>("/api/tenants", {
       method: "PATCH",
       body: JSON.stringify({ roomId, contractEnd, deposit }),
+    }),
+  /** Edit Data Penghuni — perbarui profil penyewa (nama, WA, pekerjaan,
+   *  status perkawinan, wali, kontak darurat, alamat KTP, catatan, dan kolom
+   *  kustom JSONB) langsung ke tabel tenants. */
+  updateTenantProfile: (roomId: string, payload: TenantProfilePayload) =>
+    request<{ room: ClientRoom }>("/api/tenants", {
+      method: "PATCH",
+      body: JSON.stringify({ roomId, ...payload }),
     }),
   checkoutTenant: (roomId: string) =>
     request<{ room: ClientRoom; checkedOut: string }>(
