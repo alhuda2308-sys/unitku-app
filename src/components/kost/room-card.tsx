@@ -15,7 +15,7 @@ import {
   roomNomor,
   type Room,
 } from "@/lib/kost-data";
-import { contractEndOf, isContractPastEnd } from "@/lib/room-status";
+import { arrearsLine, contractEndOf, isContractPastEnd } from "@/lib/room-status";
 import { isVillaType } from "@/lib/app-settings";
 import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { StatusBadge, STATUS_SKIN } from "./status-badge";
@@ -49,7 +49,9 @@ interface RoomCardProps {
  * Status yang tampil adalah status DINAMIS (single source of truth di
  * src/lib/room-status.ts): dashboard sudah menggeser kamar kontraknya lewat
  * menjadi menunggak (merah/merah muda — bukan biru/hijau lunas), sehingga
- * baris "Habis" kamar lewat tempo tampil MERAH + sufiks "(Lewat Tempo)".
+ * baris "Habis" kamar lewat tempo tampil MERAH + baris keterangan hari
+ * REAL-TIME di bawahnya: "Lewat tempo 5 hari" / "Jatuh tempo hari ini" /
+ * "Jatuh tempo 2 hari lagi" (arrearsLine — bukan teks statis).
  */
 export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCreateAd, canManage = true, propertyType }: RoomCardProps) {
   const isVacant = room.status === "kosong";
@@ -81,10 +83,14 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
   const habisLabel = contractEndOf(room).label;
   /** Lewat tempo: status efektif "menunggak" — hari ini sudah melewati tanggal
    *  habis kontrak (dihitung terpusat di room-status.ts oleh dashboard, aturan
-   *  murni tanggal — tanpa pengecualian pembayaran). Baris Habis tampil MERAH +
-   *  sufiks "(Lewat Tempo)". Kamar "jatuhTempo" (jendela H-3..H+0) belum lewat
-   *  — tanpa sufiks ini. */
+   *  murni tanggal — tanpa pengecualian pembayaran). Baris Habis tampil MERAH.
+   *  Kamar "jatuhTempo" (jendela H-3..H+0) belum lewat — tanpa merah ini. */
   const isLewatTempo = !isVacant && room.status === "menunggak" && isContractPastEnd(room);
+  /** Keterangan tunggakan/jatuh tempo REAL-TIME — sumber tanggal sama dengan
+   *  status (contractEndOf) sehingga teks & warna kartu selalu konsisten:
+   *  "Lewat tempo 5 hari" · "Jatuh tempo hari ini" · "Jatuh tempo 2 hari lagi".
+   *  null = tanpa baris (masa sewa aman / tanpa tanggal acuan). */
+  const arrears = isVacant ? null : arrearsLine(room);
   const vacantLabel =
     op === "siap" ? (
       <span className="text-sm italic opacity-90">Tersedia</span>
@@ -132,7 +138,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
           isVacant
             ? `Kamar ${roomNomor(room)}, ${OPERATIONAL_META[op].label}, ${room.type}, ${formatIDR(room.price)} ${perLabel}`
             : `Kamar ${roomNomor(room)}, ${room.tenant?.name ?? ""}, Masuk ${masukLabel || "—"}${
-                habisLabel ? `, Habis ${habisLabel}${isLewatTempo ? " (Lewat Tempo)" : ""}` : ""
+                habisLabel ? `, Habis ${habisLabel}${arrears ? `, ${arrears}` : ""}` : ""
               }, ${formatIDR(room.price)} ${perLabel}`
         }
         className={cn(
@@ -186,9 +192,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
 
             {/* Baris 4: tanggal sewa — Masuk & Habis, SATU baris per info
                 (text-xs, tabular-nums). Lewat tempo → SELURUH baris MERAH tebal
-                + sufiks "(Lewat Tempo)" persis teks spesifikasi:
-                "Habis: 22 Okt 2026 (Lewat Tempo)". Warna merah via var tema
-                --ik-card-late-alert agar terbaca di 12 tema (fallback fg kartu). */}
+                via var tema --ik-card-late-alert agar terbaca di 12 tema. */}
             {(masukLabel || habisLabel) && (
               <div className="mt-1.5 min-w-0 space-y-0.5">
                 {masukLabel && (
@@ -197,20 +201,33 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
                   </p>
                 )}
                 {habisLabel && (
-                  // flex-wrap: sufiks "(Lewat Tempo)" turun ke baris kedua di
-                  // kartu sempit (grid 6 kolom desktop / 2 kolom mobile) alih-alih
-                  // memangkas tanggal — tanggal habis kontrak SELALU terbaca.
                   <p
                     className={cn(
-                      "ik-num flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 text-xs leading-4 tabular-nums opacity-90",
+                      "ik-num truncate text-xs leading-4 tabular-nums opacity-90",
                       isLewatTempo &&
                         "font-bold opacity-100 [color:var(--ik-card-late-alert,var(--ik-card-late-fg))]"
                     )}
                   >
-                    <span className="truncate">Habis: {habisLabel}</span>
-                    {isLewatTempo && (
-                      <span className="shrink-0 whitespace-nowrap">(Lewat Tempo)</span>
+                    Habis: {habisLabel}
+                  </p>
+                )}
+                {arrears && (
+                  // Keterangan tunggakan/jatuh tempo REAL-TIME (spesifikasi
+                  // pemilik 25 Okt 2026): "Lewat tempo 5 hari" / "Jatuh tempo
+                  // hari ini" / "Jatuh tempo 2 hari lagi" — angka hari hidup,
+                  // bertambah sendiri begitu tanggal melewati jatuh tempo.
+                  // Merah tegas di kartu menunggak (var late-alert), amber
+                  // gelap di kartu jatuh tempo (var due-fg) — dua-duanya
+                  // kontras di latar kartunya masing-masing di SEMUA tema.
+                  <p
+                    className={cn(
+                      "text-xs font-semibold leading-4 tabular-nums",
+                      isLewatTempo
+                        ? "[color:var(--ik-card-late-alert,var(--ik-card-late-fg))]"
+                        : "[color:var(--ik-card-due-fg,var(--ik-card-due-muted))]"
                     )}
+                  >
+                    {arrears}
                   </p>
                 )}
               </div>

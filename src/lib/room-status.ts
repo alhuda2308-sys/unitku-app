@@ -149,11 +149,37 @@ export function deriveRoomStatus(room: Room, today: Date = new Date()): RoomStat
   return deriveStatusFromContract(room.status, contractEndOf(room).date, today);
 }
 
-/** true bila kontrak kamar SUDAH LEWAT tanggal habisnya — dasar penanda
- *  "(Lewat Tempo)" pada baris tanggal kartu & aria-label. */
+/** true bila kontrak kamar SUDAH LEWAT tanggal habisnya — dasar merahnya
+ *  baris tanggal kartu ("Habis:") pada kartu menunggak. */
 export function isContractPastEnd(room: Room, today: Date = new Date()): boolean {
   const end = contractEndOf(room).date;
   return end != null && contractDaysLeft(end, today) < 0;
+}
+
+/**
+ * ── Teks keterangan keterlambatan/jatuh tempo (baris merah kartu denah) ──────
+ * Dihitung REAL-TIME dari selisih hari today vs tanggal habis kontrak —
+ * memakai SUMBER TANGGAL YANG SAMA dengan aturan status di atas, sehingga
+ * teks dan warna kartu mustahil berbeda (tanpa split-brain):
+ *
+ *   kontrak lewat           → "Lewat tempo 5 hari"   (kartu menunggak)
+ *   tepat hari habis        → "Jatuh tempo hari ini" (kartu jatuh tempo)
+ *   H-3 s.d. H-1            → "Jatuh tempo 2 hari lagi"
+ *   selain itu              → null (tanpa baris — masa sewa aman / tanpa
+ *                             tanggal acuan)
+ *
+ * Spesifikasi pemilik 25 Okt 2026: sufiks statis "(Lewat Tempo)" diganti
+ * hitungan hari hidup — pemilik langsung tahu SUDAH BERAPA hari terlambat,
+ * dan angkanya bertambah sendiri setiap hari tanpa sync manual.
+ */
+export function arrearsLine(room: Room, today: Date = new Date()): string | null {
+  const end = contractEndOf(room).date;
+  if (!end) return null;
+  const daysLeft = contractDaysLeft(end, today);
+  if (daysLeft < 0) return `Lewat tempo ${Math.abs(daysLeft)} hari`;
+  if (daysLeft === 0) return "Jatuh tempo hari ini";
+  if (daysLeft <= DUE_SOON_DAYS) return `Jatuh tempo ${daysLeft} hari lagi`;
+  return null;
 }
 
 /** Versi massal — kamar → kamar berstatus efektif (array baru, immutable;
