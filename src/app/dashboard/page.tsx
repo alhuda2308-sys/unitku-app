@@ -63,6 +63,7 @@ import { CheckinModal, type CheckinPayload } from "@/components/kost/checkin-mod
 import { RoomAddModal } from "@/components/kost/room-add-modal";
 import { RoomManageModal, type RoomPatch } from "@/components/kost/room-manage-modal";
 import { AdGeneratorModal } from "@/components/kost/ad-generator-modal";
+import { RenewDialog } from "@/components/kost/renew-dialog";
 import type { CheckoutPayload } from "@/components/kost/checkout-dialog";
 import type { ExpenseDraft } from "@/components/kost/expense-modal";
 import type { IncomeDraft } from "@/components/kost/income-modal";
@@ -285,6 +286,10 @@ export default function IndoKostPage() {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   /** Generator Iklan Sosmed — kamar kosong yang sedang dibuatkan iklan */
   const [adRoomId, setAdRoomId] = useState<string | null>(null);
+  /** Aksi cepat "Perpanjang Sewa" (kebab kartu Denah Kamar) — kamar terisi
+   *  yang kontraknya sedang diperpanjang; modal menerima data kamar+penyewa
+   *  otomatis dari objek kamar aktif. */
+  const [renewCardRoomId, setRenewCardRoomId] = useState<string | null>(null);
   // Pengaturan global — sumber kebenaran: localStorage (useSyncExternalStore), persist otomatis
   const settings = useSyncExternalStore(subscribeSettings, getSettingsSnapshot, getServerSettingsSnapshot);
   const [settingsTab, setSettingsTab] = useState("profil-saya");
@@ -376,6 +381,13 @@ export default function IndoKostPage() {
   const adRoom = useMemo(
     () => rooms.find((r) => r.id === adRoomId) ?? null,
     [rooms, adRoomId]
+  );
+
+  /** Kamar target aksi cepat Perpanjang Sewa — dari effectiveRooms agar
+   *  tanggal habis kontrak & status yang tampil di modal selalu terkini. */
+  const renewCardRoom = useMemo(
+    () => effectiveRooms.find((r) => r.id === renewCardRoomId) ?? null,
+    [effectiveRooms, renewCardRoomId]
   );
 
   // ── Pengaturan: persist ke localStorage + tema global ────────────────────
@@ -3094,6 +3106,7 @@ export default function IndoKostPage() {
                     }}
                     onDeleteRoom={handleRequestDeleteRoom}
                     onCheckinRoom={(room) => openCheckin(room.id)}
+                    onRenewRoom={(room) => setRenewCardRoomId(room.id)}
                     onAdRoom={(room) => setAdRoomId(room.id)}
                     canManage={canManageRooms}
                     propertyType={settings.propertyProfile.tipe}
@@ -3202,6 +3215,23 @@ export default function IndoKostPage() {
         facilityCatalog={settings.facilities.unit}
         onAddCustomFacility={handleAddCustomFacility}
         onRemoveCustomFacility={handleRemoveCustomFacility}
+      />
+
+      {/* Perpanjang Sewa — aksi cepat menu kebab kartu Denah Kamar. Modal
+          otomatis menampilkan nama penyewa, nomor kamar, tarif & tanggal
+          berakhir kontrak aktif; opsi durasi +1/+2/+3/+6/+12 bulan (bisa
+          disetel manual). Simpan → PATCH /api/tenants (akun riil) atau state
+          demo lokal → contract_end_date terbarui & denah berubah REALTIME
+          tanpa reload (updateRooms → useEffectiveRooms menghitung ulang
+          status kartu, statistik & tab filter). */}
+      <RenewDialog
+        key={`renew-card-${renewCardRoomId ?? "none"}`}
+        room={renewCardRoom}
+        open={renewCardRoomId !== null && renewCardRoom?.tenant != null}
+        onOpenChange={(o) => {
+          if (!o) setRenewCardRoomId(null);
+        }}
+        onSubmit={(room, end, months) => handleRenew(room, end, months)}
       />
 
       {/* Kebab delete confirmation */}

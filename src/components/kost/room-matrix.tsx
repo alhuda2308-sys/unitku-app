@@ -18,6 +18,9 @@ interface RoomMatrixProps {
   onManageRoom: (room: Room) => void;
   onDeleteRoom: (room: Room) => void;
   onCheckinRoom?: (room: Room) => void;
+  /** Aksi cepat "Perpanjang Sewa" di menu kebab kartu terisi — buka modal
+   *  perpanjangan kontrak (kamar kosong tidak pernah memanggil ini). */
+  onRenewRoom?: (room: Room) => void;
   /** Kamar kosong siap huni → tombol aksen "Buat Iklan …" di kartu */
   onAdRoom?: (room: Room) => void;
   /** false = peran read-only (Penjaga) — kartu tanpa menu opsi */
@@ -36,6 +39,7 @@ export function RoomMatrix({
   onManageRoom,
   onDeleteRoom,
   onCheckinRoom,
+  onRenewRoom,
   onAdRoom,
   canManage = true,
   propertyType,
@@ -135,6 +139,7 @@ export function RoomMatrix({
                   onManage={onManageRoom}
                   onDelete={onDeleteRoom}
                   onCheckin={onCheckinRoom}
+                  onRenew={onRenewRoom}
                   onCreateAd={onAdRoom}
                   canManage={canManage}
                   propertyType={propertyType}

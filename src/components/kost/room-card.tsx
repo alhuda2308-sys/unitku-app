@@ -1,6 +1,6 @@
 "use client";
 
-import { Megaphone, MoreVertical, PencilLine, Trash2, UserPlus } from "lucide-react";
+import { CalendarClock, Megaphone, MoreVertical, PencilLine, Trash2, UserPlus } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +27,10 @@ interface RoomCardProps {
   /** false = peran read-only (Penjaga) — menu opsi disembunyikan */
   onDelete: (room: Room) => void;
   onCheckin?: (room: Room) => void;
+  /** Aksi cepat "Perpanjang Sewa" (menu kebab) — HANYA kamar terisi berpenghuni
+   *  aktif. Membuka modal Perpanjang Sewa dgn data kamar+penyewa terisi
+   *  otomatis; kamar kosong tidak pernah menerima handler ini. */
+  onRenew?: (room: Room) => void;
   /** Unit kosong siap huni → tombol aksen "Buat Iklan …" (Generator Iklan Sosmed) */
   onCreateAd?: (room: Room) => void;
   /** false = sembunyikan menu kebab Opsi (Penjaga) — default true */
@@ -53,7 +57,7 @@ interface RoomCardProps {
  * REAL-TIME di bawahnya: "Lewat tempo 5 hari" / "Jatuh tempo hari ini" /
  * "Jatuh tempo 2 hari lagi" (arrearsLine — bukan teks statis).
  */
-export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCreateAd, canManage = true, propertyType }: RoomCardProps) {
+export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onRenew, onCreateAd, canManage = true, propertyType }: RoomCardProps) {
   const isVacant = room.status === "kosong";
   const op = room.operational ?? "siap";
   /** Kamar kosong siap huni → tampilkan tombol aksen Generator Iklan Sosmed */
@@ -291,6 +295,16 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
             <PencilLine className="size-3.5 text-zinc-700" strokeWidth={1.75} />
             Kelola Kamar…
           </DropdownMenuItem>
+          {/* Aksi cepat Perpanjang Sewa — HANYA kamar terisi berpenghuni aktif.
+              Kamar kosong tidak pernah menampilkan opsi ini (tak ada kontrak
+              utk diperpanjang). Ikon kalender = durasi sewa, konsisten dgn
+              header modal Perpanjang Sewa. */}
+          {!isVacant && room.tenant && onRenew && (
+            <DropdownMenuItem onClick={() => onRenew(room)} className="text-[13px]">
+              <CalendarClock className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+              Perpanjang Sewa
+            </DropdownMenuItem>
+          )}
           {isVacant && op === "siap" && onCheckin && (
             <DropdownMenuItem onClick={() => onCheckin(room)} className="text-[13px]">
               <UserPlus className="size-3.5 text-zinc-700" strokeWidth={1.75} />
