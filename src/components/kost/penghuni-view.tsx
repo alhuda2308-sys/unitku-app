@@ -25,13 +25,14 @@ import {
   formatDateLabel,
   formatIDR,
   initialsOf,
-  parseDateLabel,
   roomNomor,
+  STATUS_META,
   todayISO,
   waLink,
   type Room,
   type TenantProfilePayload,
 } from "@/lib/kost-data";
+import { contractDaysLeft, contractEndOf } from "@/lib/room-status";
 import { tenantTermFor } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
 
@@ -53,12 +54,18 @@ interface PenghuniViewProps {
 
 type DirTab = "semua" | "aktif" | "keluar";
 
-/** Sisa hari kontrak dihitung dari HARI INI (bukan snapshot mock) —
- *  negatif = kontrak sudah lewat n hari. */
-function daysLeft(endLabel: string): number {
-  const now = new Date();
-  const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.ceil((parseDateLabel(endLabel).getTime() - todayMid.getTime()) / 86_400_000);
+/**
+ * Tanggal habis kontrak KANONIK + selisih hari vs HARI INI — SATU sumber dengan
+ * kartu Denah (src/lib/room-status.ts): endDate eksplisit ATAU fallback kanonik
+ * masuk + 1 siklus sewa. Menggantikan daysLeft() lokal yang hanya membaca
+ * `contract.endDate` mentah (data kontrak rolling dulu tak pernah punya pill
+ * & tak pernah masuk tab "Akan Keluar" — split-brain dengan Denah).
+ * null = kamar memang tak dapat ditentukan tanggal habisnya.
+ */
+function contractInfo(room: Room): { end: string; dl: number } | null {
+  const info = contractEndOf(room);
+  if (!info.date) return null;
+  return { end: info.label, dl: contractDaysLeft(info.date, new Date()) };
 }
 
 const TODAY_LABEL = formatDateLabel(todayISO());
@@ -106,10 +113,22 @@ function MobileTenantCard({
   onCheckout: () => void;
 }) {
   const t = room.tenant!;
-  const end = room.contract?.endDate;
-  const dl = end ? daysLeft(end) : undefined;
+  // Tanggal habis & sisa hari KANONIK (fallback masuk + 1 siklus sewa) —
+  // selalu sejajar dengan kartu Denah untuk kamar yang sama.
+  const info = contractInfo(room);
+  const end = info?.end;
+  const dl = info?.dl;
   const soon = dl !== undefined && dl <= 30;
-  const badge = invoice ? INVOICE_STATUS_META[invoice.status] : null;
+  // Status EFEKTIF kamar menang atas status tagihan (aturan global single
+  // source of truth): kamar yang dinamis MENUNGGAK (kontrak lewat tanpa
+  // pembayaran baru) TIDAK BOLEH tampil badge "Lunas" biru dari tagihan
+  // bulan berjalan — owner harus melihat alarm yang sama di semua layar.
+  const badge =
+    room.status === "menunggak"
+      ? STATUS_META.menunggak
+      : invoice
+        ? INVOICE_STATUS_META[invoice.status]
+        : null;
 
   return (
     <li className="rounded-lg border border-border bg-white p-3">
@@ -257,7 +276,11 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
   const tenants = useMemo(() => rooms.filter((r) => r.tenant && r.status !== "kosong"), [rooms]);
 
   const endingSoon = useMemo(
-    () => tenants.filter((r) => r.contract?.endDate && daysLeft(r.contract.endDate) <= 30),
+    () =>
+      tenants.filter((r) => {
+        const i = contractInfo(r);
+        return i !== null && i.dl <= 30;
+      }),
     [tenants]
   );
 
@@ -270,8 +293,18 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
   const q = query.trim().toLowerCase();
   const filtered = useMemo(() => {
     let list = tenants;
-    if (tab === "aktif") list = list.filter((r) => !(r.contract?.endDate && daysLeft(r.contract.endDate) <= 30));
-    if (tab === "keluar") list = list.filter((r) => r.contract?.endDate && daysLeft(r.contract.endDate) <= 30);
+    // "Akan Keluar / Habis Kontrak" = kontrak berakhir ≤30 hari ATAU sudah
+    // lewat — memakai tanggal KANONIK yang sama dengan Denah & statistik.
+    if (tab === "aktif")
+      list = list.filter((r) => {
+        const i = contractInfo(r);
+        return !(i !== null && i.dl <= 30);
+      });
+    if (tab === "keluar")
+      list = list.filter((r) => {
+        const i = contractInfo(r);
+        return i !== null && i.dl <= 30;
+      });
     if (q) {
       list = list.filter(
         (r) =>
@@ -365,8 +398,10 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
           <tbody>
             {filtered.map((room) => {
               const t = room.tenant!;
-              const end = room.contract?.endDate;
-              const dl = end ? daysLeft(end) : undefined;
+              // Tanggal habis & sisa hari KANONIK — sejajar dgn kartu Denah
+              const info = contractInfo(room);
+              const end = info?.end;
+              const dl = info?.dl;
               const soon = dl !== undefined && dl <= 30;
               return (
                 <tr key={room.id} className="border-b border-border last:border-0 hover:bg-zinc-50/70">

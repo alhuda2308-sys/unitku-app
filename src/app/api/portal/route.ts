@@ -10,6 +10,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/prisma";
 import { DEMO_OWNER_ID } from "@/lib/auth/config";
 import { toClientAnnouncement, toClientInvoice, toClientRoom } from "@/lib/server/mappers";
+import { deriveRoomStatus } from "@/lib/room-status";
 
 export const dynamic = "force-dynamic";
 
@@ -60,9 +61,22 @@ export async function GET(request: NextRequest) {
     }
 
     const roomWithTenant = { ...tenant.room, tenant, invoices };
+    const clientRoom = toClientRoom(roomWithTenant);
+    // ── Status EFEKTIF DINAMIS (aturan global — satu sumber dgn dashboard) ──
+    // Status kolom database TIDAK dikirim mentah ke portal publik: dihitung
+    // ulang dari hari ini vs tanggal habis kontrak (H-3..H+0 → jatuh tempo;
+    // lewat → menunggak, kecuali ada pembayaran tagihan baru). Penyewa dgn
+    // kontrak basi TIDAK MUNGKIN melihat status "Lunas" palsu di portal-nya.
+    let lastPaidAt: Date | null = null;
+    for (const inv of invoices) {
+      if (inv.status !== "lunas" || !inv.paidAt) continue;
+      if (!lastPaidAt || inv.paidAt > lastPaidAt) lastPaidAt = inv.paidAt;
+    }
+    clientRoom.status = deriveRoomStatus(clientRoom, new Date(), lastPaidAt);
+
     return NextResponse.json(
       {
-        room: toClientRoom(roomWithTenant),
+        room: clientRoom,
         invoices: invoices.map((i) => toClientInvoice(i, tenant.room.nomor ?? tenant.roomId)),
         propertyName: property.name,
         // Banner pengumuman aktif — penyewa melihat yang sama di perangkat mana pun

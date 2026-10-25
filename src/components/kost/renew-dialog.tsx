@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatDateLabel, formatIDR, parseDateLabel, roomNomor, type Room } from "@/lib/kost-data";
+import { contractEndOf } from "@/lib/room-status";
 import { cn } from "@/lib/utils";
 import { nextEndDate } from "./tenant-detail-drawer";
 
@@ -56,13 +57,18 @@ export function RenewDialog({ room, open, onOpenChange, onSubmit }: RenewDialogP
           </DialogTitle>
           <DialogDescription className="text-[12.5px] text-zinc-700">
             {room.tenant?.name} · Kamar {roomNomor(room)} ·{" "}
-            {room.contract?.endDate ? (
-              <>
-                kontrak berakhir <span className="tabular-nums">{room.contract.endDate}</span>
-              </>
-            ) : (
-              "kontrak rolling bulanan"
-            )}
+            {/* Tanggal habis KANONIK (endDate eksplisit ATAU fallback masuk +
+                1 siklus sewa) — sejajar dgn Denah & direktori penghuni */}
+            {(() => {
+              const end = contractEndOf(room);
+              return end.date ? (
+                <>
+                  kontrak berakhir <span className="tabular-nums">{end.label}</span>
+                </>
+              ) : (
+                "kontrak rolling bulanan"
+              );
+            })()}
           </DialogDescription>
         </DialogHeader>
 

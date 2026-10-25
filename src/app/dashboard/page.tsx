@@ -82,7 +82,7 @@ import {
   type Room,
   type TenantProfilePayload,
 } from "@/lib/kost-data";
-import { deriveRoomStatuses, lastPaymentDates } from "@/lib/room-status";
+import { useEffectiveRooms } from "@/hooks/use-effective-rooms";
 import {
   INVOICES,
   buildBillingWaMessage,
@@ -258,16 +258,16 @@ export default function IndoKostPage() {
   const { rooms, invoices, cashEntries, status: dbState } = dash;
 
   // ── Status kamar DINAMIS — SINGLE SOURCE OF TRUTH (src/lib/room-status.ts) ──
-  // Status database TIDAK dipercaya mentah-mentah: status efektif dihitung dari
+  // HOOK UTAMA penampil data kamar (hooks/use-effective-rooms): status database
+  // TIDAK dipercaya mentah-mentah — status efektif dihitung realtime dari
   // selisih hari ini vs tanggal habis kontrak + pembayaran tagihan baru
-  // (H-3..H+0 → jatuh tempo kuning; lewat → menunggak merah). Hasilnya
-  // memegangi SEMUA permukaan Denah Kamar — kartu, kartu statistik, tab filter
-  // — sehingga kamar 01-01 yang kontraknya lewat PASTI tampil menunggak di
-  // ketiganya sekaligus, tanpa menunggu sinkron server (mode demo pun akurat).
-  const effectiveRooms = useMemo(() => {
-    const payments = lastPaymentDates(invoices);
-    return deriveRoomStatuses(rooms, new Date(), payments);
-  }, [rooms, invoices]);
+  // (H-3..H+0 → jatuh tempo kuning; lewat → menunggak merah). Berlaku UNIVERSAL
+  // untuk semua jenis akun (Admin/Pemilik/Staf/Demo) & semua properti. Hasilnya
+  // dipakai SEMUA permukaan penampil status — kartu denah, kartu statistik,
+  // tab filter, drawer, direktori penghuni, pratinjau portal & mirror —
+  // sehingga kamar 01-01 yang kontraknya lewat PASTI tampil menunggak di
+  // semuanya sekaligus, tanpa menunggu sinkron server (mode demo pun akurat).
+  const effectiveRooms = useEffectiveRooms(rooms, invoices);
   const [tickets, setTickets] = useState<Ticket[]>(() =>
     // Mock TIDAK PERNAH tampil utk akun riil — hanya sesi demo (?demo=1);
     // akun riil mulai kosong lalu diisi dari database (empty state bila 0).
@@ -2746,7 +2746,8 @@ export default function IndoKostPage() {
     return (
       <TenantPortal
         token={portalPreviewToken ?? ""}
-        rooms={rooms}
+        // Status EFEKTIF (dinamis) — pratinjau portal ikut aturan global
+        rooms={effectiveRooms}
         invoices={invoices}
         announcements={announcements}
         todayISO={announcementTodayISO}
@@ -2843,7 +2844,8 @@ export default function IndoKostPage() {
               ) : (
               <TagihanView
                 invoices={invoices}
-                rooms={rooms}
+                // Status EFEKTIF (dinamis) — aturan global semua view
+                rooms={effectiveRooms}
                 query={query}
                 onQueryChange={setQuery}
                 propertyName={property}
@@ -2868,7 +2870,8 @@ export default function IndoKostPage() {
               ) : (
               <MaintenancePanel
                 tickets={tickets}
-                rooms={rooms}
+                // Status EFEKTIF (dinamis) — aturan global semua view
+                rooms={effectiveRooms}
                 propertyName={property}
                 query={query}
                 onQueryChange={setQuery}
@@ -2883,7 +2886,8 @@ export default function IndoKostPage() {
               ) : (
               <AnnouncementPanel
                 announcements={announcements}
-                rooms={rooms}
+                // Status EFEKTIF (dinamis) — aturan global semua view
+                rooms={effectiveRooms}
                 query={query}
                 onQueryChange={setQuery}
                 propertyName={property}
@@ -2899,7 +2903,9 @@ export default function IndoKostPage() {
                 <RowsSkeleton rows={6} />
               ) : (
               <PenghuniView
-                rooms={rooms}
+                // Status EFEKTIF (dinamis) — direktori penghuni tampil konsisten
+                // dgn Denah: kamar kontraknya lewat = Menunggak di sini juga
+                rooms={effectiveRooms}
                 invoices={invoices}
                 query={query}
                 onQueryChange={setQuery}

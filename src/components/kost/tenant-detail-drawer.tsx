@@ -20,6 +20,7 @@ import {
   waLink,
   type Room,
 } from "@/lib/kost-data";
+import { contractDaysLeft, contractEndOf } from "@/lib/room-status";
 import { INVOICE_STATUS_META, type Invoice } from "@/lib/kost-invoices";
 import { cn } from "@/lib/utils";
 import { PortalAccessCard } from "./portal-access-card";
@@ -149,14 +150,43 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
                     <span className="tabular-nums">{room.contract!.startDate}</span>
                   </InfoRow>
                   <InfoRow label="Kontrak Berakhir">
-                    {room.contract!.endDate ? (
-                      <span className="inline-flex items-center gap-1.5 tabular-nums">
-                        <CalendarClock className="size-3 shrink-0 text-amber-500" strokeWidth={1.75} aria-hidden="true" />
-                        {room.contract!.endDate}
-                      </span>
-                    ) : (
-                      <span className="text-[12.5px] text-zinc-700">Auto-renew (bulanan)</span>
-                    )}
+                    {/* Tanggal KANONIK (endDate eksplisit ATAU fallback masuk +
+                        1 siklus sewa) — selalu sejajar dgn kartu Denah. Merah +
+                        keterangan "Lewat Tempo" bila hari ini sudah melewati
+                        tanggal habis kontrak (status dinamis MENUNGGAK). */}
+                    {(() => {
+                      const info = contractEndOf(room);
+                      if (!info.date) {
+                        return (
+                          <span className="text-[12.5px] text-zinc-700">
+                            Auto-renew (bulanan)
+                          </span>
+                        );
+                      }
+                      const dl = contractDaysLeft(info.date, new Date());
+                      const past = dl < 0;
+                      return (
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1.5 tabular-nums font-medium",
+                            past ? "text-red-600" : "text-zinc-800"
+                          )}
+                        >
+                          <CalendarClock
+                            className={cn(
+                              "size-3 shrink-0",
+                              past ? "text-red-500" : "text-amber-500"
+                            )}
+                            strokeWidth={1.75}
+                            aria-hidden="true"
+                          />
+                          {info.label}
+                          {past && (
+                            <span className="font-semibold">(Lewat Tempo)</span>
+                          )}
+                        </span>
+                      );
+                    })()}
                   </InfoRow>
                   <InfoRow label="Uang Deposit">
                     <span className="inline-flex items-center justify-end gap-1.5">
@@ -276,8 +306,12 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
 }
 
 /** Shared helper: next contract end date from an existing end (or cycle end).
- *  Kontrak rolling (tanpa endDate) → basis HARI INI, bukan snapshot tetap. */
+ *  Kontrak rolling (tanpa endDate) → basis HARI INI — tanggal masuk lama pada
+ *  kontrak rolling bukan dasar perpanjangan yang sehat (derivasinya basi);
+ *  perpanjangan menyelamatkan dari alarm menunggak dgn masa sewa baru mulai
+ *  hari aksi. Kontrak dgn endDate eksplisit tetap melanjutkan dari endDate. */
 export function nextEndDate(room: Room, months: number): string {
-  const base = room.contract?.endDate ? parseDateLabel(room.contract.endDate) : new Date();
+  const explicit = room.contract?.endDate?.trim();
+  const base = explicit ? parseDateLabel(explicit) : new Date();
   return dateToLabel(addMonths(base, months));
 }
