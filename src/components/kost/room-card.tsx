@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { formatIDRShort, OPERATIONAL_META, roomNomor, type Room } from "@/lib/kost-data";
+import { formatIDR, OPERATIONAL_META, roomNomor, type Room } from "@/lib/kost-data";
 import { isVillaType } from "@/lib/app-settings";
 import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { StatusBadge, STATUS_SKIN } from "./status-badge";
@@ -33,7 +33,8 @@ interface RoomCardProps {
 /**
  * Kartu kamar SOLID — seluruh permukaan terisi warna blok sesuai status
  * (lunas/jatuh tempo/menunggak/kosong) dan tema aktif. Tinggi seragam
- * h-[124px], tata letak 3 baris presisi (justify-between).
+ * h-[124px]; badge tarif sewa selalu tampil di area tengah kartu
+ * (kosong/terisi/custom), CTA iklan → tarif tepat di atas tombol aksen.
  */
 export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCreateAd, canManage = true, propertyType }: RoomCardProps) {
   const isVacant = room.status === "kosong";
@@ -43,6 +44,19 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
   /** Label tombol iklan adaptif tipe properti aktif (Kamar/Kontrakan/Unit) */
   const adCta = adCtaLabel(adPropertyScope(propertyType));
   const skin = STATUS_SKIN[room.status] ?? STATUS_SKIN.kosong;
+  /** Periode tarif: harian utk properti Villa/Homestay & kontrak Harian,
+   *  selain itu bulanan. room.price = tarif per periode tsb. */
+  const sewaHarian = isVillaType(propertyType) || room.contract?.duration === "Harian";
+  const perLabel = sewaHarian ? "per hari" : "per bulan";
+  const periodeSuffix = sewaHarian ? " / hari" : " / bln";
+  /** Tarif penuh format Indonesia — "Rp1.500.000 / bln" — tampil di SEMUA kartu
+   *  (kosong/terisi/custom). Sumber: room.price (ikut ter-update saat kamar
+   *  custom ditambah / tarif tipe diedit karena kartu murni render data room). */
+  const priceLabel = `${formatIDR(room.price)}${periodeSuffix}`;
+  /** Tanggal tempo ringkas utk baris bawah kartu ("28 Sep") — prefix "Tempo:"
+   *  dilepas agar muat sebaris dgn chip tipe; pill status (H-1/H+3/Lunas) di
+   *  atas sudah memberi konteks, label penuh tetap ada di drawer & aria-label. */
+  const dueDateShort = room.invoice?.dueLabel?.replace(/^Tempo:\s*/i, "");
   const vacantLabel =
     op === "siap" ? (
       <span className="text-sm italic opacity-90">Tersedia</span>
@@ -56,6 +70,19 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
         {OPERATIONAL_META[op].label}
       </span>
     );
+  /** Badge tarif — chip kontras mengikuti skin status kartu (tema-aktif).
+   *  px-1.5 (bukan px-2): teks tarif 17-karakter hanya berlebih ~0.5px di kartu
+   *  2-kolom mobile → padding tipis mencegah ellipsis fraksional. */
+  const priceChip = (
+    <span
+      className={cn(
+        "ik-num inline-flex max-w-full min-w-0 items-center rounded border px-1.5 py-0.5 text-xs font-bold leading-4 tabular-nums whitespace-nowrap",
+        skin.chip
+      )}
+    >
+      <span className="truncate">{priceLabel}</span>
+    </span>
+  );
 
   return (
     <div className="group relative">
@@ -64,12 +91,14 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
         onClick={() => onSelect(room)}
         aria-label={
           isVacant
-            ? `Kamar ${roomNomor(room)}, ${OPERATIONAL_META[op].label}, ${room.type}, ${formatIDRShort(room.price)} per bulan`
-            : `Kamar ${roomNomor(room)}, ${room.tenant?.name}, ${room.invoice?.dueLabel ?? ""}`
+            ? `Kamar ${roomNomor(room)}, ${OPERATIONAL_META[op].label}, ${room.type}, ${formatIDR(room.price)} ${perLabel}`
+            : `Kamar ${roomNomor(room)}, ${room.tenant?.name}, ${room.invoice?.dueLabel ?? ""}, ${formatIDR(room.price)} ${perLabel}`
         }
         className={cn(
           // ik-card: hook struktural tema karakter (brutalis/arsip/blueprint)
           "ik-card flex h-[124px] w-full cursor-pointer flex-col justify-between rounded-lg border p-3 text-left transition-all duration-100",
+          // CTA iklan overlay di bawah → reserve ruang agar tarif tidak tertutup
+          showAdCta && "pb-10",
           "hover:shadow-[0_4px_14px_rgba(15,23,42,0.16)] hover:brightness-[0.97] active:brightness-[0.94]",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ik-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white",
           skin.card,
@@ -82,40 +111,48 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
           <StatusBadge room={room} solid />
         </div>
 
-        {/* Baris 2: nama penyewa / label kosong (kamar siap huni → area tombol iklan) */}
-        <div className="flex-1 overflow-hidden pt-1">
-          {isVacant ? (
-            vacantLabel
-          ) : (
-            <span className="block truncate text-sm font-bold leading-5">
-              {room.tenant?.name}
-            </span>
-          )}
-        </div>
+        {/* Baris 2: tarif sewa — SELALU tampil (kosong/terisi/custom), area
+            tengah kartu tepat di bawah nomor/status & di atas nama penyewa.
+            Kartu dgn CTA iklan: tarif dipindah ke baris 3 (tepat di atas
+            tombol "Buat Iklan"). */}
+        {showAdCta ? (
+          <div className="flex-1 overflow-hidden pt-1">{vacantLabel}</div>
+        ) : (
+          <div className="flex min-w-0 items-center pt-0.5">{priceChip}</div>
+        )}
 
-        {/* Baris 3: chip tipe + tanggal tempo / harga (kamar dgn CTA iklan →
-            baris ini digantikan tombol aksen; tipe & harga tetap terbaca via
-            aria-label kartu, drawer, & modal iklan) */}
+        {/* Baris 3 (CTA iklan): badge tarif tepat di atas tombol aksen */}
+        {showAdCta && <div className="flex min-w-0 items-center">{priceChip}</div>}
+
+        {/* Baris 3/4: nama penyewa (terisi) + chip tipe + tanggal tempo */}
         {showAdCta ? null : (
-        <div className="flex flex-wrap items-center justify-between gap-x-1.5 gap-y-1">
-          <span
-            className={cn(
-              "ik-num inline-flex max-w-full min-w-0 items-center truncate rounded border px-2 py-0.5 text-xs font-semibold leading-4 whitespace-nowrap",
-              skin.chip
-            )}
-          >
-            <span className="truncate">{room.type}</span>
-          </span>
-          {isVacant ? (
-            <span className="ik-num ml-auto text-xs font-bold tabular-nums whitespace-nowrap">
-              {formatIDRShort(room.price)}{isVillaType(propertyType) ? "/hari" : "/bln"}
-            </span>
-          ) : (
-            <span className="ik-num ml-auto truncate text-xs font-semibold tabular-nums whitespace-nowrap">
-              {room.invoice?.dueLabel}
-            </span>
+        <>
+          {!isVacant && (
+            <div className="flex-1 overflow-hidden pt-1">
+              <span className="block truncate text-sm font-bold leading-5">
+                {room.tenant?.name}
+              </span>
+            </div>
           )}
-        </div>
+          {isVacant && <div className="flex-1 overflow-hidden pt-1">{vacantLabel}</div>}
+          {/* nowrap + truncate: baris ini WAJIB satu baris — bila wrap,
+              baris nama penyewa (flex-1) di atasnya tergenting & kolaps */}
+          <div className="flex items-center justify-between gap-x-1.5">
+            <span
+              className={cn(
+                "ik-num inline-flex min-w-0 items-center truncate rounded border px-2 py-0.5 text-xs font-semibold leading-4 whitespace-nowrap",
+                skin.chip
+              )}
+            >
+              <span className="truncate">{room.type}</span>
+            </span>
+            {!isVacant && dueDateShort && (
+              <span className="ik-num ml-auto shrink-0 text-xs font-semibold tabular-nums whitespace-nowrap">
+                {dueDateShort}
+              </span>
+            )}
+          </div>
+        </>
         )}
       </button>
 
