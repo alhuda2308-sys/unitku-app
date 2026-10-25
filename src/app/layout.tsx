@@ -26,6 +26,11 @@ export const metadata: Metadata = {
     "Kelola kost, kontrakan & unit sewa tanpa ribet: denah kamar, tagihan & invoice, data penghuni, buku kas, dan portal penyewa.",
   applicationName: "UnitKu",
   manifest: "/manifest.webmanifest",
+  // Google Search Console — verifikasi kepemilikan situs unitku.my.id
+  // dirender sebagai <meta name="google-site-verification" content="…"> di <head>
+  verification: {
+    google: "a71-E9VDzssV06Jw2oh08ORK4RPhdi8EaFlRJ72ojeU",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
