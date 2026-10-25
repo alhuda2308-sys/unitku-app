@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Check, DoorOpen, TriangleAlert, Wrench } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, DoorOpen, Plus, TriangleAlert, Wrench, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,6 +65,11 @@ interface RoomManageModalProps {
   onDelete: (room: Room) => void;
   /** Katalog master fasilitas unit (dari Pengaturan → Katalog Fasilitas) */
   facilityCatalog?: FacilityItem[];
+  /** Tambah fasilitas kustom — persist ke katalog master properti (cloud/demo)
+   *  supaya pilihan baru muncul juga di modal Tambah Kamar berikutnya */
+  onAddCustomFacility?: (label: string) => void;
+  /** Hapus fasilitas kustom dari katalog master (salah ketik) */
+  onRemoveCustomFacility?: (id: string) => void;
 }
 
 const inputCls =
@@ -84,15 +89,18 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Checkbox pill — toggles a facility on/off */
+/** Checkbox pill — toggles a facility on/off; onRemove hadir = pill kustom
+ *  (tanda silang mikro utk menghapus dari katalog, pola sama dgn Tambah Kamar) */
 function FacilityPill({
   label,
   checked,
   onToggle,
+  onRemove,
 }: {
   label: string;
   checked: boolean;
   onToggle: () => void;
+  onRemove?: () => void;
 }) {
   return (
     <label
@@ -110,6 +118,21 @@ function FacilityPill({
         aria-label={label}
       />
       {label}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="-mr-1 ml-px inline-flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-zinc-200/70"
+          aria-label={`Hapus fasilitas ${label} dari katalog`}
+          title="Hapus dari katalog"
+        >
+          <X className="size-2.5" strokeWidth={2.5} aria-hidden="true" />
+        </button>
+      )}
     </label>
   );
 }
@@ -122,6 +145,8 @@ export function RoomManageModal({
   onSave,
   onDelete,
   facilityCatalog,
+  onAddCustomFacility,
+  onRemoveCustomFacility,
 }: RoomManageModalProps) {
   // Parent remounts via `key` on open — initializers are safe here.
   // Katalog master + fasilitas legacy milik kamar ini (mis. dihapus dari katalog) tetap tampil.
@@ -144,6 +169,28 @@ export function RoomManageModal({
   const [facilities, setFacilities] = useState<string[]>(room?.facilities ?? []);
   const [operational, setOperational] = useState<OperationalStatus>(room?.operational ?? "siap");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Fasilitas kustom — inline input di baris pill (pola sama dgn Tambah Kamar)
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customDraft, setCustomDraft] = useState("");
+
+  // Escape menutup HANYA input inline, bukan seluruh dialog. Radix Dialog
+  // mendaftarkan handler Escape di document fase CAPTURE (menembak lebih dulu
+  // dr handler React mana pun) — satu-satunya lapisan yg bisa mencegat lebih
+  // awal adalah listener capture di `window` (window mendahului document).
+  // Diletakkan sebelum early return `if (!room)` — hook tidak boleh kondisional.
+  useEffect(() => {
+    if (!customOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setCustomOpen(false);
+        setCustomDraft("");
+      }
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [customOpen]);
 
   if (!room) return null;
 
@@ -166,6 +213,29 @@ export function RoomManageModal({
 
   const toggleFacility = (f: string) =>
     setFacilities((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
+
+  // ── Fasilitas kustom: validasi & submit (Enter / ikon centang) ──────────
+  const catalogLabels = catalog.map((f) => f.label.toLowerCase());
+  const customDraftTrimmed = customDraft.trim();
+  const customDup =
+    customDraftTrimmed.length > 0 && catalogLabels.includes(customDraftTrimmed.toLowerCase());
+  const submitCustom = () => {
+    const label = customDraft.trim();
+    if (!label || customDup) return;
+    // 1) persist ke katalog master properti (cloud/demo) — pill kustom baru
+    //    dgn tanda × muncul seketika karena catalog diturunkan dari props
+    onAddCustomFacility?.(label);
+    // 2) langsung otomatis terpilih utk kamar yang sedang dikelola
+    setFacilities((prev) =>
+      prev.some((v) => v.toLowerCase() === label.toLowerCase()) ? prev : [...prev, label]
+    );
+    setCustomDraft("");
+    setCustomOpen(false);
+  };
+  const removeCustom = (id: string, label: string) => {
+    onRemoveCustomFacility?.(id);
+    setFacilities((prev) => prev.filter((x) => x !== label));
+  };
 
   const save = () => {
     if (!valid) return;
@@ -313,14 +383,87 @@ export function RoomManageModal({
               </div>
             </section>
 
-            {/* Fasilitas */}
+            {/* Fasilitas — katalog master + tambah fasilitas kustom */}
             <section>
               <SectionLabel>Fasilitas</SectionLabel>
               <div className="flex flex-wrap gap-1.5">
                 {catalog.map((f) => (
-                  <FacilityPill key={f.id} label={f.label} checked={facilities.includes(f.label)} onToggle={() => toggleFacility(f.label)} />
+                  <FacilityPill
+                    key={f.id}
+                    label={f.label}
+                    checked={facilities.includes(f.label)}
+                    onToggle={() => toggleFacility(f.label)}
+                    onRemove={
+                      f.custom && onRemoveCustomFacility
+                        ? () => removeCustom(f.id, f.label)
+                        : undefined
+                    }
+                  />
                 ))}
+
+                {customOpen ? (
+                  <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-auto">
+                    <Input
+                      autoFocus
+                      value={customDraft}
+                      onChange={(e) => setCustomDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          submitCustom();
+                        }
+                      }}
+                      placeholder="Misal: Kulkas Mini, Dispenser, Smart TV"
+                      aria-label="Nama fasilitas kustom baru"
+                      aria-invalid={customDup}
+                      className={cn(
+                        "h-7 min-w-0 flex-1 rounded-full border-zinc-200 bg-white px-3 text-[12.5px] shadow-none sm:w-[240px] sm:flex-none",
+                        customDup && "border-red-300 focus-visible:ring-red-900/10"
+                      )}
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      onClick={submitCustom}
+                      disabled={!customDraftTrimmed || customDup}
+                      className="size-7 shrink-0 rounded-full bg-emerald-600 text-white shadow-none hover:bg-emerald-700 disabled:opacity-40"
+                      aria-label="Tambah fasilitas kustom"
+                    >
+                      <Check className="size-3.5" strokeWidth={2.5} />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      onClick={() => {
+                        setCustomOpen(false);
+                        setCustomDraft("");
+                      }}
+                      className="size-7 shrink-0 rounded-full border-zinc-200 bg-white text-zinc-700 shadow-none hover:bg-zinc-50"
+                      aria-label="Batal tambah fasilitas"
+                    >
+                      <X className="size-3.5" strokeWidth={2.25} />
+                    </Button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setCustomOpen(true)}
+                    className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-zinc-300 bg-white px-2.5 text-[12.5px] font-medium text-zinc-600 transition-colors hover:border-zinc-400 hover:bg-zinc-50 hover:text-zinc-800"
+                  >
+                    <Plus className="size-3" strokeWidth={2} aria-hidden="true" />
+                    Tambah Fasilitas Lain
+                  </button>
+                )}
               </div>
+              {customOpen && customDup && (
+                <p className="mt-1.5 text-xs font-medium text-red-600">
+                  Fasilitas "{customDraftTrimmed}" sudah ada di katalog.
+                </p>
+              )}
+              <p className="mt-2 text-xs text-zinc-700">
+                Fasilitas tercentang tersimpan ke kamar ini — pilihan kustom juga masuk katalog master untuk kamar berikutnya.
+              </p>
             </section>
 
             {/* Status operasional */}

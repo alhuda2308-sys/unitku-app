@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Layers, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -203,6 +203,23 @@ export function RoomAddModal({
     onRemoveCustomFacility?.(id);
     setFacilities((prev) => prev.filter((x) => x !== label));
   };
+
+  // Escape menutup HANYA input inline, bukan seluruh dialog. Radix Dialog
+  // mendaftarkan handler Escape di document fase CAPTURE — cegat via window
+  // capture (window mendahului document) sebelum sempat menutup dialog.
+  useEffect(() => {
+    if (!customOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setCustomOpen(false);
+        setCustomDraft("");
+      }
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [customOpen]);
 
   const submit = () => {
     if (mode === "satu") {
@@ -463,12 +480,8 @@ export function RoomAddModal({
                         e.preventDefault();
                         submitCustom();
                       }
-                      if (e.key === "Escape") {
-                        setCustomOpen(false);
-                        setCustomDraft("");
-                      }
                     }}
-                    placeholder="cth. Water Heater, Meja Kerja, Dapur Mini..."
+                    placeholder="Misal: Kulkas Mini, Dispenser, Smart TV"
                     aria-label="Nama fasilitas custom baru"
                     aria-invalid={customDup}
                     className={cn(
@@ -507,7 +520,7 @@ export function RoomAddModal({
                   className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-zinc-300 bg-white px-2.5 text-[12.5px] font-medium text-zinc-600 transition-colors hover:border-zinc-400 hover:bg-zinc-50 hover:text-zinc-800"
                 >
                   <Plus className="size-3" strokeWidth={2} aria-hidden="true" />
-                  Tambah Fasilitas
+                  Tambah Fasilitas Lain
                 </button>
               )}
             </div>

@@ -27,11 +27,13 @@ import {
   Facebook,
   Instagram,
   Megaphone,
+  Plus,
   RefreshCw,
   Smartphone,
   Sparkles,
   Store,
   Users,
+  X,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -76,6 +78,9 @@ interface AdGeneratorModalProps {
   ownerWhatsapp: string;
   /** Katalog master fasilitas unit (Pengaturan → Katalog Fasilitas) */
   facilityCatalog?: FacilityItem[];
+  /** Tambah fasilitas kustom mendadak — persist ke katalog master properti
+   *  (cloud/demo) supaya pilihan baru juga muncul di modal kamar berikutnya */
+  onAddCustomFacility?: (label: string) => void;
   /** Tipe properti aktif (kost / kontrakan / rusun / villa) — menentukan
    *  label, judul modal, struktur draf iklan & terminologi (Kamar vs Unit
    *  Kontrakan vs terminologi staycation villa) */
@@ -124,12 +129,14 @@ function AdModalBody({
   propertyName,
   ownerWhatsapp,
   facilityCatalog,
+  onAddCustomFacility,
   propertyType,
 }: {
   room: Room;
   propertyName: string;
   ownerWhatsapp: string;
   facilityCatalog?: FacilityItem[];
+  onAddCustomFacility?: (label: string) => void;
   propertyType?: string;
 }) {
   const [format, setFormat] = useState<AdFormatId>("facebook");
@@ -145,6 +152,12 @@ function AdModalBody({
   // per malam) — langsung mengalir ke draf iklan & preset tanpa disimpan.
   const [capacityText, setCapacityText] = useState("");
   const [weekendText, setWeekendText] = useState("");
+  // Fasilitas kustom mendadak — inline input di baris pill FASILITAS.
+  // extraFacilities menjaga pill tetap terlihat & terpilih seketika meski
+  // persist katalog master (cloud/demo) belum selesai.
+  const [extraFacilities, setExtraFacilities] = useState<string[]>([]);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customDraft, setCustomDraft] = useState("");
 
   /** Scope properti aktif — Kost (Kamar) vs Kontrakan/Rusun (Unit) vs
    *  Villa/Homestay (terminologi staycation + preset cepat) */
@@ -161,14 +174,16 @@ function AdModalBody({
     return Number.isFinite(n) && n > 0 ? n : null;
   }, [weekendText]);
 
-  // Checklist cepat: fasilitas unit + katalog master + opsi bawaan (dedup).
-  // Kontrakan/rusun: fasilitas prioritas rumah dulu; Villa/homestay: fasilitas
-  // liburan (kolam renang, dapur, view, BBQ…) paling depan agar iklan
-  // langsung menonjolkan yang relevan utk tamu liburan.
+  // Checklist cepat: fasilitas unit (termasuk kustom dari Kelola/Tambah Kamar)
+  // + tambahan mendadak + katalog master + opsi bawaan (dedup). Kontrakan/rusun:
+  // fasilitas prioritas rumah dulu; Villa/homestay: fasilitas liburan (kolam
+  // renang, dapur, view, BBQ…) paling depan agar iklan langsung menonjolkan
+  // yang relevan utk tamu liburan.
   const roomLabel = roomNomor(room);
-  const quickFacilities = useMemo(() => {
+  const facilityPool = useMemo(() => {
     const roomAndCatalog = [
       ...(room.facilities ?? []),
+      ...extraFacilities,
       ...(facilityCatalog ?? []).map((f) => f.label),
       ...FACILITY_OPTIONS,
     ];
@@ -178,8 +193,11 @@ function AdModalBody({
         : scope === "villa"
           ? [...VILLA_FACILITY_PRIORITY, ...roomAndCatalog]
           : [...HOUSE_FACILITY_PRIORITY, ...roomAndCatalog];
-    return Array.from(new Set(pool.filter((f) => f.trim().length > 0))).slice(0, 14);
-  }, [scope, roomLabel, room.facilities, facilityCatalog]);
+    return Array.from(new Set(pool.filter((f) => f.trim().length > 0)));
+  }, [scope, roomLabel, room.facilities, facilityCatalog, extraFacilities]);
+  // Semua fasilitas milik kamar selalu tampil (mereka paling depan di pool);
+  // sisanya dipotong agar baris pill tetap ringkas (area scrollable).
+  const quickFacilities = useMemo(() => facilityPool.slice(0, 18), [facilityPool]);
 
   const input = useMemo<AdGeneratorInput>(
     () => ({
@@ -221,6 +239,41 @@ function AdModalBody({
   const toggleFacility = (f: string) => {
     setSelected((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
   };
+
+  // ── Fasilitas kustom mendadak: validasi & submit (Enter / ikon centang) ──
+  const customDraftTrimmed = customDraft.trim();
+  const customDup =
+    customDraftTrimmed.length > 0 &&
+    facilityPool.some((f) => f.toLowerCase() === customDraftTrimmed.toLowerCase());
+  const submitCustom = () => {
+    const label = customDraft.trim();
+    if (!label || customDup) return;
+    // 1) persist ke katalog master properti (cloud/demo) — tersedia juga di
+    //    modal Kelola/Tambah Kamar berikutnya
+    onAddCustomFacility?.(label);
+    // 2) pill muncul + otomatis terpilih → draf iklan bereaksi seketika
+    setExtraFacilities((prev) => (prev.includes(label) ? prev : [...prev, label]));
+    setSelected((prev) => (prev.includes(label) ? prev : [...prev, label]));
+    setCustomDraft("");
+    setCustomOpen(false);
+  };
+
+  // Escape menutup HANYA input inline, bukan seluruh dialog. Radix Dialog
+  // mendaftarkan handler Escape di document fase CAPTURE — cegat via window
+  // capture (window mendahului document) sebelum sempat menutup dialog.
+  useEffect(() => {
+    if (!customOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setCustomOpen(false);
+        setCustomDraft("");
+      }
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [customOpen]);
 
   const handleCopy = async () => {
     const ok = await copyText(draft);
@@ -407,7 +460,8 @@ function AdModalBody({
           </div>
         )}
 
-        {/* Checklist fasilitas cepat */}
+        {/* Checklist fasilitas cepat — pill kamar (termasuk kustom) + tambah
+            fasilitas kustom mendadak; tiap toggle langsung meregenerasi draf */}
         <div>
           <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-zinc-700">
             Fasilitas <span className="font-medium normal-case tracking-normal text-zinc-500">(klik utk tambah/hapus dari iklan)</span>
@@ -434,10 +488,68 @@ function AdModalBody({
                 </button>
               );
             })}
+
+            {customOpen ? (
+              <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-auto">
+                <input
+                  autoFocus
+                  value={customDraft}
+                  onChange={(e) => setCustomDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      submitCustom();
+                    }
+                  }}
+                  placeholder="Misal: Kulkas Mini, Dispenser, Smart TV"
+                  aria-label="Nama fasilitas kustom baru untuk iklan"
+                  aria-invalid={customDup}
+                  className={cn(
+                    "h-7 min-w-0 flex-1 rounded-full border border-zinc-200 bg-white px-3 text-[11.5px] text-zinc-800 shadow-none outline-none placeholder:text-zinc-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20 sm:w-[230px] sm:flex-none",
+                    customDup && "border-red-300 focus:border-red-400 focus:ring-red-500/20",
+                  )}
+                />
+                <button
+                  type="button"
+                  onClick={submitCustom}
+                  disabled={!customDraftTrimmed || customDup}
+                  aria-label="Tambah fasilitas kustom ke iklan"
+                  className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-emerald-600 text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Check className="size-3.5" strokeWidth={2.5} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomOpen(false);
+                    setCustomDraft("");
+                  }}
+                  aria-label="Batal tambah fasilitas kustom"
+                  className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-colors hover:bg-zinc-50"
+                >
+                  <X className="size-3.5" strokeWidth={2.25} aria-hidden="true" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCustomOpen(true)}
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-emerald-300 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-emerald-700 transition-colors hover:border-emerald-500 hover:bg-emerald-50"
+              >
+                <Plus className="size-3" strokeWidth={2.25} aria-hidden="true" />
+                Tambah Fasilitas Kustom
+              </button>
+            )}
+
             {quickFacilities.length === 0 && (
-              <p className="text-[12px] text-zinc-500">Belum ada fasilitas — tambahkan lewat Kelola Kamar.</p>
+              <p className="text-[12px] text-zinc-500">Belum ada fasilitas — tambahkan lewat tombol kustom di atas atau lewat Kelola Kamar.</p>
             )}
           </div>
+          {customOpen && customDup && (
+            <p className="mt-1.5 text-[11.5px] font-medium text-red-600">
+              Fasilitas "{customDraftTrimmed}" sudah ada di daftar.
+            </p>
+          )}
         </div>
 
         {/* Preview bisa diedit manual */}
@@ -529,6 +641,7 @@ export function AdGeneratorModal({
   propertyName,
   ownerWhatsapp,
   facilityCatalog,
+  onAddCustomFacility,
   propertyType,
 }: AdGeneratorModalProps) {
   return (
@@ -541,6 +654,7 @@ export function AdGeneratorModal({
             propertyName={propertyName}
             ownerWhatsapp={ownerWhatsapp}
             facilityCatalog={facilityCatalog}
+            onAddCustomFacility={onAddCustomFacility}
             propertyType={propertyType}
           />
         )}

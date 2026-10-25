@@ -3131,6 +3131,7 @@ export default function IndoKostPage() {
         propertyName={property}
         ownerWhatsapp={settings.owner.whatsapp}
         facilityCatalog={settings.facilities.unit}
+        onAddCustomFacility={handleAddCustomFacility}
         propertyType={settings.propertyProfile.tipe}
       />
 
@@ -3164,6 +3165,8 @@ export default function IndoKostPage() {
         onSave={handleUpdateRoom}
         onDelete={handleDeleteRoom}
         facilityCatalog={settings.facilities.unit}
+        onAddCustomFacility={handleAddCustomFacility}
+        onRemoveCustomFacility={handleRemoveCustomFacility}
       />
 
       {/* Kebab delete confirmation */}
