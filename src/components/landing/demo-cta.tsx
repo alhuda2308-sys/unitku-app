@@ -21,9 +21,16 @@ interface DemoCtaProps {
   /** outline = sekunder di samping tombol beli (hero); solid = gaya lama */
   variant?: "solid" | "outline";
   className?: string;
+  /** Label kustom — default "Coba Demo Gratis (Tanpa Daftar)";
+   *  hero memakai label SEO "Coba Demo Interaktif Gratis". */
+  label?: string;
 }
 
-export function DemoCta({ variant = "solid", className = "" }: DemoCtaProps) {
+export function DemoCta({
+  variant = "solid",
+  className = "",
+  label = "Coba Demo Gratis (Tanpa Daftar)",
+}: DemoCtaProps) {
   const trackLead = () => {
     window.fbq?.("track", "Lead", { content_name: "Coba Demo UnitKu" });
   };
@@ -41,7 +48,7 @@ export function DemoCta({ variant = "solid", className = "" }: DemoCtaProps) {
       onClick={trackLead}
       className={`${base} ${tone} ${className}`}
     >
-      Coba Demo Gratis (Tanpa Daftar)
+      {label}
       <ArrowRight className="size-4" strokeWidth={1.75} aria-hidden="true" />
     </Link>
   );

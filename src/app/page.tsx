@@ -36,6 +36,7 @@ import {
 import { getAuthUser } from "@/lib/auth/server";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { BuyCta } from "@/components/landing/buy-cta";
+import { CheckoutCta } from "@/components/landing/checkout-cta";
 import { DemoCta } from "@/components/landing/demo-cta";
 import { VideoDemoCta } from "@/components/landing/video-demo-cta";
 import { SiteFooter } from "@/components/landing/site-footer";
@@ -127,7 +128,25 @@ const OFFER_BENEFITS = [
   "Gratis pembaruan fitur baru ke depannya",
 ] as const;
 
+/* FAQ — 4 pertanyaan target long-tail keyword SEO (niat beli tinggi) lebih
+   dulu, disusul pertanyaan konversi lama yang tetap relevan. */
 const FAQ_ITEMS = [
+  {
+    q: "Apakah saya bisa mencoba aplikasi manajemen kost gratis?",
+    a: "Tentu! Anda dapat langsung mencoba seluruh fitur simulasi manajemen kamar melalui menu Interactive Demo kami tanpa perlu registrasi.",
+  },
+  {
+    q: "Apakah UnitKu cocok digunakan sebagai software pengelola kontrakan dan ruko?",
+    a: "Ya, UnitKu dirancang fleksibel untuk segala jenis properti sewa, mulai dari kamar kost harian/bulanan, rumah kontrakan tahunan, hingga unit ruko.",
+  },
+  {
+    q: "Bagaimana cara kerja pengingat tagihan kost otomatis WhatsApp?",
+    a: "Sistem UnitKu mendeteksi tanggal jatuh tempo dan keterlambatan sewa secara realtime, lalu menyediakan template pesan penagihan siap kirim via WhatsApp.",
+  },
+  {
+    q: "Apakah pembukuan kost di UnitKu bisa mencatat laba bersih?",
+    a: "Ya, fitur buku kas UnitKu otomatis menghitung total pemasukan sewa dikurangi biaya operasional untuk menghasilkan laporan laba bersih yang rapi.",
+  },
   {
     q: "Benar-benar nggak ada iuran bulanan lagi?",
     a: "Iya, betul. Anda cukup bayar satu kali saja saat aktivasi. Tidak ada tagihan bulanan atau biaya tahunan sama sekali.",
@@ -135,10 +154,6 @@ const FAQ_ITEMS = [
   {
     q: "Gampang nggak dipakai dari HP?",
     a: "Sangat gampang dan ringan. Didesain ramah untuk dibuka langsung lewat browser smartphone Anda kapan saja.",
-  },
-  {
-    q: "Bisa buat kontrakan petak atau ruko sewa?",
-    a: "Bisa banget. Sistem UnitKu fleksibel untuk segala macam unit sewaan, baik kost, kontrakan, paviliun, kios, hingga ruko.",
   },
   {
     q: "Kalau saya gaptek ada panduannya?",
@@ -345,25 +360,25 @@ export default async function LandingPage() {
               Solusi Cerdas Pemilik Kost &amp; Kontrakan
             </p>
 
+            {/* H1 — keyword utama long-tail: software pengelola kost & kontrakan */}
             <h1 className="mx-auto mt-5 max-w-3xl text-balance text-3xl font-extrabold leading-[1.15] tracking-tight sm:text-4xl lg:text-5xl">
-              Kelola Puluhan Kamar Kost{" "}
-              <span className="text-emerald-700">
-                Tanpa Pusing Buku Catatan &amp; Sungkan Menagih.
-              </span>
+              Software Pengelola Kost &amp; Kontrakan{" "}
+              <span className="text-emerald-700">Paling Praktis di Indonesia</span>
             </h1>
 
             <p className="mx-auto mt-4 max-w-3xl text-pretty text-lg leading-relaxed text-slate-600 sm:text-xl lg:text-2xl">
-              Pantau status sewa visual, otomatiskan arus kas, dan kirim tagihan
-              ramah lewat WhatsApp dalam 1 klik. Lisensi seumur hidup tanpa
-              biaya langganan bulanan.
+              Solusi cara kelola kos tanpa ribet. Dilengkapi aplikasi pembukuan
+              kos dan kontrakan otomatis, denah kamar visual realtime, serta
+              pengingat tagihan WhatsApp otomatis.
             </p>
 
             <div className="mt-7 flex flex-col items-center justify-center gap-2.5 sm:flex-row">
-              <BuyCta
+              {/* Utama → /demo · Sekunder → /checkout (doktrin pixel tetap jalan) */}
+              <DemoCta
+                label="Coba Demo Interaktif Gratis"
                 className="w-full sm:w-auto"
-                label={`Beli Lisensi Seumur Hidup (${LICENSE_PRICE_LABEL})`}
               />
-              <DemoCta variant="outline" className="w-full sm:w-auto" />
+              <CheckoutCta className="w-full sm:w-auto" />
             </div>
 
             <p className="mx-auto mt-3.5 inline-flex max-w-full flex-wrap items-center justify-center gap-x-1.5 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-[13px] font-semibold leading-snug text-zinc-700 sm:text-sm">
@@ -514,11 +529,12 @@ export default async function LandingPage() {
                   <LayoutGrid className="size-5 text-zinc-800" strokeWidth={1.75} aria-hidden="true" />
                 </span>
                 <h3 className="mt-3.5 text-xl font-bold leading-snug sm:text-2xl">
-                  Denah Kamar Visual — Cek Kondisi Kost Sekali Lirik
+                  Denah Kamar Visual &amp; Kontrak Fleksibel
                 </h3>
                 <p className="mt-2 max-w-md text-base leading-relaxed text-slate-600 sm:text-lg">
-                  Indikator warna intuitif: tahu kapan kamar jatuh tempo tanpa
-                  perlu buka-buka buku catatan.
+                  Pantau status kamar terisi, menunggak, atau jatuh tempo dengan
+                  hitungan hari otomatis serta opsi perpanjang sewa bebas
+                  durasi.
                 </p>
 
                 <div className="mt-5 grid flex-1 content-start gap-2 rounded-lg border border-zinc-100 bg-[#f8fafc] p-3 sm:grid-cols-3">
@@ -591,12 +607,12 @@ export default async function LandingPage() {
                   <MessageCircle className="size-5 text-zinc-800" strokeWidth={1.75} aria-hidden="true" />
                 </span>
                 <h3 className="mt-3.5 text-xl font-bold leading-snug sm:text-2xl">
-                  Tagihan WhatsApp Otomatis — Nagih Sopan Tanpa Bikin Canggung
+                  Aplikasi Pengingat Tagihan Kost Otomatis WhatsApp
                 </h3>
                 <p className="mt-2 max-w-lg text-base leading-relaxed text-slate-600 sm:text-lg">
-                  Klik satu tombol, template pesan tagihan tersusun rapi
-                  otomatis — lengkap nama penyewa, kamar, nominal, dan rekening
-                  tujuan. Tinggal tekan kirim.
+                  Kirim tagihan dan rincian sewa langsung ke WhatsApp penyewa
+                  dengan 1 klik tanpa rasa canggung — nama penyewa, kamar,
+                  nominal, dan rekening tujuan tersusun rapi otomatis.
                 </p>
 
                 {/* Mockup chat WhatsApp UnitKu — preview pesan otomatis */}
@@ -696,11 +712,11 @@ export default async function LandingPage() {
                   <Wallet className="size-5 text-zinc-800" strokeWidth={1.75} aria-hidden="true" />
                 </span>
                 <h3 className="mt-3.5 text-xl font-bold leading-snug sm:text-2xl">
-                  Buku Kas &amp; Catatan Pengeluaran
+                  Aplikasi Pembukuan Kos dan Kontrakan Lengkap
                 </h3>
                 <p className="mt-2 text-base leading-relaxed text-slate-600 sm:text-lg">
-                  Catat biaya tukang, token listrik, hingga sampah. Laba rugi
-                  terhitung otomatis.
+                  Catat pengeluaran operasional, pemasukan sewa, dan pantau laba
+                  bersih properti Anda secara otomatis tanpa spreadsheet manual.
                 </p>
                 <div className="mt-4 space-y-1.5 rounded-lg border border-zinc-100 bg-[#f8fafc] p-3">
                   <div className="flex items-center justify-between gap-2 text-[12.5px]">
