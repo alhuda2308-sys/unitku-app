@@ -9,7 +9,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { formatIDR, OPERATIONAL_META, roomNomor, type Room } from "@/lib/kost-data";
+import {
+  addMonths,
+  dateToLabel,
+  formatIDR,
+  OPERATIONAL_META,
+  parseDateLabel,
+  roomNomor,
+  type Room,
+} from "@/lib/kost-data";
 import { isVillaType } from "@/lib/app-settings";
 import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { StatusBadge, STATUS_SKIN } from "./status-badge";
@@ -28,6 +36,33 @@ interface RoomCardProps {
   /** Tipe properti aktif (kost/kontrakan/rusun) — label tombol adaptif:
   *  "Buat Iklan Kamar" (kost) / "Buat Iklan Kontrakan" / "Buat Iklan Unit" */
   propertyType?: string;
+}
+
+/** Durasi kontrak → panjang 1 siklus sewa dalam bulan (aturan sama dgn check-in:
+ *  "Per 3 Bulan"→3, "Tahunan"→12, selain itu bulanan). */
+const DURATION_MONTHS: Record<string, number> = {
+  "Per 3 Bulan": 3,
+  "Tahunan": 12,
+};
+
+/**
+ * Turunkan label "Habis" dari tanggal masuk + 1 siklus sewa — aturan kanonik
+ * yang sama dipakai check-in saat mengunci rooms.contractEnd (Bulanan→+1 bln,
+ * dst.; Harian→+1 hari). Data kontrak lama tanpa endDate tetap tampil baris
+ * "Habis:" di kartu; gagal parse → "" (baris disembunyikan, tidak pernah "—").
+ */
+function deriveHabisLabel(masukLabel: string, duration?: string): string {
+  if (!masukLabel) return "";
+  try {
+    const start = parseDateLabel(masukLabel);
+    if (Number.isNaN(start.getTime())) return "";
+    if (duration === "Harian") {
+      return dateToLabel(new Date(start.getTime() + 86_400_000));
+    }
+    return dateToLabel(addMonths(start, DURATION_MONTHS[duration ?? ""] ?? 1));
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -59,12 +94,15 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onCrea
   const priceLabel = `${formatIDR(room.price)}${periodeSuffix}`;
 
   // ── Baris 4: tanggal sewa — label Indonesia siap tampil dari kontrak.
-  //    "Masuk" fallback ke tanggal masuk penyewa; "Habis" hanya dari kontrak
-  //    (kontrak rolling tanpa endDate → baris disembunyikan, bukan "—").
+  //    "Masuk" fallback ke tanggal masuk penyewa; "Habis" dari kontrak, dan
+  //    bila kontrak belum mencatat endDate (data lama / kontrak rolling),
+  //    diturunkan dari aturan kanonik aplikasi saat check-in: masuk + 1 siklus
+  //    sewa — sehingga SEMUA kartu terisi (Lunas/Jatuh Tempo/Menunggak) SELALU
+  //    menampilkan baris Habis, bukan hanya kamar lewat tempo.
   const masukLabel =
     room.contract?.startDate?.trim() ||
     (room.tenant?.moveInDate && room.tenant.moveInDate !== "—" ? room.tenant.moveInDate : "");
-  const habisLabel = room.contract?.endDate?.trim() ?? "";
+  const habisLabel = room.contract?.endDate?.trim() || deriveHabisLabel(masukLabel, room.contract?.duration);
   /** Lewat tempo: hari ini > habis kontrak & belum ada pembayaran tagihan
    *  baru. Kondisi ini dievaluasi server (room-status-sync) saat GET
    *  /api/rooms — status kartu sudah digeser ke jatuhTempo/menunggak, jadi

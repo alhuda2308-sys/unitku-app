@@ -74,6 +74,7 @@ async function runSeed(): Promise<void> {
     await seedTicketsIfEmpty();
     await seedTechniciansIfEmpty();
     await seedAnnouncementsIfEmpty();
+    await backfillDemoContractEnds();
     return;
   }
 
@@ -392,6 +393,30 @@ export async function nextTicketId(): Promise<string> {
     return Number.isFinite(n) ? Math.max(m, n) : m;
   }, 0);
   return `#TKT-${String(max + 1).padStart(3, "0")}`;
+}
+
+/**
+ * Backfill idempoten utk database demo LAMA: sebelum baris "Habis:" tampil di
+ * semua kartu Denah Kamar, dataset hanya menyertakan endDate pada kamar jatuh
+ * tempo — kamar Lunas/Menunggak tersimpan dgn rooms.contractEnd = null.
+ * Isi contractEnd yang masih KOSONG dari dataset terkini (hanya mengisi,
+ * tidak pernah menimpa nilai yang sudah ada / diubah pengguna), sehingga
+ * demo lama ikut menampilkan baris tanggal tanpa perlu "Reset Data Demo".
+ */
+async function backfillDemoContractEnds(): Promise<void> {
+  for (const room of ROOMS) {
+    const end = room.contract?.endDate;
+    if (!end || !room.tenant) continue;
+    await db.room.updateMany({
+      where: {
+        id: room.id,
+        propertyId: SEED_PROPERTY_ID,
+        contractEnd: null,
+        tenant: { isNot: null },
+      },
+      data: { contractEnd: parseDateLabel(end) },
+    });
+  }
 }
 
 /**

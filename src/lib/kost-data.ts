@@ -330,7 +330,11 @@ export const PROPERTIES: Property[] = [
 ];
 
 // ── Mock rooms ───────────────────────────────────────────────────────────────
-// Floor 1: 12 rooms — 8 lunas, 1 jatuh tempo, 1 menunggak, 2 kosong
+// Floor 1: 12 rooms — 8 lunas, 1 jatuh tempo, 1 menunggak, 2 kosong.
+// SETIAP kamar terisi wajib punya contract.endDate — kartu Denah Kamar
+// menampilkan baris "Habis: [tanggal]" untuk semua status (Lunas/Jatuh
+// Tempo/Menunggak), bukan hanya kamar lewat tempo. Lunas = endDate masa
+// depan (mulai hidup +1 tahun), Menunggak = endDate lewat.
 // Floor 2: 12 rooms — 9 lunas, 1 jatuh tempo, 2 kosong
 // Total: 24 rooms — 17 lunas, 2 jatuh tempo, 1 menunggak, 4 kosong (20 terisi = 83.3%)
 
@@ -345,7 +349,7 @@ export const ROOMS: Room[] = seedRoomData([
       emergencyContact: { name: "Rina Santoso (Istri)", phone: "+62 813-2201-7788" },
     },
     invoice: { amount: 1_500_000, periodLabel: "Sewa Okt 2026", dueLabel: "Tempo: 28 Okt" },
-    contract: { duration: "Bulanan", startDate: "12 Jan 2026", deposit: 1_000_000, depositHeld: true },
+    contract: { duration: "Bulanan", startDate: "12 Jan 2026", endDate: "12 Jan 2027", deposit: 1_000_000, depositHeld: true },
   },
   {
     id: "102", floor: 1, type: "Tipe A - AC", price: 1_500_000, status: "lunas",
@@ -356,7 +360,7 @@ export const ROOMS: Room[] = seedRoomData([
       emergencyContact: { name: "Bpk. Surya (Ayah)", phone: "+62 815-6102-9911" },
     },
     invoice: { amount: 1_500_000, periodLabel: "Sewa Okt 2026", dueLabel: "Tempo: 05 Okt" },
-    contract: { duration: "Bulanan", startDate: "05 Mar 2026", deposit: 1_000_000, depositHeld: true },
+    contract: { duration: "Bulanan", startDate: "05 Mar 2026", endDate: "05 Mar 2027", deposit: 1_000_000, depositHeld: true },
   },
   {
     id: "103", floor: 1, type: "Tipe B - Kipas", price: 1_100_000, status: "jatuhTempo",
@@ -378,7 +382,7 @@ export const ROOMS: Room[] = seedRoomData([
       emergencyContact: { name: "Andi Wijaya (Suami)", phone: "+62 811-2245-8890" },
     },
     invoice: { amount: 1_750_000, periodLabel: "Sewa Sep 2026", dueLabel: "Tempo: 24 Sep", dayOffset: -2 },
-    contract: { duration: "Bulanan", startDate: "14 Feb 2026", deposit: 1_000_000, depositHeld: true },
+    contract: { duration: "Bulanan", startDate: "14 Feb 2026", endDate: "24 Sep 2026", deposit: 1_000_000, depositHeld: true },
   },
   {
     id: "105", floor: 1, type: "Tipe A - AC", price: 1_500_000, status: "lunas",
@@ -389,7 +393,7 @@ export const ROOMS: Room[] = seedRoomData([
       emergencyContact: { name: "Bpk. Hartono (Ayah)", phone: "+62 813-5510-2214" },
     },
     invoice: { amount: 1_500_000, periodLabel: "Sewa Okt 2026", dueLabel: "Tempo: 10 Okt" },
-    contract: { duration: "Bulanan", startDate: "01 Sep 2026", deposit: 1_000_000, depositHeld: true },
+    contract: { duration: "Bulanan", startDate: "01 Sep 2026", endDate: "01 Sep 2027", deposit: 1_000_000, depositHeld: true },
   },
   { id: "106", floor: 1, type: "Tipe A - AC", price: 1_500_000, status: "kosong" },
   {
@@ -401,7 +405,7 @@ export const ROOMS: Room[] = seedRoomData([
       emergencyContact: { name: "Dita Anggraini (Saudara)", phone: "+62 819-3320-7715" },
     },
     invoice: { amount: 1_100_000, periodLabel: "Sewa Okt 2026", dueLabel: "Tempo: 03 Okt" },
-    contract: { duration: "Bulanan", startDate: "03 Jul 2026", deposit: 500_000, depositHeld: true },
+    contract: { duration: "Bulanan", startDate: "03 Jul 2026", endDate: "03 Jul 2027", deposit: 500_000, depositHeld: true },
   },
   {
     id: "108", floor: 1, type: "Tipe A - AC", price: 1_500_000, status: "lunas",
@@ -412,7 +416,7 @@ export const ROOMS: Room[] = seedRoomData([
       emergencyContact: { name: "Ibu Sumi (Ibu)", phone: "+62 812-8890-1023" },
     },
     invoice: { amount: 1_500_000, periodLabel: "Sewa Okt 2026", dueLabel: "Tempo: 18 Okt" },
-    contract: { duration: "Bulanan", startDate: "18 Agu 2026", deposit: 1_000_000, depositHeld: false },
+    contract: { duration: "Bulanan", startDate: "18 Agu 2026", endDate: "18 Agu 2027", deposit: 1_000_000, depositHeld: false },
   },
   {
     id: "109", floor: 1, type: "Tipe AC Deluxe", price: 1_750_000, status: "lunas",
@@ -423,7 +427,7 @@ export const ROOMS: Room[] = seedRoomData([
       emergencyContact: { name: "Rudi Handayani (Ayah)", phone: "+62 815-7712-3390" },
     },
     invoice: { amount: 1_750_000, periodLabel: "Sewa Okt 2026", dueLabel: "Tempo: 07 Okt" },
-    contract: { duration: "Bulanan", startDate: "07 Mei 2026", deposit: 1_000_000, depositHeld: true },
+    contract: { duration: "Bulanan", startDate: "07 Mei 2026", endDate: "07 Mei 2027", deposit: 1_000_000, depositHeld: true },
   },
   {
     id: "110", floor: 1, type: "Tipe B - Kipas", price: 1_100_000, status: "lunas",
@@ -434,7 +438,7 @@ export const ROOMS: Room[] = seedRoomData([
       emergencyContact: { name: "Ibu Wati (Ibu)", phone: "+62 813-9920-4418" },
     },
     invoice: { amount: 1_100_000, periodLabel: "Sewa Okt 2026", dueLabel: "Tempo: 15 Okt" },
-    contract: { duration: "Bulanan", startDate: "15 Jan 2026", deposit: 500_000, depositHeld: true },
+    contract: { duration: "Bulanan", startDate: "15 Jan 2026", endDate: "15 Jan 2027", deposit: 500_000, depositHeld: true },
   },
   { id: "111", floor: 1, type: "Tipe AC Deluxe", price: 1_750_000, status: "kosong" },
   {
@@ -446,7 +450,7 @@ export const ROOMS: Room[] = seedRoomData([
       emergencyContact: { name: "Sari Nugroho (Istri)", phone: "+62 812-1104-6678" },
     },
     invoice: { amount: 1_500_000, periodLabel: "Sewa Okt 2026", dueLabel: "Tempo: 21 Okt" },
-    contract: { duration: "Bulanan", startDate: "21 Apr 2026", deposit: 1_000_000, depositHeld: true },
+    contract: { duration: "Bulanan", startDate: "21 Apr 2026", endDate: "21 Apr 2027", deposit: 1_000_000, depositHeld: true },
   },
 ]);
 
