@@ -26,7 +26,7 @@ import { isVillaType, tenantTermFor } from "@/lib/app-settings";
 import { cn } from "@/lib/utils";
 import { RupiahInput } from "./rupiah-input";
 
-export type BillingCycle = "Harian" | "Bulanan" | "Per 3 Bulan" | "Tahunan";
+export type BillingCycle = "Harian" | "Mingguan" | "Bulanan" | "Per 3 Bulan" | "Tahunan";
 
 export interface CheckinPayload {
   roomId: string;
@@ -65,7 +65,9 @@ const ADDONS: { label: string; price: number }[] = [
   { label: "Orang Kedua", price: 200_000 },
 ];
 
-const CYCLES: BillingCycle[] = ["Harian", "Bulanan", "Per 3 Bulan", "Tahunan"];
+// Urutan siklus — Mingguan (sewa kontrakan/kost mingguan) ditempatkan
+// setelah Harian, sebelum siklus bulanan.
+const CYCLES: BillingCycle[] = ["Harian", "Mingguan", "Bulanan", "Per 3 Bulan", "Tahunan"];
 
 const inputCls =
   "h-9 border-zinc-200 bg-white text-[13px] text-zinc-900 placeholder:text-zinc-600 focus-visible:ring-zinc-900/5";
@@ -111,6 +113,8 @@ export function CheckinModal({
   const room = vacantRooms.find((r) => r.id === roomId);
 
   const isHarian = siklus === "Harian";
+  /** Siklus Mingguan — add-on rutin berorientasi bulanan tidak berlaku */
+  const isMingguan = siklus === "Mingguan";
   /** Label orang yang menghuni — Villa/Homestay atau sewa harian → "Tamu / Penyewa" */
   const tenantTerm = tenantTermFor(propertyType, isHarian);
 
@@ -149,7 +153,7 @@ export function CheckinModal({
       siklus,
       hargaSewa,
       deposit,
-      addons: isHarian ? [] : addons,
+      addons: isHarian || isMingguan ? [] : addons,
       totalPerBulan,
       ...(isHarian
         ? { tanggalCheckout, durasiHari, totalTagihan: totalHarian }
@@ -382,7 +386,10 @@ export function CheckinModal({
               )}
               <div className={cn("space-y-1.5", isHarian && "sm:col-span-2")}>
                 <Label className="text-[12.5px] text-zinc-600">Siklus Tagihan</Label>
-                <div className="inline-flex h-9 w-full items-center gap-0.5 rounded-md border border-border bg-zinc-50 p-0.5" role="group" aria-label="Siklus tagihan">
+                {/* 5 siklus (Harian · Mingguan · Bulanan · Per 3 Bulan · Tahunan)
+                    — grid 3 kolom agar label "Per 3 Bulan" tetap utuh di
+                    mobile sempit (baris 3+2, tinggi sentuh 32px tetap aman). */}
+                <div className="grid w-full grid-cols-3 gap-0.5 rounded-md border border-border bg-zinc-50 p-0.5" role="group" aria-label="Siklus tagihan">
                   {CYCLES.map((c) => (
                     <button
                       key={c}
@@ -391,7 +398,7 @@ export function CheckinModal({
                       aria-checked={siklus === c}
                       onClick={() => setSiklus(c)}
                       className={cn(
-                        "h-8 flex-1 rounded-[6px] text-[12.5px] font-medium transition-all",
+                        "h-8 min-w-0 rounded-[6px] px-1 text-[12.5px] font-medium transition-all",
                         siklus === c
                           ? "bg-white text-zinc-900 shadow-[0_1px_2px_rgba(15,23,42,0.08)] ring-1 ring-zinc-200"
                           : "text-zinc-700 hover:text-zinc-800"
@@ -406,7 +413,7 @@ export function CheckinModal({
                 <Label htmlFor="ck-sewa" className="text-[12.5px] text-zinc-600">Harga Sewa Pokok</Label>
                 <RupiahInput
                   id="ck-sewa"
-                  ariaLabel={isHarian ? "Harga sewa per hari" : "Harga sewa pokok per bulan"}
+                  ariaLabel={isHarian ? "Harga sewa per hari" : isMingguan ? "Harga sewa per minggu" : "Harga sewa pokok per bulan"}
                   value={hargaSewa}
                   onChange={(v) => {
                     setRentTouched(true);
@@ -421,8 +428,9 @@ export function CheckinModal({
                 <p className="text-xs text-zinc-700">ditahan & dikembalikan saat check-out</p>
               </div>
 
-              {/* Add-on Rutin — hanya utk kontrak periodik (harga add-on per bulan) */}
-              {!isHarian && (
+              {/* Add-on Rutin — hanya utk kontrak periodik bulanan (harga add-on
+                  per bulan; Harian & Mingguan tidak menghuninya) */}
+              {!isHarian && !isMingguan && (
               <div className="space-y-2 sm:col-span-2">
                 <Label className="text-[12.5px] text-zinc-600">Add-on Rutin</Label>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -466,7 +474,7 @@ export function CheckinModal({
                 </div>
               ) : (
                 <div className="flex items-center justify-between rounded-md border border-border bg-zinc-50 px-3 py-2 sm:col-span-2">
-                  <span className="text-[12.5px] text-zinc-700">Total sewa per bulan</span>
+                  <span className="text-[12.5px] text-zinc-700">Total sewa {isMingguan ? "per minggu" : "per bulan"}</span>
                   <span className="text-[14px] font-bold tabular-nums text-zinc-900">{formatIDR(totalPerBulan)}</span>
                 </div>
               )}

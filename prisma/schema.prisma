@@ -176,9 +176,14 @@ model Room {
   operational String? // renovasi | perbaikan (null = siap huni)
 
   // Kontrak sewa (opsional)
-  contractDuration String? // Bulanan | Per 3 Bulan | Tahunan
+  contractDuration String? // Harian | Mingguan | Bulanan | Per 3 Bulan | Tahunan
   contractStart    DateTime?
-  contractEnd      DateTime? // null = rolling (auto-renew bulanan)
+  contractEnd      DateTime? // null = rolling (auto-renew bulanan) — BATAS MASA KOMITMEN sewa
+  // Tanggal jatuh tempo TAGIHAN berikutnya (siklus pembayaran berulang) —
+  // DECOUPLED dari contractEnd: maju 1 siklus setiap "Tandai Lunas"
+  // (Bulanan +1 bln, Mingguan +7 hari, Harian +1 hari/checkout), TIDAK
+  // menyentuh kontrak. null = data lama → fallback contractEnd (room-status).
+  nextBillingDate  DateTime?
   deposit          Int       @default(0)
   depositHeld      Boolean   @default(false)
 

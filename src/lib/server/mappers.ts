@@ -118,6 +118,9 @@ export function toClientRoom(
     facilities: (room.facilities as string[] | null) ?? undefined,
     operational: (room.operational ?? "siap") as ClientRoom["operational"],
     tenant: room.tenant ? tenantToClient(room.tenant) : undefined,
+    // Tanggal jatuh tempo tagihan berikutnya (siklus pembayaran) — terpisah
+    // dari kontrak; null = data lama (klien fallback ke contract.endDate)
+    nextBillingDate: room.nextBillingDate ? dateToLabel(room.nextBillingDate) : undefined,
     invoice: latest
       ? {
           amount: latest.total,

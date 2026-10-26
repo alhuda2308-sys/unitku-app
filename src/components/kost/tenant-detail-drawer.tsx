@@ -20,7 +20,7 @@ import {
   waLink,
   type Room,
 } from "@/lib/kost-data";
-import { contractDaysLeft, contractEndOf } from "@/lib/room-status";
+import { billingDueOf, contractDaysLeft, contractEndOf } from "@/lib/room-status";
 import { INVOICE_STATUS_META, type Invoice } from "@/lib/kost-invoices";
 import { cn } from "@/lib/utils";
 import { PortalAccessCard } from "./portal-access-card";
@@ -146,14 +146,49 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
               <SectionCard title="Kontrak &amp; Deposit">
                 <div className="space-y-3">
                   <InfoRow label="Siklus Sewa">{room.contract!.duration}</InfoRow>
+                  <InfoRow label="Tagihan Berikutnya">
+                    {/* Jatuh tempo TAGIHAN berikutnya (siklus pembayaran —
+                        decoupled dari kontrak). Merah + "Lewat X hari" bila
+                        hari ini sudah melewatinya (status dinamis menunggak). */}
+                    {(() => {
+                      const due = billingDueOf(room);
+                      if (!due.date) {
+                        return <span className="text-[12.5px] text-zinc-700">—</span>;
+                      }
+                      const over = contractDaysLeft(due.date, new Date());
+                      return (
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1.5 tabular-nums font-medium",
+                            over < 0 ? "text-red-600" : "text-zinc-800"
+                          )}
+                        >
+                          <CalendarClock
+                            className={cn(
+                              "size-3 shrink-0",
+                              over < 0 ? "text-red-500" : "text-amber-500"
+                            )}
+                            strokeWidth={1.75}
+                            aria-hidden="true"
+                          />
+                          {due.label}
+                          {over < 0 && (
+                            <span className="font-semibold">(Lewat {-over} hari)</span>
+                          )}
+                        </span>
+                      );
+                    })()}
+                  </InfoRow>
                   <InfoRow label="Mulai Kontrak">
                     <span className="tabular-nums">{room.contract!.startDate}</span>
                   </InfoRow>
                   <InfoRow label="Kontrak Berakhir">
-                    {/* Tanggal KANONIK (endDate eksplisit ATAU fallback masuk +
-                        1 siklus sewa) — selalu sejajar dgn kartu Denah. Merah +
-                        keterangan "Lewat Tempo" bila hari ini sudah melewati
-                        tanggal habis kontrak (status dinamis MENUNGGAK). */}
+                    {/* Batas MASA KOMITMEN sewa (decoupled dari tagihan —
+                        lihat "Tagihan Berikutnya" di atas): tanggal kanonik
+                        (endDate eksplisit ATAU fallback masuk + 1 siklus),
+                        selalu sejajar dgn baris "Habis:" kartu Denah. Merah
+                        "(Lewat Tempo)” HANYA bila tagihan menunggak — kontrak
+                        lewat sendirian bukan berarti tunggakan. */}
                     {(() => {
                       const info = contractEndOf(room);
                       if (!info.date) {
@@ -165,24 +200,30 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
                       }
                       const dl = contractDaysLeft(info.date, new Date());
                       const past = dl < 0;
+                      const billingOverdue = room.status === "menunggak";
                       return (
                         <span
                           className={cn(
                             "inline-flex items-center gap-1.5 tabular-nums font-medium",
-                            past ? "text-red-600" : "text-zinc-800"
+                            billingOverdue ? "text-red-600" : "text-zinc-800"
                           )}
                         >
                           <CalendarClock
                             className={cn(
                               "size-3 shrink-0",
-                              past ? "text-red-500" : "text-amber-500"
+                              billingOverdue ? "text-red-500" : "text-amber-500"
                             )}
                             strokeWidth={1.75}
                             aria-hidden="true"
                           />
                           {info.label}
-                          {past && (
+                          {billingOverdue && (
                             <span className="font-semibold">(Lewat Tempo)</span>
+                          )}
+                          {past && !billingOverdue && (
+                            <span className="text-[12px] font-normal text-zinc-500">
+                              (Komitmen berakhir)
+                            </span>
                           )}
                         </span>
                       );

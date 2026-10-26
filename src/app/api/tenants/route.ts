@@ -17,8 +17,11 @@ import { toClientInvoice, toClientRoom } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
 import { getOwnedPropertyIds, unauthorized } from "@/lib/auth/ownership";
 import { MONTH_NAMES, newPortalToken, parseDateLabel, addMonths, diffNights, formatDateLabel } from "@/lib/kost-data";
+import { advanceOneCycle } from "@/lib/room-status";
 
 export const dynamic = "force-dynamic";
+
+const DAY_MS = 86_400_000;
 
 /** "8123456789" → "+62 812-3456-7890" — format tampilan konsisten dgn dataset */
 function formatPhoneDisplay(digits: string): string {
@@ -46,7 +49,7 @@ interface CheckinBody {
   emergencyName?: unknown;
   emergencyPhone?: unknown;
   tanggalMasuk?: unknown; // "yyyy-mm-dd"
-  siklus?: unknown; // Harian | Bulanan | Per 3 Bulan | Tahunan
+  siklus?: unknown; // Harian | Mingguan | Bulanan | Per 3 Bulan | Tahunan
   hargaSewa?: unknown;
   deposit?: unknown;
   addons?: unknown; // string[]
@@ -77,7 +80,10 @@ export async function POST(request: NextRequest) {
     const totalPerBulan = Number(body.totalPerBulan);
     const deposit = Number.isFinite(Number(body.deposit)) ? Math.max(0, Math.round(Number(body.deposit))) : 0;
     const siklus =
-      body.siklus === "Harian" || body.siklus === "Per 3 Bulan" || body.siklus === "Tahunan"
+      body.siklus === "Harian" ||
+      body.siklus === "Mingguan" ||
+      body.siklus === "Per 3 Bulan" ||
+      body.siklus === "Tahunan"
         ? body.siklus
         : "Bulanan";
     const moveIn = typeof body.tanggalMasuk === "string" ? parseIsoDate(body.tanggalMasuk) : null;
@@ -117,13 +123,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Kontrak: Harian → berakhir di tanggal check-out; periodik → months bulan
+    // Kontrak: Harian → berakhir di tanggal check-out; Mingguan → +7 hari;
+    // periodik bulanan → months bulan.
     const nights = isHarian
       ? Math.max(1, diffNights(String(body.tanggalMasuk), String(body.tanggalCheckout)))
       : 0;
     const totalHarian = isHarian ? Math.round(hargaSewa) * nights : 0;
-    const months = siklus === "Bulanan" ? 1 : siklus === "Per 3 Bulan" ? 3 : 12;
-    const contractEnd = isHarian ? checkOut! : addMonths(moveIn, months);
+    const months = siklus === "Per 3 Bulan" ? 3 : siklus === "Tahunan" ? 12 : 1;
+    const contractEnd = isHarian
+      ? checkOut!
+      : siklus === "Mingguan"
+        ? new Date(moveIn.getTime() + 7 * DAY_MS)
+        : addMonths(moveIn, months);
+    // Jatuh tempo tagihan berikutnya — TERPISAH dari kontrak (siklus
+    // pembayaran berulang). Default saat penghuni baru:
+    //   Bulanan/Per 3 Bulan/Tahunan → tanggal_masuk + 1 siklus
+    //   Mingguan                    → tanggal_masuk + 7 hari
+    //   Harian                      → tanggal check-out (menginap dibayar di
+    //     muka; default 1 malam = tanggal_masuk + 1 hari sesuai siklus harian)
+    const nextBilling = isHarian ? checkOut! : advanceOneCycle(moveIn, siklus);
     const monthName = MONTH_NAMES[moveIn.getMonth()];
     const lastDay = new Date(moveIn.getFullYear(), moveIn.getMonth() + 1, 0).getDate();
     const phoneDisplay = formatPhoneDisplay(phoneDigits || "000");
@@ -160,6 +178,7 @@ export async function POST(request: NextRequest) {
         contractDuration: siklus,
         contractStart: moveIn,
         contractEnd,
+        nextBillingDate: nextBilling,
         deposit,
         depositHeld: true,
       },
@@ -303,17 +322,22 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: "Format tanggal kontrak tidak valid." }, { status: 400 });
       }
       data.contractEnd = parsed;
+      // DECOUPLED billing: perpanjangan kontrak (pembayaran periode baru)
+      // ikut memajukan penanda jatuh tempo tagihan — TIDAK PERNAH mundur.
+      // Kamar lama tanpa nextBillingDate diinisialisasi dari contractEnd lama.
+      const currentBilling = room.nextBillingDate ?? room.contractEnd;
+      if (!currentBilling || parsed.getTime() > currentBilling.getTime()) {
+        data.nextBillingDate = parsed;
+      }
       // Perpanjangan kontrak menonaktifkan alarm "Jatuh Tempo/Menunggak" yang
-      // bersumber dari kontrak LAMA yang sudah kedaluwarsa — kamar kembali
-      // "lunas" (aksi eksplisit pemilik, bukan penurunan otomatis). Tunggakan
-      // nyata periode baru tetap bisa ditandai lewat Tagihan; sinkron dinamis
-      // (room-status-sync) kembali menaikkan status bila kontrak berikutnya
-      // benar-benar lewat. Tanpa ini, kamar yang diperpanjang tetap merah
-      // selamanya meski kontraknya sudah sehat ke depan.
+      // bersumber dari kontrak/billing LAMA yang sudah kedaluwarsa — kamar
+      // kembali "lunas" (aksi eksplisit pemilik, bukan penurunan otomatis).
+      // Derive dinamis (room-status-sync) kembali menaikkan status bila
+      // siklus berikutnya benar-benar lewat tempo.
       if (
         (room.status === "menunggak" || room.status === "jatuhTempo") &&
-        room.contractEnd &&
-        room.contractEnd.getTime() <= Date.now()
+        (room.nextBillingDate ?? room.contractEnd) &&
+        (room.nextBillingDate ?? room.contractEnd)!.getTime() <= Date.now()
       ) {
         data.status = "lunas";
       }
@@ -404,6 +428,7 @@ export async function DELETE(request: NextRequest) {
         contractDuration: null,
         contractStart: null,
         contractEnd: null,
+        nextBillingDate: null,
         deposit: 0,
         depositHeld: false,
       },

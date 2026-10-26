@@ -39,6 +39,8 @@ export interface BackupRoom {
   facilities?: string[];
   operational?: string;
   tenant?: BackupTenant;
+  /** Tanggal jatuh tempo tagihan berikutnya (label) — siklus pembayaran */
+  nextBillingDate?: string;
   contract?: {
     duration?: string;
     startDate?: string;
@@ -164,6 +166,7 @@ function roomToBackup(room: Room): BackupRoom {
           },
         }
       : {}),
+    ...(room.nextBillingDate ? { nextBillingDate: room.nextBillingDate } : {}),
     ...(room.contract
       ? {
           contract: {
@@ -476,6 +479,9 @@ export function validateBackupPayload(raw: unknown): {
               portalToken: asString(tenantObj?.portalToken) || undefined,
             },
           }
+        : {}),
+      ...(asString(o.nextBillingDate)
+        ? { nextBillingDate: asString(o.nextBillingDate) }
         : {}),
       ...(contractObj
         ? {

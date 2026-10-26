@@ -20,6 +20,7 @@ import {
 } from "@/lib/kost-data";
 import { cn } from "@/lib/utils";
 import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
+import { billingDueOf } from "@/lib/room-status";
 import { FacilityBadge } from "./facility-badge";
 import { PortalAccessCard } from "./portal-access-card";
 
@@ -295,15 +296,14 @@ export function RoomDrawer({
                       </Button>
                     </div>
                     )}
-                    {/* Alarm kontrak murni tanggal (room-status.ts) — pembayaran
-                        tidak menghapusnya. Panduan eksplisit agar pemilik tidak
-                        menyangka app rusak saat kartu tetap merah setelah lunas. */}
+                    {/* DECOUPLED BILLING — pembayaran memajukan nextBillingDate
+                        satu siklus sewa sehingga alarm mereda natural; alarm
+                        muncul kembali otomatis saat tempo berikutnya tiba. */}
                     {canManage && (room.status === "menunggak" || room.status === "jatuhTempo") && (
                       <p className="mt-2 text-[11.5px] leading-4 text-zinc-500">
-                        Status kamar mengikuti masa kontrak (otomatis per tanggal). Menandai
-                        lunas tidak mengubah alarm — gunakan{" "}
-                        <span className="font-semibold text-zinc-700">Perpanjang Sewa</span> agar
-                        kamar kembali Lunas.
+                        Status kamar mengikuti jatuh tempo tagihan (otomatis per tanggal).
+                        Menandai lunas memajukan tagihan satu siklus — alarm mereda sampai
+                        tempo berikutnya; Perpanjang Sewa menyesuaikan masa kontraknya.
                       </p>
                     )}
                   </SectionCard>
@@ -314,6 +314,28 @@ export function RoomDrawer({
                   <SectionCard title="Kontrak Sewa">
                     <div className="space-y-3">
                       <InfoRow label="Durasi Sewa">{room.contract?.duration ?? "—"}</InfoRow>
+                      <InfoRow label="Tagihan Berikutnya">
+                        {/* Jatuh tempo tagihan berikutnya (siklus pembayaran —
+                            decoupled dari masa kontrak). Merah bila lewat tempo. */}
+                        {(() => {
+                          const due = billingDueOf(room);
+                          if (!due.date) return <span className="text-[12.5px] text-zinc-700">—</span>;
+                          const days = Math.round(
+                            (due.date.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000,
+                          );
+                          return (
+                            <span
+                              className={cn(
+                                "tabular-nums font-medium",
+                                days < 0 ? "text-red-600" : "text-zinc-800",
+                              )}
+                            >
+                              {due.label}
+                              {days < 0 && ` (Lewat ${-days} hari)`}
+                            </span>
+                          );
+                        })()}
+                      </InfoRow>
                       <InfoRow label="Mulai Kontrak">
                         <span className="tabular-nums">{room.contract?.startDate || "—"}</span>
                       </InfoRow>

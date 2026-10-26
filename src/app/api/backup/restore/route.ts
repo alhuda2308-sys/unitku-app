@@ -153,6 +153,7 @@ export async function POST(request: NextRequest) {
           contractDuration: room.contract?.duration ?? null,
           contractStart: backupLabelToDate(room.contract?.startDate),
           contractEnd: backupLabelToDate(room.contract?.endDate),
+          nextBillingDate: backupLabelToDate(room.nextBillingDate),
           deposit: room.contract?.deposit ?? 0,
           depositHeld: room.contract?.depositHeld ?? false,
         };

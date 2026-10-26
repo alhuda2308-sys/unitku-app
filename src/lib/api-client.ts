@@ -398,13 +398,23 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ id, lines }),
     }),
-  /** Tandai lunas — server juga mencatat pemasukan ke Buku Kas (cashEntry).
+  /** Tandai lunas — server juga mencatat pemasukan ke Buku Kas (cashEntry),
+   *  memajukan nextBillingDate satu siklus sewa (billing decoupled) dan
+   *  menandai contractExceeded bila tagihan berikutnya melewati akhir
+   *  kontrak (klien menawarkan "Perpanjang Masa Kontrak").
    *  Fallback anti-error "Tagihan tidak ditemukan": bila id tidak dikenal
    *  (state basi) atau tidak disertakan, server memakai tagihan aktif milik
    *  kamar (roomId) atau membuat invoice periode terkait yang langsung lunas
    *  (created=true) — kamar ikut badge hijau & kas tercatat. */
   markInvoicePaid: (id: string | null, roomId?: string, periodKey?: string) =>
-    request<{ invoice: ClientInvoice; room: ClientRoom; cashEntry?: ClientCashEntry; created?: boolean }>("/api/invoices", {
+    request<{
+      invoice: ClientInvoice;
+      room: ClientRoom;
+      cashEntry?: ClientCashEntry;
+      created?: boolean;
+      billingAdvanced?: boolean;
+      contractExceeded?: boolean;
+    }>("/api/invoices", {
       method: "PATCH",
       body: JSON.stringify({
         ...(id ? { id } : {}),

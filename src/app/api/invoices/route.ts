@@ -33,6 +33,7 @@ import {
   unauthorized,
 } from "@/lib/auth/ownership";
 import { MONTH_NAMES, dateToLabel } from "@/lib/kost-data";
+import { advanceOneCycle } from "@/lib/room-status";
 import { dateSortFromLabel } from "@/lib/kost-cashflow";
 import { periodKeyOf, periodLabelFromKey, periodShortLabel } from "@/lib/kost-invoices";
 
@@ -449,13 +450,56 @@ export async function PATCH(request: NextRequest) {
       include: INVOICE_INCLUDE,
     });
 
+    // ── DECOUPLED BILLING: Tandai Lunas majukan siklus tagihan ────────────
+    // nextBillingDate = "terbayar sampai" — maju SATU siklus sewa sesuai
+    // contractDuration (Bulanan +1 bln, Mingguan +7 hari, Harian +1 hari,
+    // Per 3 Bulan +3, Tahunan +12). Kondisi "invoice periode tersebut belum
+    // lunas" pada aturan menunggak (room-status.ts) terjamin struktural:
+    // satu-satunya cara penanda ini berjalan maju adalah pembayaran di sini.
+    //   • anchor = nextBillingDate eksplisit (jadwal siklus dipertahankan —
+    //     bayar telat tidak menggeser tanggal tempo berikutnya)
+    //   • kamar LAMA tanpa nextBillingDate → anchor = max(contractEnd, hari
+    //     ini): lunas pertama langsung menyehatkan status (migrasi alami)
+    //   • TIDAK PERNAH mundur (pembayaran ganda/race aman)
+    // contractEnd TIDAK disentuh — tetap batas masa komitmen; bila tagihan
+    // berikutnya melewatinya, klien menawarkan "Perpanjang Masa Kontrak".
+    const roomBefore = await db.room.findUnique({
+      where: { id: invoice.roomId },
+      select: { id: true, contractDuration: true, contractEnd: true, nextBillingDate: true },
+    });
+    let newNextBilling: Date | null = null;
+    if (body.status === "lunas" && roomBefore) {
+      const now = new Date();
+      const anchor =
+        roomBefore.nextBillingDate ??
+        (roomBefore.contractEnd && roomBefore.contractEnd.getTime() > now.getTime()
+          ? roomBefore.contractEnd
+          : now);
+      newNextBilling = advanceOneCycle(anchor, roomBefore.contractDuration);
+      if (
+        roomBefore.nextBillingDate &&
+        newNextBilling.getTime() < roomBefore.nextBillingDate.getTime()
+      ) {
+        newNextBilling = roomBefore.nextBillingDate;
+      }
+    }
+
     // Kamar ikut disetel lunas agar pill denah konsisten (belumBayar → jatuhTempo)
     const roomStatus = body.status === "lunas" ? "lunas" : invoice.status === "belumBayar" ? "jatuhTempo" : invoice.status;
     const room = await db.room.update({
       where: { id: invoice.roomId },
-      data: { status: roomStatus },
+      data: {
+        status: roomStatus,
+        ...(newNextBilling ? { nextBillingDate: newNextBilling } : {}),
+      },
       include: { tenant: true, invoices: { orderBy: { periodKey: "desc" }, take: 1 } },
     });
+    // Tagihan berikutnya melewati akhir masa komitmen → klien menampilkan
+    // konfirmasi "Perpanjang Masa Kontrak" (opsional, keputusan pemilik).
+    const contractExceeded =
+      newNextBilling != null &&
+      room.contractEnd != null &&
+      newNextBilling.getTime() > room.contractEnd.getTime();
 
     // Catat pemasukan otomatis ke Buku Kas — sekali saja (idempoten; invoice
     // hasil auto-create juga langsung tercatat meski lahir sudah lunas)
@@ -484,6 +528,8 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({
       invoice: toClientInvoice(invoice, nomorFallback(room.id, room.nomor)),
       room: toClientRoom(room),
+      ...(newNextBilling ? { billingAdvanced: true } : {}),
+      ...(contractExceeded ? { contractExceeded: true } : {}),
       ...(cashEntryJson ? { cashEntry: cashEntryJson } : {}),
       ...(autoCreated ? { created: true } : {}),
     });

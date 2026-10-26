@@ -75,6 +75,7 @@ import {
   formatIDR,
   MONTH_NAMES,
   newPortalToken,
+  parseDateLabel,
   parseIsoDate,
   ROOMS,
   roomNomor,
@@ -84,7 +85,7 @@ import {
   type TenantProfilePayload,
 } from "@/lib/kost-data";
 import { useEffectiveRooms } from "@/hooks/use-effective-rooms";
-import { isContractPastEnd } from "@/lib/room-status";
+import { advanceOneCycle, contractEndOf, isContractPastEnd } from "@/lib/room-status";
 import {
   INVOICES,
   buildBillingWaMessage,
@@ -372,6 +373,20 @@ export default function IndoKostPage() {
   const [manageRoomId, setManageRoomId] = useState<string | null>(null);
   /** Kebab-menu delete → double confirmation (occupied rooms are rejected with a toast) */
   const [confirmDeleteRoom, setConfirmDeleteRoom] = useState<Room | null>(null);
+
+  // ── DECOUPLED BILLING — tawaran "Perpanjang Masa Kontrak" ────────────────
+  // Bila tagihan berikutnya (hasil Tandai Lunas) melewati akhir masa kontrak,
+  // pemilik diminta konfirmasi memperpanjang kontrak hingga tanggal tagihan
+  // berikutnya — masa komitmen mengikuti sewa yang sudah dibayar.
+  const [billingExtend, setBillingExtend] = useState<{
+    roomId: string;
+    roomLabel: string;
+    tenantName: string;
+    /** Jatuh tempo tagihan berikutnya = usulan akhir kontrak baru */
+    newEndLabel: string;
+    /** Akhir masa kontrak saat ini */
+    contractEndLabel: string;
+  } | null>(null);
 
   const selectedRoom = useMemo(
     () => effectiveRooms.find((r) => r.id === selectedRoomId) ?? null,
@@ -1098,10 +1113,12 @@ export default function IndoKostPage() {
   const localCashId = () => `KAS-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
   /** Tandai lunas versi lokal (demo & offline) — instan di memori, tanpa API:
-   *  invoice lunas, kartu kamar badge hijau, pemasukan masuk Buku Kas lokal.
-   *  Bila tagihan belum ada di state (tanpa stateInv), record invoice periode
-   *  terkait langsung dibuat berstatus lunas — persis perilaku auto-create
-   *  server, jadi mode demo tidak pernah kehilangan fungsi pembayaran. */
+   *  invoice lunas, kartu kamar badge hijau, pemasukan masuk Buku Kas lokal,
+   *  dan nextBillingDate maju SATU siklus sewa (decoupled billing — cermin
+   *  PATCH /api/invoices). Bila tagihan belum ada di state (tanpa stateInv),
+   *  record invoice periode terkait langsung dibuat berstatus lunas — persis
+   *  perilaku auto-create server, jadi mode demo tidak pernah kehilangan
+   *  fungsi pembayaran. */
   const markPaidLocal = (roomId: string, stateInv?: Invoice) => {
     const room = rooms.find((r) => r.id === roomId);
     if (!room) {
@@ -1133,20 +1150,50 @@ export default function IndoKostPage() {
         ? prev.map((i) => (i.id === inv.id ? paidInvoice : i))
         : [paidInvoice, ...prev],
     );
-    // Kartu kamar: status dasar "lunas" (cermin server). Kartu Denah tetap
-    // mengikuti derivasi dinamis — bila kontrak sudah lewat, kartu TETAP
-    // "Menunggak" (aturan murni tanggal) sampai kontrak diperpanjang.
+    // ── DECOUPLED BILLING: majukan jatuh tempo tagihan satu siklus sewa ──
+    // anchor = nextBillingDate eksplisit (jadwal siklus dipertahankan); kamar
+    // lama tanpa penanda → max(contractEnd, hari ini) — lunas pertama
+    // menyehatkan status. contractEnd TIDAK disentuh (masa komitmen).
+    const explicitBilling = room.nextBillingDate ? parseDateLabel(room.nextBillingDate) : null;
+    const billingAnchor =
+      explicitBilling ??
+      (() => {
+        const end = contractEndOf(room).date;
+        return end && end.getTime() > now.getTime() ? end : now;
+      })();
+    const newBilling = advanceOneCycle(billingAnchor, room.contract?.duration);
+    const newBillingLabel = dateToLabel(
+      explicitBilling && newBilling.getTime() < explicitBilling.getTime()
+        ? explicitBilling
+        : newBilling,
+    );
+    // Kartu kamar: status dasar "lunas" + penanda tagihan berikutnya. Kartu
+    // Denah mengikuti derivasi dinamis dari nextBillingDate — siklus yang
+    // baru dibayar otomatis hijau, alarm muncul lagi saat tempo berikutnya.
     updateRooms((prev) =>
       prev.map((r) =>
         r.id === roomId
           ? {
               ...r,
               status: "lunas" as const,
+              nextBillingDate: newBillingLabel,
               invoice: r.invoice ? { ...r.invoice, dayOffset: undefined } : r.invoice,
             }
           : r,
       ),
     );
+    // Tagihan berikutnya melewati akhir masa komitmen → tawarkan Perpanjang
+    // Masa Kontrak (keputusan pemilik — kontrak tidak pernah berubah diam-diam).
+    const contractEnd = contractEndOf(room).date;
+    if (contractEnd && newBilling.getTime() > contractEnd.getTime()) {
+      setBillingExtend({
+        roomId,
+        roomLabel,
+        tenantName: room.tenant?.name ?? "Penyewa",
+        newEndLabel: newBillingLabel,
+        contractEndLabel: dateToLabel(contractEnd),
+      });
+    }
     // Pemasukan sewa tercatat ke Buku Kas (format identik dgn catatan server)
     const entry: CashEntry = {
       id: localCashId(),
@@ -1159,7 +1206,7 @@ export default function IndoKostPage() {
     };
     updateCashEntries((prev) => [entry, ...prev]);
     toast.success("Tagihan berhasil ditandai lunas!", {
-      description: `Kamar ${roomLabel} · ${formatIDR(paidInvoice.total)} diterima ${todayLabel} · pemasukan dicatat ke Buku Kas${
+      description: `Kamar ${roomLabel} · ${formatIDR(paidInvoice.total)} diterima ${todayLabel} · tagihan berikutnya ${newBillingLabel} · pemasukan dicatat ke Buku Kas${
         dbState === "offline" && !instantDemo && !isDemoSession
           ? " (lokal — database sedang offline)"
           : " (mode demo)"
@@ -1199,8 +1246,27 @@ export default function IndoKostPage() {
   };
 
   /** Shared payment flip — server ditandai lunas lalu kamar+invoice diperbarui
-   *  dari respons. id basi / tanpa tagihan BUKAN kegagalan: server memakai
-   *  tagihan aktif kamar atau auto-create invoice periode terkait (lunas). */
+   *  dari respons (nextBillingDate sudah dimajukan server satu siklus sewa).
+   *  id basi / tanpa tagihan BUKAN kegagalan: server memakai tagihan aktif
+   *  kamar atau auto-create invoice periode terkait (lunas). Bila tagihan
+   *  berikutnya melewati akhir masa kontrak, tawarkan Perpanjang Masa Kontrak. */
+  const afterServerPayment = (
+    roomId: string,
+    room: Room,
+    contractExceeded: boolean | undefined,
+  ) => {
+    if (!contractExceeded || !room.nextBillingDate) return;
+    const contractEnd = contractEndOf(room).date;
+    if (!contractEnd) return;
+    setBillingExtend({
+      roomId,
+      roomLabel: roomNomor(room),
+      tenantName: room.tenant?.name ?? "Penyewa",
+      newEndLabel: room.nextBillingDate,
+      contractEndLabel: dateToLabel(contractEnd),
+    });
+  };
+
   const markRoomPaid = (roomId: string) => {
     const stateInvoice = invoices.find((i) => i.roomId === roomId && i.status !== "lunas");
 
@@ -1214,8 +1280,9 @@ export default function IndoKostPage() {
 
     api
       .markInvoicePaid(stateInvoice?.id ?? null, roomId, stateInvoice?.periodKey)
-      .then(({ invoice, room, cashEntry, created }) => {
+      .then(({ invoice, room, cashEntry, created, contractExceeded }) => {
         applyServerPayment(invoice, room, cashEntry, stateInvoice?.id);
+        afterServerPayment(room.id, room, contractExceeded);
         toast.success(`Pembayaran Kamar ${roomNomor(room)} dicatat lunas`, {
           description: created
             ? `Tagihan periode terkait dibuat otomatis · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""} · tersimpan ke cloud.`
@@ -1238,8 +1305,9 @@ export default function IndoKostPage() {
     }
     api
       .markInvoicePaid(inv.id, inv.roomId, inv.periodKey)
-      .then(({ invoice, room, cashEntry, created }) => {
+      .then(({ invoice, room, cashEntry, created, contractExceeded }) => {
         applyServerPayment(invoice, room, cashEntry, inv.id);
+        afterServerPayment(inv.roomId, room, contractExceeded);
         toast.success(`Kamar ${inv.roomNomor ?? inv.roomId} ditandai lunas`, {
           description: created
             ? `${invoice.id} (dibuat otomatis) · ${formatIDR(invoice.total)} diterima ${invoice.paidAt ?? "hari ini"}${cashEntry ? " · pemasukan dicatat ke Buku Kas" : ""}.`
@@ -1248,6 +1316,40 @@ export default function IndoKostPage() {
       })
       .catch((err: unknown) =>
         toast.error("Gagal menandai lunas", { description: errMsg(err) }),
+      );
+  };
+
+  /** Konfirmasi "Perpanjang Masa Kontrak" (dialog setelah Tandai Lunas) —
+   *  setujui akhir kontrak baru = jatuh tempo tagihan berikutnya. Demo murni
+   *  state lokal; akun riil lewat PATCH /api/tenants (renewTenant) yang juga
+   *  memajukan nextBillingDate (tidak pernah mundur) & mereset status lunas. */
+  const confirmBillingExtend = () => {
+    const prompt = billingExtend;
+    setBillingExtend(null);
+    if (!prompt) return;
+    if (instantDemo || isDemoSession) {
+      updateRooms((prev) =>
+        prev.map((r) =>
+          r.id === prompt.roomId && r.contract
+            ? { ...r, contract: { ...r.contract, endDate: prompt.newEndLabel } }
+            : r,
+        ),
+      );
+      toast.success(`Kontrak Kamar ${prompt.roomLabel} diperpanjang`, {
+        description: `${prompt.tenantName} · masa kontrak kini berakhir ${prompt.newEndLabel} — sejajar dengan siklus tagihan (mode demo).`,
+      });
+      return;
+    }
+    api
+      .renewTenant(prompt.roomId, prompt.newEndLabel)
+      .then(({ room: updated }) => {
+        updateRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+        toast.success(`Kontrak Kamar ${prompt.roomLabel} diperpanjang`, {
+          description: `${prompt.tenantName} · masa kontrak kini berakhir ${prompt.newEndLabel} — sejajar dengan siklus tagihan.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal memperpanjang kontrak", { description: errMsg(err) }),
       );
   };
 
@@ -1452,10 +1554,16 @@ export default function IndoKostPage() {
       const [yy, mm, dd] = p.tanggalMasuk.split("-").map(Number);
       const moveIn = new Date(yy, (mm ?? 1) - 1, dd ?? 1);
       const checkOutLabel = isHarian ? formatDateLabel(p.tanggalCheckout!) : "";
-      const months = p.siklus === "Per 3 Bulan" ? 3 : p.siklus === "Tahunan" ? 12 : 1;
       const contractEnd = isHarian
         ? parseIsoDate(p.tanggalCheckout ?? "") ?? moveIn
-        : addMonths(moveIn, months);
+        : advanceOneCycle(moveIn, p.siklus);
+      // Jatuh tempo tagihan berikutnya — TERPISAH dari kontrak (default sesuai
+      // siklus: Mingguan +7 hari, Bulanan +1 bln, Per 3 Bulan +3, Tahunan +12;
+      // Harian = tanggal check-out — menginap dibayar di muka).
+      const nextBilling = isHarian
+        ? parseIsoDate(p.tanggalCheckout ?? "") ?? moveIn
+        : advanceOneCycle(moveIn, p.siklus);
+      const nextBillingLabel = dateToLabel(nextBilling);
       const monthName = MONTH_NAMES[moveIn.getMonth()];
       const lastDay = new Date(moveIn.getFullYear(), moveIn.getMonth() + 1, 0).getDate();
       const periodKey = `${moveIn.getFullYear()}-${String(moveIn.getMonth() + 1).padStart(2, "0")}`;
@@ -1466,6 +1574,7 @@ export default function IndoKostPage() {
         ...room,
         status: "lunas",
         price: Math.round(isHarian ? p.hargaSewa : p.totalPerBulan),
+        nextBillingDate: nextBillingLabel,
         tenant: {
           name: p.nama,
           phone: phoneDisplay,
@@ -1527,10 +1636,15 @@ export default function IndoKostPage() {
           : [invoice, ...prev],
       );
       const addons = p.addons.length > 0 ? ` · Add-on: ${p.addons.join(", ")}` : "";
+      const tarifLabel = isHarian
+        ? ""
+        : p.siklus === "Mingguan"
+          ? "/minggu"
+          : "/bln";
       toast.success(`${p.nama} check-in ke ${isHarian ? "Unit" : "Kamar"} ${p.roomId}`, {
         description: isHarian
           ? `${formatIDR(invoiceTotal)} · ${nights} malam (${formatIDR(p.hargaSewa)}/hari) · check-out ${checkOutLabel} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`
-          : `${formatIDR(p.totalPerBulan)}/bln · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${dateToLabel(contractEnd)}${addons} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+          : `${formatIDR(p.totalPerBulan)}${tarifLabel} · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${dateToLabel(contractEnd)} · tagihan berikutnya ${nextBillingLabel}${addons} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
       });
       return;
     }
@@ -1609,9 +1723,8 @@ export default function IndoKostPage() {
   const handleRenew = (room: Room, newEndDate: string, durationLabel: string) => {
     // MODE DEMO: perpanjangan kontrak cukup di state lokal — dataset simulasi
     // tidak ada di database; PATCH /api/tenants hanya memicu toast merah.
-    // Alarm "Jatuh Tempo/Menunggak" yang bersumber dari kontrak lama yang
-    // kedaluwarsa ikut dinonaktifkan (kamar kembali Lunas) — cermin perilaku
-    // PATCH /api/tenants di server.
+    // Perpanjangan = pembayaran periode baru → nextBillingDate ikut dimajukan
+    // (tidak pernah mundur) — cermin perilaku PATCH /api/tenants di server.
     if (instantDemo || isDemoSession) {
       updateRooms((prev) =>
         prev.map((r) => {
@@ -1619,10 +1732,16 @@ export default function IndoKostPage() {
           const alarmFromExpired =
             (r.status === "menunggak" || r.status === "jatuhTempo") &&
             isContractPastEnd(r, new Date());
+          const newEnd = parseDateLabel(newEndDate);
+          const currentBilling = r.nextBillingDate ? parseDateLabel(r.nextBillingDate) : null;
           return {
             ...r,
             status: alarmFromExpired ? "lunas" : r.status,
             contract: { ...r.contract, endDate: newEndDate },
+            nextBillingDate:
+              !currentBilling || newEnd.getTime() > currentBilling.getTime()
+                ? newEndDate
+                : r.nextBillingDate,
           };
         }),
       );
@@ -3270,6 +3389,46 @@ export default function IndoKostPage() {
               }}
             >
               Ya, Hapus Kamar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── DECOUPLED BILLING — konfirmasi Perpanjang Masa Kontrak ──────────
+          Muncul setelah "Tandai Lunas" bila tagihan berikutnya (hasil maju 1
+          siklus) melewati akhir masa kontrak. Opsional: pemilik boleh memilih
+          "Nanti" — status tagihan tetap sehat, kontrak tidak berubah diam-
+          diam. Kontrak diperpanjang = masa komitmen mengikuti sewa terbayar. */}
+      <AlertDialog
+        open={billingExtend !== null}
+        onOpenChange={(o) => {
+          if (!o) setBillingExtend(null);
+        }}
+      >
+        <AlertDialogContent className="sm:max-w-[430px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-[15px]">
+              Perpanjang Masa Kontrak?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[12.5px] leading-5">
+              Pembayaran Kamar {billingExtend?.roomLabel} ({billingExtend?.tenantName}) tercatat —
+              tagihan berikutnya jatuh tempo{" "}
+              <span className="font-bold text-zinc-800">{billingExtend?.newEndLabel}</span>, melewati
+              akhir masa kontrak saat ini (
+              <span className="tabular-nums">{billingExtend?.contractEndLabel}</span>).
+              Perpanjang masa kontrak hingga {billingExtend?.newEndLabel} agar sejajar dengan
+              siklus tagihan yang sudah dibayar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="h-9 border-zinc-200 bg-white text-[13px] text-zinc-700 shadow-none hover:bg-zinc-100">
+              Nanti
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="h-9 bg-zinc-900 text-[13px] font-semibold text-white shadow-none hover:bg-zinc-800"
+              onClick={confirmBillingExtend}
+            >
+              Perpanjang Kontrak
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

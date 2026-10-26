@@ -118,10 +118,17 @@ export interface Room {
   operational?: OperationalStatus; // undefined = "siap"
   tenant?: Tenant;
   invoice?: Invoice;
+  /** Tanggal jatuh tempo tagihan berikutnya (label "12 Feb 2026") — siklus
+   *  pembayaran berulang TERPISAH dari akhir kontrak: maju 1 siklus sewa
+   *  setiap tagihan dilunasi (Bulanan +1 bln, Mingguan +7 hari, Harian
+   *  +1 hari/checkout). undefined = data lama → status & alarm memakai
+   *  fallback contract.endDate (lihat billingDueOf di room-status.ts). */
+  nextBillingDate?: string;
   contract?: {
-    duration: "Harian" | "Bulanan" | "Per 3 Bulan" | "Tahunan";
+    duration: "Harian" | "Mingguan" | "Bulanan" | "Per 3 Bulan" | "Tahunan";
     startDate: string;
-    /** Kontrak berakhir — undefined = rolling (auto-renew bulanan). Used by Data Penghuni. */
+    /** Kontrak berakhir — BATAS MASA KOMITMEN sewa (bukan penanda tagihan;
+     *  rolling/undefined = auto-renew). Used by Data Penghuni. */
     endDate?: string;
     deposit: number;
     depositHeld: boolean;

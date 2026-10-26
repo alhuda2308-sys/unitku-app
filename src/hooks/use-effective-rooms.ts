@@ -7,14 +7,18 @@
 //
 // Status kamar TIDAK pernah dibaca mentah dari `room.status` (kolom database
 // denormalisasi / dataset statis). Status efektif DIHITUNG realtime dari:
-//   • contract_end_date (atau fallback kanonik masuk + 1 siklus sewa)
+//   • nextBillingDate — jatuh tempo tagihan berikutnya (siklus sewa; maju 1
+//     siklus tiap "Tandai Lunas"), fallback contractEnd utk data lama
 //   • selisih terhadap HARI INI (tengah malam lokal, stabil lintas zona waktu)
 //
 // Klasifikasi (aturan di src/lib/room-status.ts — dipakai bersama server):
-//   lewat tanggal habis (today > endDate) → "menunggak"  — TANPA kecuali
-//   H-3 s.d. H+0                          → "jatuhTempo"
-//   masa sewa aman                         → status dasar (lunas)
-//   kosong / tanpa tanggal habis           → status dasar
+//   lewat jatuh tempo tagihan (today > due) → "menunggak"  — TANPA kecuali
+//   H-3 s.d. H+0                            → "jatuhTempo"
+//   tagihan berikutnya masih jauh            → "lunas" (siklus terbayar)
+//   kosong / tanpa tanggal acuan            → status dasar
+//
+// contractEnd TIDAK lagi menentukan status (decoupled) — tanggal itu kini
+// murni batas masa komitmen sewa ("Habis:" di kartu & sisa hari kontrak).
 //
 // ── Update OTOMATIS saat tanggal berganti ────────────────────────────────────
 // "Hari ini" TIDAK dibekukan seumur halaman: ticker modul memeriksa kalender
@@ -87,7 +91,7 @@ function getServerDayKeySnapshot(): string {
 }
 
 /**
- * Kamar berstatus EFEKTIF (dinamis berbasis tanggal kontrak vs hari ini).
+ * Kamar berstatus EFEKTIF (dinamis berbasis jatuh tempo tagihan vs hari ini).
  *
  * @param rooms kamar aktif properti terpilih — mentah dari demo (demoData)
  *              maupun cloud (Supabase `rooms` + `tenants`)
