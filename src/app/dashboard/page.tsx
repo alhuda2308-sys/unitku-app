@@ -91,6 +91,7 @@ import {
   buildBillingWaMessage,
   buildReceiptWaMessage,
   currentPeriodKey,
+  periodKeyOf,
   periodLabelFromKey,
   periodShortLabel,
   type Invoice,
@@ -1201,7 +1202,7 @@ export default function IndoKostPage() {
       dateSort: dateSortFromLabel(todayLabel),
       type: "masuk",
       category: "Sewa Kamar",
-      description: `Kamar ${roomLabel} · ${paidInvoice.tenantName ?? "Penyewa"} — Sewa ${periodShortLabel(paidInvoice.periodKey)}`,
+      description: `Pembayaran sewa Kamar ${roomLabel} - ${paidInvoice.tenantName ?? "Penyewa"} (Sewa ${periodShortLabel(paidInvoice.periodKey)})`,
       amount: paidInvoice.total,
     };
     updateCashEntries((prev) => [entry, ...prev]);
@@ -1635,6 +1636,20 @@ export default function IndoKostPage() {
           ? prev.map((i) => (i.id === invoice.id ? invoice : i))
           : [invoice, ...prev],
       );
+      // Pembayaran pertama = pemasukan → Buku Kas lokal (cermin perilaku
+      // server). Tanggal = tanggal check-in — jujur utk data mundur.
+      const checkinEntry: CashEntry = {
+        id: localCashId(),
+        dateLabel: moveInLabel,
+        dateSort: dateSortFromLabel(moveInLabel),
+        type: "masuk",
+        category: "Sewa Kamar",
+        description: `Pembayaran sewa Kamar ${roomLabel} - ${p.nama}${
+          isHarian ? ` · ${nights} malam` : ` (Sewa ${periodShortLabel(periodKey)})`
+        }`,
+        amount: invoiceTotal,
+      };
+      updateCashEntries((prev) => [checkinEntry, ...prev]);
       const addons = p.addons.length > 0 ? ` · Add-on: ${p.addons.join(", ")}` : "";
       const tarifLabel = isHarian
         ? ""
@@ -1643,8 +1658,8 @@ export default function IndoKostPage() {
           : "/bln";
       toast.success(`${p.nama} check-in ke ${isHarian ? "Unit" : "Kamar"} ${p.roomId}`, {
         description: isHarian
-          ? `${formatIDR(invoiceTotal)} · ${nights} malam (${formatIDR(p.hargaSewa)}/hari) · check-out ${checkOutLabel} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`
-          : `${formatIDR(p.totalPerBulan)}${tarifLabel} · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${dateToLabel(contractEnd)} · tagihan berikutnya ${nextBillingLabel}${addons} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+          ? `${formatIDR(invoiceTotal)} · ${nights} malam (${formatIDR(p.hargaSewa)}/hari) · check-out ${checkOutLabel} · pemasukan tercatat di Buku Kas · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`
+          : `${formatIDR(p.totalPerBulan)}${tarifLabel} · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${dateToLabel(contractEnd)} · tagihan berikutnya ${nextBillingLabel} · pemasukan tercatat di Buku Kas · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
       });
       return;
     }
@@ -1670,16 +1685,19 @@ export default function IndoKostPage() {
             }
           : {}),
       })
-      .then(({ room, invoice }) => {
+      .then(({ room, invoice, cashEntry }) => {
         updateRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
         updateInvoices((prev) => [invoice, ...prev]);
+        // Pemasukan pertama tercatat server → gabung ke Buku Kas tanpa reload
+        if (cashEntry) updateCashEntries((prev) => [cashEntry, ...prev]);
         const addons = p.addons.length > 0 ? ` · Add-on: ${p.addons.join(", ")}` : "";
+        const kasNote = cashEntry ? ` · pemasukan ${formatIDR(cashEntry.amount)} tercatat di Buku Kas` : "";
         toast.success(`${p.nama} check-in ke ${isHarian ? "Unit" : "Kamar"} ${p.roomId}`, {
           description: isHarian
-            ? `${formatIDR(p.totalTagihan ?? 0)} · ${nights} malam (${formatIDR(p.hargaSewa)}/hari) · check-out ${p.tanggalCheckout ? formatDateLabel(p.tanggalCheckout) : "—"} · tersimpan ke cloud.`
+            ? `${formatIDR(p.totalTagihan ?? 0)} · ${nights} malam (${formatIDR(p.hargaSewa)}/hari) · check-out ${p.tanggalCheckout ? formatDateLabel(p.tanggalCheckout) : "—"}${kasNote} · tersimpan ke cloud.`
             : `${formatIDR(p.totalPerBulan)}/bln · deposit ${formatIDR(p.deposit)} ditahan · kontrak hingga ${
                 room.contract?.endDate ?? moveInLabel
-              }${addons} · tersimpan ke cloud.`,
+              }${addons}${kasNote} · tersimpan ke cloud.`,
         });
       })
       .catch((err: unknown) =>
@@ -1721,6 +1739,33 @@ export default function IndoKostPage() {
   /** durationLabel: "+6 bulan" / "+15 hari" (durasi kustom atur bebas) /
    *  "hingga {tgl}" (tanggal akhir manual) — hanya utk teks toast. */
   const handleRenew = (room: Room, newEndDate: string, durationLabel: string) => {
+    // Perpanjangan = pembayaran periode baru → pemasukan tercatat di Buku Kas
+    // (cermin PATCH /api/tenants dgn recordIncome). Nominal = jumlah siklus
+    // sewa dari anchor tempo lama menuju akhir kontrak baru × harga sewa.
+    const renewEnd = parseDateLabel(newEndDate);
+    const renewAnchor = room.nextBillingDate
+      ? parseDateLabel(room.nextBillingDate)
+      : contractEndOf(room).date;
+    let renewCycles = 0;
+    if (!renewAnchor || renewAnchor.getTime() >= renewEnd.getTime()) {
+      renewCycles = 1;
+    } else {
+      let cursor = new Date(renewAnchor);
+      let guard = 0;
+      while (cursor.getTime() < renewEnd.getTime() && guard < 120) {
+        cursor = advanceOneCycle(cursor, room.contract?.duration);
+        renewCycles += 1;
+        guard += 1;
+      }
+      if (renewCycles === 0) renewCycles = 1;
+    }
+    const renewAmount = Math.max(0, Math.round(room.price)) * renewCycles;
+    const renewDescription = `Pembayaran sewa Kamar ${roomNomor(room)} - ${
+      room.tenant?.name ?? "Penyewa"
+    } (Sewa ${periodShortLabel(periodKeyOf(renewAnchor ?? renewEnd))})${
+      renewCycles > 1 ? ` · ${renewCycles} siklus` : ""
+    }`;
+
     // MODE DEMO: perpanjangan kontrak cukup di state lokal — dataset simulasi
     // tidak ada di database; PATCH /api/tenants hanya memicu toast merah.
     // Perpanjangan = pembayaran periode baru → nextBillingDate ikut dimajukan
@@ -1732,30 +1777,52 @@ export default function IndoKostPage() {
           const alarmFromExpired =
             (r.status === "menunggak" || r.status === "jatuhTempo") &&
             isContractPastEnd(r, new Date());
-          const newEnd = parseDateLabel(newEndDate);
           const currentBilling = r.nextBillingDate ? parseDateLabel(r.nextBillingDate) : null;
           return {
             ...r,
             status: alarmFromExpired ? "lunas" : r.status,
             contract: { ...r.contract, endDate: newEndDate },
             nextBillingDate:
-              !currentBilling || newEnd.getTime() > currentBilling.getTime()
+              !currentBilling || renewEnd.getTime() > currentBilling.getTime()
                 ? newEndDate
                 : r.nextBillingDate,
           };
         }),
       );
+      // Pemasukan perpanjangan tercatat di Buku Kas lokal (cermin server)
+      if (renewAmount > 0) {
+        const todayLabel = dateToLabel(new Date());
+        updateCashEntries((prev) => [
+          {
+            id: localCashId(),
+            dateLabel: todayLabel,
+            dateSort: dateSortFromLabel(todayLabel),
+            type: "masuk",
+            category: "Sewa Kamar",
+            description: renewDescription,
+            amount: renewAmount,
+          },
+          ...prev,
+        ]);
+      }
       toast.success(`Kontrak Kamar ${roomNomor(room)} diperpanjang ${durationLabel}`, {
-        description: `${room.tenant?.name} · kontrak berakhir ${newEndDate} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+        description: `${room.tenant?.name} · kontrak berakhir ${newEndDate}${
+          renewAmount > 0 ? ` · pemasukan ${formatIDR(renewAmount)} tercatat di Buku Kas` : ""
+        } · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
       });
       return;
     }
     api
-      .renewTenant(room.id, newEndDate)
-      .then(({ room: updated }) => {
+      .renewTenant(room.id, newEndDate, { recordIncome: true })
+      .then(({ room: updated, cashEntry }) => {
         updateRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+        // Pemasukan periode baru tercatat server → gabung tanpa reload. Bila
+        // pencatatan gagal saat itu, self-heal GET /api/cash mem-backfill.
+        if (cashEntry) updateCashEntries((prev) => [cashEntry, ...prev]);
         toast.success(`Kontrak Kamar ${roomNomor(room)} diperpanjang ${durationLabel}`, {
-          description: `${room.tenant?.name} · kontrak berakhir ${newEndDate}. Pengingat otomatis H-14 via WA.`,
+          description: `${room.tenant?.name} · kontrak berakhir ${newEndDate}${
+            cashEntry ? ` · pemasukan ${formatIDR(cashEntry.amount)} tercatat di Buku Kas` : ""
+          }. Pengingat otomatis H-14 via WA.`,
         });
       })
       .catch((err: unknown) =>

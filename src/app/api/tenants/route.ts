@@ -3,8 +3,11 @@
 //
 // POST  : check-in penyewa baru ke kamar kosong — membuat Tenant + token portal
 //         unik (magic link /portal?token=…), mengunci kontrak & deposit di kamar,
-//         dan menerbitkan invoice pertama (status lunas) beserta rinciannya
-// PATCH : perbarui data penyewa/kontrak — perpanjang endDate, ubah deposit
+//         dan menerbitkan invoice pertama (status lunas) beserta rinciannya.
+//         Pembayaran pertama = pemasukan → otomatis tercatat di Buku Kas.
+// PATCH : perbarui data penyewa/kontrak — perpanjang endDate, ubah deposit;
+//         perpanjangan dgn flag recordIncome (= pembayaran periode baru) ikut
+//         dicatat sebagai pemasukan Buku Kas (siklus × harga sewa)
 // DELETE: check-out penyewa (?roomId=…) — kamar dikosongkan, kontrak dilepas;
 //         riwayat tagihan dipertahankan sebagai arsip
 // ─────────────────────────────────────────────────────────────────────────────
@@ -13,10 +16,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
 import { ensureSeedForUser } from "@/lib/server/seed";
-import { toClientInvoice, toClientRoom } from "@/lib/server/mappers";
+import { toClientCashEntry, toClientInvoice, toClientRoom } from "@/lib/server/mappers";
+import { autoCashId, rentalIncomeDescription, renewalCashId } from "@/lib/server/cash-sync";
 import { getAuthUser } from "@/lib/auth/server";
 import { getOwnedPropertyIds, unauthorized } from "@/lib/auth/ownership";
-import { MONTH_NAMES, newPortalToken, parseDateLabel, addMonths, diffNights, formatDateLabel } from "@/lib/kost-data";
+import { MONTH_NAMES, newPortalToken, parseDateLabel, addMonths, diffNights, formatDateLabel, wibDateLabel, wibMidnight } from "@/lib/kost-data";
+import { dateSortFromLabel } from "@/lib/kost-cashflow";
+import { periodKeyOf } from "@/lib/kost-invoices";
 import { advanceOneCycle } from "@/lib/room-status";
 
 export const dynamic = "force-dynamic";
@@ -251,8 +257,51 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // 4) Pembayaran pertama = PEMASUKAN → Buku Kas. Invoice pertama lahir
+    //    berstatus lunas (bayar di tempat saat check-in) — pemasukannya wajib
+    //    tercatat agar Total Pemasukan tidak Rp0. Tanggal entri = tanggal
+    //    check-in (paidAt invoice) — check-in mundur (didata belakangan) tetap
+    //    tercatat jujur di bulan kejadian, bukan hari eksekusi API. Id
+    //    deterministik dari invoice → retry tidak pernah mendobelkan.
+    let cashEntryJson: ReturnType<typeof toClientCashEntry> | null = null;
+    try {
+      const paidAt = invoice.paidAt ?? moveIn;
+      const dateLabel = wibDateLabel(paidAt);
+      const description = isHarian
+        ? `${rentalIncomeDescription(updatedRoom.nomor?.trim() || room.id, name, null)} · ${nights} malam`
+        : rentalIncomeDescription(updatedRoom.nomor?.trim() || room.id, name, periodKey);
+      const entry = await db.cashEntry.create({
+        data: {
+          id: autoCashId(invoice.id),
+          type: "masuk",
+          category: "Sewa Kamar",
+          description,
+          amount: invoice.total,
+          entryDate: wibMidnight(paidAt),
+          dateLabel,
+          dateSort: dateSortFromLabel(dateLabel),
+          // Isolasi multi-cabang — pemasukan milik properti kamar
+          propertyId: room.propertyId,
+        },
+      });
+      cashEntryJson = toClientCashEntry(entry);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        console.log("[api/tenants] pemasukan check-in invoice", invoice.id, "sudah tercatat di kas");
+      } else {
+        // Check-in tidak digagalkan oleh pencatatan kas — self-heal GET /api/cash
+        // akan mem-backfill entri ini otomatis dari invoice lunas.
+        console.error("[api/tenants] pencatatan kas check-in gagal (self-heal akan mem-backfill):", err);
+      }
+    }
+
     return NextResponse.json(
-      { room: toClientRoom(updatedRoom), invoice: toClientInvoice(invoice, updatedRoom.nomor ?? updatedRoom.id), tenantId: tenant.id },
+      {
+        room: toClientRoom(updatedRoom),
+        invoice: toClientInvoice(invoice, updatedRoom.nomor ?? updatedRoom.id),
+        tenantId: tenant.id,
+        ...(cashEntryJson ? { cashEntry: cashEntryJson } : {}),
+      },
       { status: 201 },
     );
   } catch (err) {
@@ -292,6 +341,11 @@ export async function PATCH(request: NextRequest) {
       roomId?: unknown;
       contractEnd?: unknown; // label "30 Mar 2026"
       deposit?: unknown;
+      // true HANYA dari aksi "Perpanjang Sewa" (dialog durasi) — pembayaran
+      // periode baru → pemasukan dicatat ke Buku Kas. Konfirmasi "Perpanjang
+      // Masa Kontrak" pasca-Tandai Lunas TIDAK mengirim flag ini (pemasukan
+      // periode tersebut sudah tercatat oleh PATCH /api/invoices — anti-dobel).
+      recordIncome?: unknown;
       // ── Edit Data Penghuni (profil penyewa — kolom tabel tenants) ──
       name?: unknown;
       phone?: unknown;
@@ -316,12 +370,14 @@ export async function PATCH(request: NextRequest) {
     }
 
     const data: Prisma.RoomUpdateInput = {};
+    let newEndDate: Date | null = null; // akhir kontrak baru (perpanjangan)
     if (typeof body.contractEnd === "string" && body.contractEnd.trim()) {
       const parsed = parseDateLabel(body.contractEnd.trim());
       if (Number.isNaN(parsed.getTime())) {
         return NextResponse.json({ error: "Format tanggal kontrak tidak valid." }, { status: 400 });
       }
       data.contractEnd = parsed;
+      newEndDate = parsed;
       // DECOUPLED billing: perpanjangan kontrak (pembayaran periode baru)
       // ikut memajukan penanda jatuh tempo tagihan — TIDAK PERNAH mundur.
       // Kamar lama tanpa nextBillingDate diinisialisasi dari contractEnd lama.
@@ -385,11 +441,70 @@ export async function PATCH(request: NextRequest) {
       // roomId @unique → update by roomId; keberadaan tenant sudah dipastikan di atas
       await db.tenant.update({ where: { roomId }, data: tenantData });
     }
+
+    // ── Perpanjangan sewa = pembayaran periode baru → Buku Kas ──────────────
+    // Nominal = jumlah siklus sewa yang dibayar × harga sewa kamar. Siklus
+    // dihitung dari berapa kali penanda tempo maju dari anchor lama
+    // (nextBillingDate/contractEnd) menuju akhir kontrak baru — meliputi
+    // tunggakan sekaligus periode baru bila kamar sempat menunggak.
+    let cashEntryJson: ReturnType<typeof toClientCashEntry> | null = null;
+    if (body.recordIncome === true && newEndDate) {
+      try {
+        const anchor = room.nextBillingDate ?? room.contractEnd ?? null;
+        let cycles = 0;
+        if (!anchor || anchor.getTime() >= newEndDate.getTime()) {
+          cycles = 1; // niat bayar eksplisit — catat minimal satu siklus
+        } else {
+          let cursor = new Date(anchor);
+          let guard = 0;
+          while (cursor.getTime() < newEndDate.getTime() && guard < 120) {
+            cursor = advanceOneCycle(cursor, room.contractDuration);
+            cycles += 1;
+            guard += 1;
+          }
+          if (cycles === 0) cycles = 1;
+        }
+        const amount = Math.max(0, Math.round(room.price)) * cycles;
+        if (amount > 0) {
+          const dateLabel = wibDateLabel();
+          const entry = await db.cashEntry.create({
+            data: {
+              id: renewalCashId(roomId, newEndDate),
+              type: "masuk",
+              category: "Sewa Kamar",
+              description:
+                rentalIncomeDescription(
+                  room.nomor?.trim() || roomId,
+                  room.tenant?.name,
+                  periodKeyOf(anchor ?? newEndDate),
+                ) + (cycles > 1 ? ` · ${cycles} siklus` : ""),
+              amount,
+              entryDate: wibMidnight(),
+              dateLabel,
+              dateSort: dateSortFromLabel(dateLabel),
+              // Isolasi multi-cabang — pemasukan milik properti kamar
+              propertyId: room.propertyId,
+            },
+          });
+          cashEntryJson = toClientCashEntry(entry);
+        }
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+          console.log("[api/tenants] pemasukan perpanjangan kamar", roomId, "sudah tercatat di kas");
+        } else {
+          console.error("[api/tenants] pencatatan kas perpanjangan gagal (diabaikan):", err);
+        }
+      }
+    }
+
     const updated = await db.room.findUniqueOrThrow({
       where: { id: roomId },
       include: { tenant: true, invoices: { orderBy: { periodKey: "desc" }, take: 1 } },
     });
-    return NextResponse.json({ room: toClientRoom(updated) });
+    return NextResponse.json({
+      room: toClientRoom(updated),
+      ...(cashEntryJson ? { cashEntry: cashEntryJson } : {}),
+    });
   } catch (err) {
     console.error("[api/tenants PATCH]", err);
     return NextResponse.json({ error: "Gagal memperbarui data penyewa." }, { status: 500 });

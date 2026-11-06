@@ -22,6 +22,7 @@ import {
 } from "@/lib/auth/ownership";
 import { dateSortFromLabel, CASH_SOURCES, type CashType } from "@/lib/kost-cashflow";
 import { parseDateLabel } from "@/lib/kost-data";
+import { syncMissingRentalIncome } from "@/lib/server/cash-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,13 @@ export async function GET(request: NextRequest) {
       user,
       request.nextUrl.searchParams.get("propertyId")?.trim() || null,
     );
+    // SELF-HEAL Buku Kas — sebelum membaca, pastikan seluruh invoice lunas
+    // (bukti pembayaran) sudah punya entri pemasukannya. Menutup celah data
+    // lama: pembayaran lewat jalur yang dulu belum mencatat kas, atau
+    // pencatatan yang gagal saat itu — Total Pemasukan tidak pernah lagi Rp0
+    // padahal ada pembayaran. Ringan & idempoten; kegagalan diabaikan
+    // (fail-open) agar pemuatan Buku Kas tidak pernah jatuh.
+    await syncMissingRentalIncome(scope);
     const entries = await db.cashEntry.findMany({
       where: { propertyId: { in: scope } },
       orderBy: [{ dateSort: "desc" }, { id: "asc" }],

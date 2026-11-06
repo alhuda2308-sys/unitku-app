@@ -23,7 +23,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
-import { ensureSeedForUser, nextCashId } from "@/lib/server/seed";
+import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientCashEntry, toClientInvoice, toClientRoom } from "@/lib/server/mappers";
 import { getAuthUser } from "@/lib/auth/server";
 import {
@@ -32,7 +32,8 @@ import {
   resolveOwnedPropertyScopeLenient,
   unauthorized,
 } from "@/lib/auth/ownership";
-import { MONTH_NAMES, dateToLabel } from "@/lib/kost-data";
+import { MONTH_NAMES, wibDateLabel, wibMidnight } from "@/lib/kost-data";
+import { autoCashId, rentalIncomeDescription } from "@/lib/server/cash-sync";
 import { advanceOneCycle } from "@/lib/room-status";
 import { dateSortFromLabel } from "@/lib/kost-cashflow";
 import { periodKeyOf, periodLabelFromKey, periodShortLabel } from "@/lib/kost-invoices";
@@ -502,27 +503,49 @@ export async function PATCH(request: NextRequest) {
       newNextBilling.getTime() > room.contractEnd.getTime();
 
     // Catat pemasukan otomatis ke Buku Kas — sekali saja (idempoten; invoice
-    // hasil auto-create juga langsung tercatat meski lahir sudah lunas)
+    // hasil auto-create juga langsung tercatat meski lahir sudah lunas).
+    //   • id DETERMINISTIK dari id invoice (KM-AUTO-…) → tandai-lunas ulang,
+    //     race antar-request, atau self-heal Buku Kas tidak pernah mendobelkan
+    //     pemasukan utk invoice yang sama.
+    //   • Label & urutan tanggal memakai kalender WIB — pembayaran pukul
+    //     00.00–06.59 WIB tetap masuk bucket bulan yang benar (jam server UTC
+    //     bisa masih hari/bulan sebelumnya).
+    //   • Kegagalan pencatatan TIDAK menggagalkan pelunasan (invoice & kamar
+    //     sudah berubah) — error dicatat ke log dan self-heal GET /api/cash
+    //     akan mem-backfill entri ini secara otomatis.
     const wasUnpaid = before.status !== "lunas";
     let cashEntryJson: ReturnType<typeof toClientCashEntry> | null = null;
     if (body.status === "lunas" && (wasUnpaid || autoCreated)) {
-      const dateLabel = dateToLabel(new Date());
-      const entry = await db.cashEntry.create({
-        data: {
-          id: await nextCashId(),
-          type: "masuk",
-          category: "Sewa Kamar",
-          // Deskripsi memakai NOMOR kamar murni — bukan kunci internal
-          description: `Kamar ${nomorFallback(room.id, room.nomor)} · ${invoice.tenantName ?? "Penyewa"} — Sewa ${periodShortLabel(invoice.periodKey)}`,
-          amount: invoice.total,
-          entryDate: new Date(),
-          dateLabel,
-          dateSort: dateSortFromLabel(dateLabel),
-          // Isolasi multi-cabang — pemasukan tercatat di properti tagihan
-          propertyId: before.propertyId,
-        },
-      });
-      cashEntryJson = toClientCashEntry(entry);
+      const dateLabel = wibDateLabel();
+      try {
+        const entry = await db.cashEntry.create({
+          data: {
+            id: autoCashId(invoice.id),
+            type: "masuk",
+            category: "Sewa Kamar",
+            // Deskripsi memakai NOMOR kamar murni — bukan kunci internal
+            description: rentalIncomeDescription(
+              nomorFallback(room.id, room.nomor),
+              invoice.tenantName,
+              invoice.periodKey,
+            ),
+            amount: invoice.total,
+            entryDate: wibMidnight(),
+            dateLabel,
+            dateSort: dateSortFromLabel(dateLabel),
+            // Isolasi multi-cabang — pemasukan tercatat di properti tagihan
+            propertyId: before.propertyId,
+          },
+        });
+        cashEntryJson = toClientCashEntry(entry);
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+          // Sudah tercatat sebelumnya (tandai-lunas ganda) — bukan kegagalan
+          console.log("[api/invoices] pemasukan invoice", invoice.id, "sudah tercatat di kas");
+        } else {
+          console.error("[api/invoices] pencatatan kas gagal (self-heal akan mem-backfill):", err);
+        }
+      }
     }
 
     return NextResponse.json({

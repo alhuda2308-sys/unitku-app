@@ -356,14 +356,29 @@ export const api = {
     durasiHari?: number; // jumlah malam
     totalTagihan?: number; // harga per hari × durasi
   }) =>
-    request<{ room: ClientRoom; invoice: ClientInvoice }>("/api/tenants", {
+    request<{ room: ClientRoom; invoice: ClientInvoice; cashEntry?: ClientCashEntry }>("/api/tenants", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  renewTenant: (roomId: string, contractEnd: string, deposit?: number) =>
-    request<{ room: ClientRoom }>("/api/tenants", {
+  /** Perpanjang kontrak / ubah deposit. opts.recordIncome = true HANYA dari
+   *  aksi "Perpanjang Sewa" (pembayaran periode baru) — server mencatat
+   *  pemasukan ke Buku Kas (siklus × harga sewa) dan mengembalikan entrinya
+   *  utk digabung ke state tanpa reload. Konfirmasi "Perpanjang Masa Kontrak"
+   *  pasca-Tandai Lunas TIDAK mengirim flag ini — pemasukannya sudah tercatat
+   *  oleh PATCH /api/invoices (anti-dobel). */
+  renewTenant: (
+    roomId: string,
+    contractEnd: string,
+    opts?: { deposit?: number; recordIncome?: boolean },
+  ) =>
+    request<{ room: ClientRoom; cashEntry?: ClientCashEntry }>("/api/tenants", {
       method: "PATCH",
-      body: JSON.stringify({ roomId, contractEnd, deposit }),
+      body: JSON.stringify({
+        roomId,
+        contractEnd,
+        ...(opts?.deposit !== undefined ? { deposit: opts.deposit } : {}),
+        ...(opts?.recordIncome ? { recordIncome: true } : {}),
+      }),
     }),
   /** Edit Data Penghuni — perbarui profil penyewa (nama, WA, pekerjaan,
    *  status perkawinan, wali, kontak darurat, alamat KTP, catatan, dan kolom

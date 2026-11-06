@@ -350,6 +350,41 @@ export function dateToLabel(d: Date): string {
   return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+// ── WIB (Asia/Jakarta) — kalender kanonik transaksi kas ─────────────────────
+// Server (Vercel) berjalan dgn jam UTC; label "hari ini" dari `dateToLabel(new
+// Date())` melenceng sehari bila pembayaran terjadi pukul 00.00–06.59 WIB
+// (masih hari sebelumnya di UTC) — di tepi bulan, pemasukan mendarat di bucket
+// bulan SEBELUMNYA dan Total Pemasukan bulan berjalan tampak Rp0. Ketiga
+// helper di bawah memakai kalender WIB secara eksplisit via Intl agar label,
+// urutan (dateSort), dan bucket filter bulan Buku Kas selalu cocok dengan
+// ekspektasi pemilik kos (WIB/WITA), apa pun zona waktu server.
+
+/** Bagian tanggal kalender WIB dari sebuah instant — { year, month (1-12), day } */
+export function wibDateParts(now: Date = new Date()): { year: number; month: number; day: number } {
+  // "en-CA" → format ISO "2026-11-06" (stabil, locale-independen)
+  const iso = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  const [year, month, day] = iso.split("-").map(Number);
+  return { year, month, day };
+}
+
+/** Label tanggal kalender WIB — "6 Nov 2026" (format identik dgn dateToLabel) */
+export function wibDateLabel(now: Date = new Date()): string {
+  const { year, month, day } = wibDateParts(now);
+  return `${day} ${MONTH_NAMES[month - 1]} ${year}`;
+}
+
+/** Tengah malam WIB sebagai Date (UTC) — konsisten dgn parseDateLabel di
+ *  server UTC, dipakai kolom entryDate transaksi kas. */
+export function wibMidnight(now: Date = new Date()): Date {
+  const { year, month, day } = wibDateParts(now);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
 export function addMonths(date: Date, months: number): Date {
   const d = new Date(date);
   const day = d.getDate();

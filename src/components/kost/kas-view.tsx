@@ -138,8 +138,25 @@ export function KasView({
   /** Edit/hapus catatan & laporan keuangan = owner saja */
   const canModify = !isStaffView;
 
-  const monthOptions = useMemo(() => buildMonthOptions(), []);
   const [month, setMonth] = useState(() => currentPeriodKey());
+  /** Opsi bulan = jendela standar (1 depan + 3 belakang) + SEMUA bulan yang
+   *  benar-benar berisi transaksi — pembayaran di luar jendela (mis. Okt 2026
+   *  saat bulan berjalan Nov) tetap bisa dipilih, tidak hilang dari dropdown. */
+  const monthOptions = useMemo(() => {
+    const base = buildMonthOptions();
+    const known = new Set(base.map((o) => o.key));
+    const extras: { key: string; label: string; tag?: string }[] = [];
+    for (const e of entries) {
+      const s = String(e.dateSort);
+      if (!/^\d{8}$/.test(s)) continue; // dateSort "yyyyMMdd"
+      const key = `${s.slice(0, 4)}-${s.slice(4, 6)}`;
+      if (!known.has(key)) {
+        known.add(key);
+        extras.push({ key, label: periodShortLabel(key) });
+      }
+    }
+    return [...base, ...extras].sort((a, b) => b.key.localeCompare(a.key));
+  }, [entries]);
   const [flow, setFlow] = useState<FlowFilter>("semua");
   const [category, setCategory] = useState("all");
   const [expenseOpen, setExpenseOpen] = useState(false);
@@ -162,6 +179,16 @@ export function KasView({
         .sort((a, b) => b.dateSort - a.dateSort),
     [entries, month]
   );
+
+  /** Transaksi terakhir keseluruhan — dasar indikator “bulan lain” saat
+   *  bulan terpilih kosong (mis. pembayaran pertama terjadi bulan lalu). */
+  const latestEntry = useMemo(
+    () => entries.reduce<CashEntry | null>((acc, e) => (!acc || e.dateSort > acc.dateSort ? e : acc), null),
+    [entries]
+  );
+  const latestMonthKey = latestEntry
+    ? `${String(latestEntry.dateSort).slice(0, 4)}-${String(latestEntry.dateSort).slice(4, 6)}`
+    : null;
 
   /** Filter kategori — kategori unik dari transaksi bulan terpilih (urut abjad) */
   const categoryOptions = useMemo(
@@ -340,6 +367,27 @@ export function KasView({
               ? "Akses Admin Operasional — Anda dapat mencatat pengeluaran operasional harian. Ringkasan laba bersih & saldo hanya tampil untuk owner."
               : "Akses staf — hanya riwayat kas harian yang ditampilkan. Ringkasan pemasukan, laba & laporan lengkap tersedia untuk owner."}
           </p>
+        </div>
+      )}
+
+      {/* Indikator bulan kosong — pembayaran pertama mungkin terjadi bulan lalu */}
+      {monthEntries.length === 0 && entries.length > 0 && latestEntry && latestMonthKey && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5">
+          <p className="text-[12.5px] leading-4 text-amber-800">
+            Belum ada transaksi pada <span className="font-semibold">{monthLabel}</span>. Transaksi
+            terakhir tercatat {latestEntry.dateLabel} ({latestEntry.type === "masuk" ? "masuk" : "keluar"}{" "}
+            {formatIDR(latestEntry.amount)}) — pilih bulan tersebut untuk melihat riwayatnya.
+          </p>
+          {latestMonthKey !== month && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 border-amber-300 bg-white text-[12.5px] text-amber-800 hover:bg-amber-100"
+              onClick={() => setMonth(latestMonthKey)}
+            >
+              Lihat {periodShortLabel(latestMonthKey)}
+            </Button>
+          )}
         </div>
       )}
 
