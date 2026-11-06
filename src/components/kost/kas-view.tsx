@@ -6,6 +6,8 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Banknote,
+  CalendarRange,
+  Check,
   ChevronDown,
   Download,
   FileSpreadsheet,
@@ -56,6 +58,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
 import { MetricCard } from "./metric-card";
 import { SegmentedTabs } from "./segmented-tabs";
 import { ExpenseModal, type ExpenseDraft } from "./expense-modal";
@@ -63,9 +67,23 @@ import { IncomeModal, type IncomeDraft } from "./income-modal";
 import { computeCashStats, type CashEntry } from "@/lib/kost-cashflow";
 import {
   buildMonthOptions,
-  currentPeriodKey,
+  periodLabelFromKey,
   periodShortLabel,
 } from "@/lib/kost-invoices";
+import {
+  defaultPeriod,
+  periodCaption,
+  periodFromKustom,
+  periodFromMonthKey,
+  periodFullLabel,
+  periodMonthKey,
+  periodSlug,
+  periodSortBounds,
+  periodTriggerLabel,
+  presetRange,
+  type PeriodKind,
+  type PeriodRange,
+} from "@/lib/cash-period";
 import { formatDateLabel, formatIDR, MONTH_NAMES, todayISO } from "@/lib/kost-data";
 import type { StaffAccessRole } from "@/lib/staff-access";
 import { cn } from "@/lib/utils";
@@ -89,6 +107,16 @@ interface KasViewProps {
 }
 
 type FlowFilter = "semua" | "masuk" | "keluar";
+
+/** Preset cepat filter periode — rentang dihitung saat dipilih (bukan mount) */
+const PRESET_RANGES: { kind: Exclude<PeriodKind, "bulan" | "kustom" | "semua">; label: string }[] = [
+  { kind: "hari-ini", label: "Hari Ini" },
+  { kind: "7-hari", label: "7 Hari Terakhir" },
+  { kind: "bulan-ini", label: "Bulan Ini" },
+  { kind: "bulan-lalu", label: "Bulan Lalu" },
+  { kind: "tahun-ini", label: "Tahun Ini" },
+  { kind: "1-tahun", label: "1 Tahun Terakhir" },
+];
 
 /** Shim mount-status aman SSR — untuk render portal cetak hanya di klien */
 const emptySubscribe = () => () => {};
@@ -146,7 +174,12 @@ export function KasView({
   /** Edit/hapus catatan & laporan keuangan = owner saja */
   const canModify = !isStaffView;
 
-  const [month, setMonth] = useState(() => currentPeriodKey());
+  /** Filter periode fleksibel — default Bulan Ini (perilaku lama dipertahankan):
+   *  preset cepat, pilih bulan khusus, atau rentang tanggal kustom. */
+  const [period, setPeriod] = useState<PeriodRange>(() => defaultPeriod());
+  const [periodOpen, setPeriodOpen] = useState(false);
+  const [kustomFrom, setKustomFrom] = useState("");
+  const [kustomEnd, setKustomEnd] = useState("");
   /** Opsi bulan = jendela standar (1 depan + 3 belakang) + SEMUA bulan yang
    *  benar-benar berisi transaksi — pembayaran di luar jendela (mis. Okt 2026
    *  saat bulan berjalan Nov) tetap bisa dipilih, tidak hilang dari dropdown. */
@@ -180,13 +213,18 @@ export function KasView({
     () => false,
   );
 
-  const monthEntries = useMemo(
-    () =>
-      entries
-        .filter((e) => e.dateSort.toString().startsWith(month.replace("-", "")))
-        .sort((a, b) => b.dateSort - a.dateSort),
-    [entries, month]
-  );
+  /** Entri dalam rentang periode aktif — batas inklusif atas dateSort (yyyyMMdd);
+   *  "Semua Waktu" = tanpa batas. Pengganti filter bulan tunggal lama. */
+  const periodEntries = useMemo(() => {
+    const { startSort, endSort } = periodSortBounds(period);
+    return entries
+      .filter(
+        (e) =>
+          (startSort === null || e.dateSort >= startSort) &&
+          (endSort === null || e.dateSort <= endSort)
+      )
+      .sort((a, b) => b.dateSort - a.dateSort);
+  }, [entries, period]);
 
   /** Transaksi terakhir keseluruhan — dasar indikator “bulan lain” saat
    *  bulan terpilih kosong (mis. pembayaran pertama terjadi bulan lalu). */
@@ -200,27 +238,30 @@ export function KasView({
 
   /** Filter kategori — kategori unik dari transaksi bulan terpilih (urut abjad) */
   const categoryOptions = useMemo(
-    () => Array.from(new Set(monthEntries.map((e) => e.category))).sort((a, b) => a.localeCompare(b)),
-    [monthEntries]
+    () => Array.from(new Set(periodEntries.map((e) => e.category))).sort((a, b) => a.localeCompare(b)),
+    [periodEntries]
   );
 
   const filteredEntries = useMemo(
     () =>
-      monthEntries.filter(
+      periodEntries.filter(
         (e) => (flow === "semua" || e.type === flow) && (category === "all" || e.category === category)
       ),
-    [monthEntries, flow, category]
+    [periodEntries, flow, category]
   );
 
   /** Urutan kronologis — untuk saldo berjalan CSV & tabel laporan cetak */
   const chronoEntries = useMemo(
-    () => [...monthEntries].sort((a, b) => a.dateSort - b.dateSort),
-    [monthEntries]
+    () => [...periodEntries].sort((a, b) => a.dateSort - b.dateSort),
+    [periodEntries]
   );
 
-  const stats = computeCashStats(monthEntries);
-  const monthLabel = periodShortLabel(month);
-  const monthTag = monthOptions.find((m) => m.key === month)?.tag;
+  const stats = computeCashStats(periodEntries);
+  const rangeCaption = periodCaption(period);
+  const rangeFull = periodFullLabel(period);
+  const rangeTrigger = periodTriggerLabel(period);
+  const rangeTag = period.kind === "bulan-ini" ? "Bulan Ini" : null;
+  const activeMonthKey = periodMonthKey(period);
   const netPositive = stats.net >= 0;
 
   /** Ekspor CSV/Excel — kolom spesifikasi + saldo berjalan, urut kronologis bulan terpilih */
@@ -249,11 +290,11 @@ export function KasView({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `unitku-kas-${month}.csv`;
+    a.download = `unitku-kas-${periodSlug(period)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Laporan CSV diunduh", {
-      description: `${chronoEntries.length} transaksi · ${monthLabel} · saldo berjalan disertakan.`,
+      description: `${chronoEntries.length} transaksi · ${rangeCaption} · saldo berjalan disertakan.`,
     });
   };
 
@@ -300,43 +341,157 @@ export function KasView({
         <div>
           <h1 className="text-lg font-bold tracking-tight text-zinc-900">Buku Kas &amp; Arus Keuangan</h1>
           <p className="mt-0.5 text-[12.5px] text-zinc-700">
-            Pencatatan kas masuk, pengeluaran operasional &amp; laba bersih · {monthLabel}
+            Pencatatan kas masuk, pengeluaran operasional &amp; laba bersih · Periode: {rangeFull}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Month filter */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          {/* Filter Periode — preset cepat, pilih bulan khusus & rentang kustom.
+              Popover agar input tanggal tidak tertutup saat dropdown menutup. */}
+          <Popover
+            open={periodOpen}
+            onOpenChange={(o) => {
+              setPeriodOpen(o);
+              // Input kustom mengikuti rentang aktif saat popover dibuka
+              if (o && period.kind === "kustom") {
+                setKustomFrom(period.startISO ?? "");
+                setKustomEnd(period.endISO ?? "");
+              }
+            }}
+          >
+            <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className="h-9 border-zinc-200 bg-white px-3 text-[13px] text-zinc-700 shadow-none hover:bg-zinc-50"
+                className="h-9 max-w-[46vw] border-zinc-200 bg-white px-3 text-[13px] text-zinc-700 shadow-none hover:bg-zinc-50 sm:max-w-none"
               >
-                {monthLabel}
-                {monthTag && (
+                <CalendarRange className="size-3.5 shrink-0 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
+                <span className="truncate">{rangeTrigger}</span>
+                {rangeTag && (
                   <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-1.5 text-xs font-semibold text-emerald-700 sm:inline">
-                    {monthTag}
+                    {rangeTag}
                   </span>
                 )}
-                <ChevronDown className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+                <ChevronDown className="size-3.5 shrink-0 text-zinc-700" strokeWidth={1.75} />
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              {monthOptions.map((m) => (
-                <DropdownMenuItem
-                  key={m.key}
-                  onClick={() => setMonth(m.key)}
-                  className="justify-between text-[13px]"
+            </PopoverTrigger>
+            <PopoverContent align="end" className="max-h-[calc(100dvh-5rem)] w-[288px] max-w-[calc(100vw-2rem)] space-y-3 overflow-y-auto p-3.5 scrollbar-thin">
+              {/* Preset cepat */}
+              <section>
+                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-zinc-700">Rentang Cepat</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {PRESET_RANGES.map((p) => {
+                    const active = period.kind === p.kind;
+                    return (
+                      <button
+                        key={p.kind}
+                        type="button"
+                        onClick={() => {
+                          setPeriod(presetRange(p.kind));
+                          setPeriodOpen(false);
+                        }}
+                        className={cn(
+                          "flex h-8 items-center justify-between gap-1 rounded-md border px-2 text-left text-[12.5px] transition-colors",
+                          active
+                            ? "border-zinc-900 bg-zinc-100 font-semibold text-zinc-900"
+                            : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                        )}
+                      >
+                        <span className="truncate">{p.label}</span>
+                        {active && <Check className="size-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPeriod(presetRange("semua"));
+                      setPeriodOpen(false);
+                    }}
+                    className={cn(
+                      "col-span-2 flex h-8 items-center justify-between gap-1 rounded-md border px-2 text-left text-[12.5px] transition-colors",
+                      period.kind === "semua"
+                        ? "border-zinc-900 bg-zinc-100 font-semibold text-zinc-900"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                    )}
+                  >
+                    <span>Semua Waktu</span>
+                    {period.kind === "semua" && <Check className="size-3.5" strokeWidth={2} aria-hidden="true" />}
+                  </button>
+                </div>
+              </section>
+
+              {/* Pilih bulan khusus — jendela standar + semua bulan berisi transaksi */}
+              <section>
+                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-zinc-700">Pilih Bulan Khusus</p>
+                <div className="max-h-36 space-y-1 overflow-y-auto pr-0.5 scrollbar-thin">
+                  {monthOptions.map((m) => {
+                    const active = activeMonthKey === m.key;
+                    return (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => {
+                          setPeriod(periodFromMonthKey(m.key));
+                          setPeriodOpen(false);
+                        }}
+                        className={cn(
+                          "flex h-8 w-full items-center justify-between gap-1 rounded-md border px-2 text-left text-[12.5px] transition-colors",
+                          active
+                            ? "border-zinc-900 bg-zinc-100 font-semibold text-zinc-900"
+                            : "border-transparent bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+                        )}
+                      >
+                        <span className="truncate">{m.label}</span>
+                        {m.tag && !active && (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 text-[10px] font-semibold text-emerald-700">
+                            {m.tag}
+                          </span>
+                        )}
+                        {active && <Check className="size-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* Kustom — rentang tanggal manual (urutan dinormalisasi otomatis) */}
+              <section>
+                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-zinc-700">Kustom Tanggal</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="space-y-1">
+                    <span className="block text-[11px] font-medium text-zinc-600">Dari Tanggal</span>
+                    <Input
+                      type="date"
+                      value={kustomFrom}
+                      onChange={(e) => setKustomFrom(e.target.value)}
+                      aria-label="Dari tanggal"
+                      className="h-8 border-zinc-200 bg-white text-xs text-zinc-900 focus-visible:ring-zinc-900/5"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="block text-[11px] font-medium text-zinc-600">Sampai Tanggal</span>
+                    <Input
+                      type="date"
+                      value={kustomEnd}
+                      onChange={(e) => setKustomEnd(e.target.value)}
+                      aria-label="Sampai tanggal"
+                      className="h-8 border-zinc-200 bg-white text-xs text-zinc-900 focus-visible:ring-zinc-900/5"
+                    />
+                  </label>
+                </div>
+                <Button
+                  size="sm"
+                  disabled={!kustomFrom || !kustomEnd}
+                  onClick={() => {
+                    setPeriod(periodFromKustom(kustomFrom, kustomEnd));
+                    setPeriodOpen(false);
+                  }}
+                  className="mt-2 h-8 w-full bg-zinc-900 text-[12.5px] font-semibold text-white shadow-none hover:bg-zinc-800"
                 >
-                  {m.label}
-                  {m.tag && (
-                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 text-xs font-semibold text-emerald-700">
-                      {m.tag}
-                    </span>
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  Terapkan Rentang
+                </Button>
+              </section>
+            </PopoverContent>
+          </Popover>
           {/* Sinkronkan Data Sewa — self-heal manual di samping Ekspor
               (owner saja; idempoten, aman ditekan berulang) */}
           {canModify && onSyncRooms && (
@@ -371,7 +526,7 @@ export function KasView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64">
                 <DropdownMenuLabel className="text-xs text-zinc-700">
-                  Laporan Buku Kas · {monthLabel}
+                  Laporan Buku Kas · {rangeCaption}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={exportCsv} className="text-[13px]">
@@ -424,19 +579,19 @@ export function KasView({
       )}
 
       {/* Indikator bulan kosong — pembayaran pertama mungkin terjadi bulan lalu */}
-      {monthEntries.length === 0 && entries.length > 0 && latestEntry && latestMonthKey && (
+      {periodEntries.length === 0 && entries.length > 0 && latestEntry && latestMonthKey && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5">
           <p className="text-[12.5px] leading-4 text-amber-800">
-            Belum ada transaksi pada <span className="font-semibold">{monthLabel}</span>. Transaksi
+            Belum ada transaksi pada <span className="font-semibold">{rangeCaption}</span>. Transaksi
             terakhir tercatat {latestEntry.dateLabel} ({latestEntry.type === "masuk" ? "masuk" : "keluar"}{" "}
             {formatIDR(latestEntry.amount)}) — pilih bulan tersebut untuk melihat riwayatnya.
           </p>
-          {latestMonthKey !== month && (
+          {activeMonthKey !== latestMonthKey && (
             <Button
               variant="outline"
               size="sm"
               className="h-8 shrink-0 border-amber-300 bg-white text-[12.5px] text-amber-800 hover:bg-amber-100"
-              onClick={() => setMonth(latestMonthKey)}
+              onClick={() => setPeriod(periodFromMonthKey(latestMonthKey))}
             >
               Lihat {periodShortLabel(latestMonthKey)}
             </Button>
@@ -453,7 +608,7 @@ export function KasView({
             value={`+${formatIDR(stats.masuk)}`}
             valueClass="text-emerald-700"
             badge={`${stats.masukCount} transaksi`}
-            sub={`Sewa kamar lunas & kas masuk · ${monthLabel}`}
+            sub={`Sewa kamar lunas & kas masuk · ${rangeCaption}`}
           />
           <MetricCard
             dot="bg-red-500"
@@ -462,7 +617,7 @@ export function KasView({
             valueClass="text-red-600"
             badge={`${stats.keluarCount} transaksi`}
             badgeClass="border-red-200 bg-red-50 text-red-700"
-            sub={`Akumulasi biaya operasional · ${monthLabel}`}
+            sub={`Akumulasi biaya operasional · ${rangeCaption}`}
           />
           <MetricCard
             dot={netPositive ? "bg-sky-500" : "bg-red-500"}
@@ -499,7 +654,7 @@ export function KasView({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SegmentedTabs
           tabs={[
-            { value: "semua", label: "Semua Transaksi", count: monthEntries.length },
+            { value: "semua", label: "Semua Transaksi", count: periodEntries.length },
             { value: "masuk", label: "Pemasukan Saja", count: stats.masukCount },
             { value: "keluar", label: "Pengeluaran Saja", count: stats.keluarCount },
           ]}
@@ -655,11 +810,11 @@ export function KasView({
               <ReceiptText className="size-5" strokeWidth={1.5} aria-hidden="true" />
             </span>
             <p className="text-[13px] font-semibold text-zinc-700">
-              {monthEntries.length === 0 ? "Belum ada transaksi" : "Tidak ada transaksi yang cocok"}
+              {periodEntries.length === 0 ? "Belum ada transaksi" : "Tidak ada transaksi yang cocok"}
             </p>
             <p className="max-w-[300px] text-[12.5px] leading-5 text-zinc-700">
-              {monthEntries.length === 0
-                ? `Tidak ada catatan kas untuk ${monthLabel}.`
+              {periodEntries.length === 0
+                ? `Tidak ada catatan kas untuk ${rangeCaption}.`
                 : "Coba ubah filter arus transaksi atau kategori biaya."}
             </p>
           </div>
@@ -774,11 +929,11 @@ export function KasView({
               <ReceiptText className="size-5" strokeWidth={1.5} aria-hidden="true" />
             </span>
             <p className="text-[13px] font-semibold text-zinc-700">
-              {monthEntries.length === 0 ? "Belum ada transaksi" : "Tidak ada transaksi yang cocok"}
+              {periodEntries.length === 0 ? "Belum ada transaksi" : "Tidak ada transaksi yang cocok"}
             </p>
             <p className="max-w-[280px] text-[12.5px] leading-5 text-zinc-700">
-              {monthEntries.length === 0
-                ? `Tidak ada catatan kas untuk ${monthLabel}.`
+              {periodEntries.length === 0
+                ? `Tidak ada catatan kas untuk ${rangeCaption}.`
                 : "Coba ubah filter arus transaksi atau kategori biaya."}
             </p>
           </div>
@@ -911,7 +1066,7 @@ export function KasView({
             <header className="border-b-2 border-zinc-900 pb-3 print-avoid-break">
               <h1 className="text-xl font-bold tracking-tight">{propertyName}</h1>
               <p className="mt-0.5 text-[12px]">
-                Laporan Buku Kas &amp; Arus Keuangan — Periode {monthLabel}
+                Laporan Buku Kas &amp; Arus Keuangan — Periode {rangeFull}
               </p>
             </header>
 
@@ -935,7 +1090,7 @@ export function KasView({
 
             <table className="mt-4 w-full border-collapse text-left text-[11px]">
               <caption className="sr-only">
-                Rincian transaksi kas periode {monthLabel}
+                Rincian transaksi kas periode {rangeCaption}
               </caption>
               <thead>
                 <tr className="border-b-2 border-zinc-900">
