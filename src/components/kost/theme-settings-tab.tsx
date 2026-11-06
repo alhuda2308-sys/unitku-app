@@ -70,7 +70,7 @@ function ThemeCard({ meta, active, onPick }: { meta: ThemeMeta; active: boolean;
 interface PreviewCardProps {
   roomLabel: string;
   badgeText: string;
-  /** Tone class kartu (ik-room-*) — memakai token --rm-* yang SAMA dengan RoomCard asli */
+  /** Tone class kartu (STATUS_ROOM_TONE) — warna BAKU yang sama dengan RoomCard asli */
   cardClass: string;
   sub: string;
   /** "Tersedia" italic muted — meniru kartu kosong asli */
@@ -81,7 +81,6 @@ interface PreviewCardProps {
   footerRight: string;
   pulse?: boolean;
   badgeGlow?: boolean;
-  stripes?: boolean;
 }
 
 /** Mini kartu kamar: struktur 3 baris & tinggi tetap h-[124px] yang SAMA dengan RoomCard asli */
@@ -96,14 +95,12 @@ function StatusPreviewCard({
   footerRight,
   pulse,
   badgeGlow,
-  stripes,
 }: PreviewCardProps) {
   return (
     <div
       className={cn(
         "ik-room h-[124px] w-full flex flex-col justify-between overflow-hidden rounded-lg p-3",
-        cardClass,
-        stripes && "ik-stripes"
+        cardClass
       )}
     >
       {/* Baris 1: nomor kamar + badge status */}
@@ -186,8 +183,9 @@ export function ThemeSettingsTab() {
           Pratinjau Status Kamar
         </h2>
         <p className="mt-0.5 text-[12px] text-zinc-500">
-          Kartu kamar memakai latar blok SOLID penuh per status yang mengikuti palet tema aktif —
-          bukan lagi kartu putih dengan border tipis — sehingga status terbaca sekilas pandang.
+          Kartu kamar memakai warna status BAKU penuh — kuning tegas utk Jatuh Tempo, merah tegas
+          utk Menunggak — yang SAMA di 12 tema, light maupun dark mode, sehingga perbedaan status
+          selalu mencolok dan tidak pernah pudar.
         </p>
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -201,7 +199,7 @@ export function ThemeSettingsTab() {
           />
           <StatusPreviewCard
             roomLabel="105"
-            badgeText="H-2"
+            badgeText="Jatuh Tempo"
             cardClass={STATUS_ROOM_TONE.jatuhTempo}
             sub="Ahmad Fauzi"
             footerLeft="Tipe B - Kipas"
@@ -209,7 +207,7 @@ export function ThemeSettingsTab() {
           />
           <StatusPreviewCard
             roomLabel="110"
-            badgeText="H+4"
+            badgeText="Menunggak"
             cardClass={STATUS_ROOM_TONE.menunggak}
             sub="Dewi Lestari"
             footerLeft="Tipe AC Deluxe"
@@ -228,13 +226,12 @@ export function ThemeSettingsTab() {
           />
           <StatusPreviewCard
             roomLabel="112"
-            badgeText="Perbaikan"
-            cardClass="ik-room-perbaikan"
+            badgeText="Kosong"
+            cardClass={STATUS_ROOM_TONE.kosong}
             sub="Sedang Perbaikan"
             subStrong
             footerLeft="Tipe AC Deluxe"
             footerRight="Rp1,75 jt/bln"
-            stripes
           />
         </div>
 
@@ -242,31 +239,43 @@ export function ThemeSettingsTab() {
           <li className="flex items-start gap-1.5">
             <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-emerald-600" aria-hidden="true" />
             <span>
-              <strong className="font-semibold text-zinc-700">Lunas / Terisi</strong> — latar blok
-              hijau solid penuh (mengikuti aksen tema) dengan teks kontras tinggi dan badge pill
-              pekat di pojok kanan atas.
-            </span>
-          </li>
-          <li className="flex items-start gap-1.5">
-            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-red-600" aria-hidden="true" />
-            <span>
-              <strong className="font-semibold text-zinc-700">Menunggak / Jatuh Tempo</strong> —
-              blok warna hangat penuh (oranye-merah/kuning sesuai tema) dengan border tegas; badge
-              Menunggak berkedip halus agar langsung terlihat perlu ditagih.
-            </span>
-          </li>
-          <li className="flex items-start gap-1.5">
-            <span className="mt-1.5 size-1.5 shrink-0 rounded-full border border-sky-400 bg-sky-200" aria-hidden="true" />
-            <span>
-              <strong className="font-semibold text-zinc-700">Kosong (Siap Huni)</strong> — latar
-              netral soft solid dengan border putus-putus kontras, mempertegas ketersediaan kamar.
+              <strong className="font-semibold text-zinc-700">Lunas / Terisi</strong> — latar hijau
+              emerald tegas (bg-emerald-600) dengan teks & badge putih — kontras penuh, sama di
+              semua tema.
             </span>
           </li>
           <li className="flex items-start gap-1.5">
             <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
             <span>
+              <strong className="font-semibold text-zinc-700">Jatuh Tempo</strong> — KUNING tegas
+              (bg-amber-500) dengan teks hitam pekat (slate-950) & border amber-600 — mencolok di
+              light maupun dark mode.
+            </span>
+          </li>
+          <li className="flex items-start gap-1.5">
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-red-600" aria-hidden="true" />
+            <span>
+              <strong className="font-semibold text-zinc-700">Menunggak</strong> — MERAH tegas
+              (bg-red-600) dengan teks putih tebal & border red-700; badge Menunggak berkedip halus
+              agar langsung terlihat perlu ditagih.
+            </span>
+          </li>
+          <li className="flex items-start gap-1.5">
+            <span
+              className="mt-1.5 size-1.5 shrink-0 rounded-full border border-zinc-400 bg-zinc-200"
+              aria-hidden="true"
+            />
+            <span>
+              <strong className="font-semibold text-zinc-700">Kosong (Siap Huni)</strong> — latar
+              abu-abu netral dengan border putus-putus, mempertegas ketersediaan kamar.
+            </span>
+          </li>
+          <li className="flex items-start gap-1.5">
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-zinc-400" aria-hidden="true" />
+            <span>
               <strong className="font-semibold text-zinc-700">Perbaikan / Maintenance</strong> —
-              blok amber dengan motif strip halus sebagai penanda peringatan.
+              kartu netral dengan label &ldquo;Sedang Perbaikan&rdquo; tebal sebagai penanda
+              kamar sedang dikerjakan.
             </span>
           </li>
         </ul>

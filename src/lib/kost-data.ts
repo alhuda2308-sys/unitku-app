@@ -238,70 +238,91 @@ export function newPortalToken(roomId: string): string {
 
 // ── Status metadata (badge labels, pill classes) ────────────────────────────
 
+/**
+ * Pill status (badge pada permukaan PUTIH — drawer, daftar penghuni).
+ * Warna TEGAS/bold — TANPA pastel (bg-*-50 dihapus): pil jatuh tempo KUNING
+ * pekat ber-teks hitam, pil menunggak MERAH pekat ber-teks putih — jelas
+ * dibedakan sekilas di tema light maupun dark (spesifikasi penyeragaman).
+ */
 export const STATUS_META: Record<
   RoomStatus,
   { label: string; dot: string; pill: string; tabLabel: string }
 > = {
   lunas: {
     label: "Lunas",
-    dot: "bg-emerald-500",
-    pill: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    dot: "bg-emerald-600",
+    pill: "bg-emerald-600 text-white border-emerald-700",
     tabLabel: "Lunas",
   },
   jatuhTempo: {
     label: "Jatuh Tempo",
     dot: "bg-amber-500",
-    pill: "bg-amber-50 text-amber-700 border-amber-200",
+    pill: "bg-amber-500 text-slate-950 border-amber-600",
     tabLabel: "Jatuh Tempo",
   },
   menunggak: {
     label: "Menunggak",
-    dot: "bg-red-500",
-    pill: "bg-red-50 text-red-700 border-red-200",
+    dot: "bg-red-600",
+    pill: "bg-red-600 text-white border-red-700",
     tabLabel: "Menunggak",
   },
   kosong: {
     label: "Kosong",
     dot: "bg-zinc-400",
-    pill: "bg-zinc-100 text-zinc-700 border-zinc-200",
+    pill: "bg-zinc-100 text-slate-700 border-zinc-300",
     tabLabel: "Kosong",
   },
 };
 
 /**
- * Solid skin per status — latar kartu TERISI WARNA BLOK PENUH (bukan putih
- * bergaris). Semua kelas statis (Tailwind JIT tidak bisa membuat kelas dinamis)
- * dan memakai variabel `[data-ik-theme]` sehingga otomatis ikut semua palet
- * tema. Didefinisikan DI SINI (sumber tunggal): kartu Denah (room-card),
- * StatusBadge & pratinjau Tema memakai skin yang sama persis.
+ * Solid skin per status — latar kartu TERISI WARNA BLOK PENUH dengan palet
+ * TEGAS (bold) yang SAMA di 12 tema, light maupun dark (spesifikasi
+ * penyeragaman warna): perbedaan status wajib mencolok & tidak pernah pudar.
+ *
+ *   lunas      → hijau emerald pekat (bg-emerald-600) + teks putih
+ *   jatuhTempo → KUNING tegas (bg-amber-500) + teks hitam pekat (slate-950)
+ *                + border amber-600 — aksen kuning mencolok di tema apa pun
+ *   menunggak  → MERAH tegas (bg-red-600) + teks putih tebal + border red-700
+ *   kosong     → abu-abu netral + border putus-putus (dari pemakai)
+ *
+ * Semua kelas statis (Tailwind JIT tidak bisa membuat kelas dinamis) dan
+ * SENGAJA tidak memakai variabel `[data-ik-theme]` — warna status adalah
+ * standar produk, bukan bagian palet tema, sehingga tidak tertimpa override
+ * tema/dark mode. Didefinisikan DI SINI (sumber tunggal): kartu Denah
+ * (room-card), StatusBadge & pratinjau Tema memakai skin yang sama persis.
  */
 export const STATUS_SKIN: Record<
   RoomStatus,
   { card: string; chip: string; kebab: string; pill: string }
 > = {
   lunas: {
-    card: "bg-[var(--ik-card-paid-bg)] border-[var(--ik-card-paid-line)] [color:var(--ik-card-paid-fg)]",
-    chip: "border-[var(--ik-card-paid-line)] bg-white/50 [color:var(--ik-card-paid-fg)]",
-    kebab: "[color:var(--ik-card-paid-muted)] hover:bg-white/60 hover:[color:var(--ik-card-paid-fg)] data-[state=open]:bg-white/60 data-[state=open]:[color:var(--ik-card-paid-fg)]",
-    pill: "bg-[var(--ik-card-paid-pill-bg)] [color:var(--ik-card-paid-pill-fg)] border-transparent",
+    card: "bg-emerald-600 border-emerald-700 text-white",
+    chip: "border-white/45 bg-white/15 text-white",
+    kebab: "text-white/85 hover:bg-white/20 hover:text-white data-[state=open]:bg-white/20 data-[state=open]:text-white",
+    // bg-white/95 (bukan bg-white pejal): kelas pecahan TIDAK terkena remap
+    // `main .bg-white` tema dark (cyber/blueprint) — pill tetap putih di semua tema.
+    pill: "bg-white/95 text-emerald-700 border-transparent",
   },
   jatuhTempo: {
-    card: "bg-[var(--ik-card-due-bg)] border-[var(--ik-card-due-line)] [color:var(--ik-card-due-fg)]",
-    chip: "border-[var(--ik-card-due-line)] bg-white/50 [color:var(--ik-card-due-fg)]",
-    kebab: "[color:var(--ik-card-due-muted)] hover:bg-white/60 hover:[color:var(--ik-card-due-fg)] data-[state=open]:bg-white/60 data-[state=open]:[color:var(--ik-card-due-fg)]",
-    pill: "bg-[var(--ik-card-due-pill-bg)] [color:var(--ik-card-due-pill-fg)] border-transparent",
+    card: "bg-amber-500 border-amber-600 text-slate-950",
+    chip: "border-slate-950/30 bg-white/70 text-slate-950",
+    kebab: "text-slate-950/75 hover:bg-slate-950/10 hover:text-slate-950 data-[state=open]:bg-slate-950/10 data-[state=open]:text-slate-950",
+    pill: "bg-slate-950 text-amber-300 border-transparent",
   },
   menunggak: {
-    card: "bg-[var(--ik-card-late-bg)] border-[var(--ik-card-late-line)] [color:var(--ik-card-late-fg)]",
-    chip: "border-[var(--ik-card-late-line)] bg-white/25 [color:var(--ik-card-late-fg)]",
-    kebab: "[color:var(--ik-card-late-muted)] hover:bg-white/25 hover:[color:var(--ik-card-late-fg)] data-[state=open]:bg-white/25 data-[state=open]:[color:var(--ik-card-late-fg)]",
-    pill: "bg-[var(--ik-card-late-pill-bg)] [color:var(--ik-card-late-pill-fg)] border-transparent",
+    card: "bg-red-600 border-red-700 text-white",
+    chip: "border-white/45 bg-white/15 text-white",
+    kebab: "text-white/85 hover:bg-white/20 hover:text-white data-[state=open]:bg-white/20 data-[state=open]:text-white",
+    pill: "bg-white/95 text-red-700 border-transparent",
   },
   kosong: {
-    card: "bg-[var(--ik-card-vacant-bg)] border-[var(--ik-card-vacant-line)] [color:var(--ik-card-vacant-fg)]",
-    chip: "border-[var(--ik-card-vacant-line)] bg-white/60 [color:var(--ik-card-vacant-fg)]",
-    kebab: "[color:var(--ik-card-vacant-muted)] hover:bg-white/70 hover:[color:var(--ik-card-vacant-fg)] data-[state=open]:bg-white/70 data-[state=open]:[color:var(--ik-card-vacant-fg)]",
-    pill: "bg-[var(--ik-card-vacant-pill-bg)] [color:var(--ik-card-vacant-pill-fg)] border-transparent",
+    // Teks memakai skala SLATE (bukan zinc): tema dark cyber & blueprint
+    // me-remap `main .text-zinc-800/700/600` menjadi terang utk OLED — remap
+    // itu memudarkan teks gelap di atas kartu zinc-200 terang. Slate aman.
+    card: "bg-zinc-200 border-zinc-400 text-slate-800",
+    chip: "border-zinc-400/70 bg-white/70 text-slate-800",
+    kebab: "text-slate-500 hover:bg-white/80 hover:text-slate-800 data-[state=open]:bg-white/80 data-[state=open]:text-slate-800",
+    pill: "bg-white/95 text-slate-700 border-transparent",
   },
 };
 

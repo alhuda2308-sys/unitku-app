@@ -8,9 +8,13 @@ interface MetricStripProps {
 }
 
 /**
- * Skin solid kartu metrik — blok warna penuh mengikuti tema aktif:
- *  total → aksen tema · terisi → blok lunas · menunggak → blok peringatan ·
- *  kosong → blok netral. (Statis agar ter-generate Tailwind JIT.)
+ * Skin solid kartu metrik (legenda indikator warna di atas Denah Kamar) —
+ * palet status TEGAS (bold) yang SAMA dengan kartu denah (STATUS_SKIN) dan
+ * SAMA di semua tema, light maupun dark (tanpa pastel, tanpa variabel tema):
+ *  total → aksen tema · terisi → hijau emerald tegas ·
+ *  jatuh tempo → KUNING tegas (teks hitam pekat) ·
+ *  menunggak → MERAH tegas (teks putih) · kosong → abu-abu netral.
+ * (Statis agar ter-generate Tailwind JIT.)
  */
 const STAT_SKIN = {
   total: {
@@ -19,19 +23,25 @@ const STAT_SKIN = {
     dot: "bg-[var(--ik-accent-fg)]",
   },
   paid: {
-    card: "bg-[var(--ik-card-paid-bg)] border-[var(--ik-card-paid-line)]",
-    fg: "[color:var(--ik-card-paid-fg)]",
-    dot: "bg-[var(--ik-card-paid-fg)]",
+    card: "bg-emerald-600 border-emerald-700",
+    fg: "text-white",
+    dot: "bg-white/85",
+  },
+  due: {
+    card: "bg-amber-500 border-amber-600",
+    fg: "text-slate-950",
+    dot: "bg-slate-950/70",
   },
   late: {
-    card: "bg-[var(--ik-card-late-bg)] border-[var(--ik-card-late-line)]",
-    fg: "[color:var(--ik-card-late-fg)]",
-    dot: "bg-[var(--ik-card-late-fg)]",
+    card: "bg-red-600 border-red-700",
+    fg: "text-white",
+    dot: "bg-white/85",
   },
   vacant: {
-    card: "bg-[var(--ik-card-vacant-bg)] border-[var(--ik-card-vacant-line)]",
-    fg: "[color:var(--ik-card-vacant-fg)]",
-    dot: "bg-[var(--ik-card-vacant-fg)]",
+    card: "bg-zinc-200 border-zinc-400",
+    // slate-800 (bukan zinc-800): aman dari remap teks zinc tema dark
+    fg: "text-slate-800",
+    dot: "bg-slate-500/70",
   },
 } as const;
 
@@ -80,7 +90,10 @@ export function MetricStrip({ rooms, unit = "Kamar" }: MetricStripProps) {
   const unitLower = unit.toLowerCase();
 
   return (
-    <section aria-label="Ringkasan statistik" className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+    <section
+      aria-label="Ringkasan statistik"
+      className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5"
+    >
       <StatCard
         skinKey="total"
         label={`Total ${unit}`}
@@ -96,11 +109,18 @@ export function MetricStrip({ rooms, unit = "Kamar" }: MetricStripProps) {
         sub={s.total > 0 ? `Okupansi ${s.occupancyPct.replace(".", ",")}% dari total` : "Tambahkan kamar untuk memulai"}
       />
       <StatCard
-        skinKey="late"
-        label="Menunggak / Jatuh Tempo"
-        value={String(s.dueSoon + s.overdue)}
+        skinKey="due"
+        label="Jatuh Tempo"
+        value={String(s.dueSoon)}
         unit={unit}
-        sub={`${s.overdue} menunggak · ${s.dueSoon} jatuh tempo`}
+        sub={s.dueSoon > 0 ? "Tagihan mendekati jatuh tempo (H-3…H+0)" : "Tidak ada tagihan mendekat"}
+      />
+      <StatCard
+        skinKey="late"
+        label="Menunggak"
+        value={String(s.overdue)}
+        unit={unit}
+        sub={s.overdue > 0 ? "Tagihan sudah lewat jatuh tempo" : "Tidak ada tunggakan"}
       />
       <StatCard
         skinKey="vacant"

@@ -2438,8 +2438,10 @@ function TemaTab({ theme, onSelect }: { theme: ThemeKey; onSelect: (t: ThemeKey)
           12 tema: 5 palet solid (warna menu aktif, tombol utama &amp; badge) dan 7 tema berkarakter — Industrial
           Utility (struk kasir brutalis), Retro Ledger (kartu arsip &amp; cap karet), Blueprint Studio (cetak biru
           arsitek), Pastel Macaron (estetika Korea), Matcha Sanctuary (zen villa), Cyber Terminal (OLED neon)
-          &amp; Coffee Roastery (espresso hangat) — yang turut mengubah latar, kartu denah, metrik, banner, modal
-          &amp; tipografi. Pilihan tersimpan otomatis di perangkat ini &amp; langsung berlaku tanpa refresh.
+          &amp; Coffee Roastery (espresso hangat) — yang turut mengubah latar, aksen, banner, modal
+          &amp; tipografi. Kartu status denah kamar memakai warna standar yang SAMA di semua tema — jatuh tempo
+          kuning tegas, menunggak merah tegas, lunas hijau, kosong abu — light maupun dark mode. Pilihan
+          tersimpan otomatis di perangkat ini &amp; langsung berlaku tanpa refresh.
         </p>
       </div>
     </Pane>

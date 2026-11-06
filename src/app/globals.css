@@ -161,10 +161,13 @@
 /* ── UnitKu theme accents — 12 tema (5 palet solid + 7 tema karakter) ────────
    Aktif via [data-ik-theme] di <html>, disetel dari Pengaturan/Navbar → Tema.
    --ik-accent-* : warna solid utama (nav aktif, tombol simpan, badge banner)
-   --ik-card-*   : warna blok SOLID penuh untuk kartu kamar & kartu metrik
-                   (paid = lunas/terisi, due = jatuh tempo, late = menunggak,
-                    vacant = kosong) — latar kartu WAJIB terisi warna blok,
-                   bukan putih bergaris tipis.
+   --ik-card-*   : (LEGACY) bekas palet kartu kamar per tema — kartu kamar &
+                   kartu metrik kini memakai warna status BAKU (bold, sama di
+                   semua tema) dari STATUS_SKIN di src/lib/kost-data.ts:
+                   jatuh tempo = kuning tegas (amber-500/teks hitam), menunggak
+                   = merah tegas (red-600/teks putih), lunas = emerald-600,
+                   kosong = abu netral. Var ini dipertahankan sebagai fondasi
+                   hook tema dan tidak lagi menentukan warna status.
    --ik-font-head/--ik-head-case/--ik-head-tracking : tipografi judul per tema
    --ik-font-num : font angka/label status (monospace pada tema karakter)
    --ik-page-grid: pola latar halaman (kisi teknis Blueprint)

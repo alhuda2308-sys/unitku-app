@@ -52,10 +52,11 @@ interface RoomCardProps {
  *
  * Status yang tampil adalah status DINAMIS (single source of truth di
  * src/lib/room-status.ts): dashboard menggeser kamar yang tagihannya lewat
- * tempo menjadi menunggak (merah/merah muda — bukan biru/hijau lunas),
- * sehingga baris "Habis" kamar lewat tempo tampil MERAH + baris keterangan
- * hari REAL-TIME di bawahnya: "Lewat tempo 5 hari" / "Jatuh tempo hari ini" /
- * "Jatuh tempo 2 hari lagi" (arrearsLine — bukan teks statis).
+ * tempo menjadi menunggak (kartu MERAH tegas bg-red-600 ber-teks putih —
+ * bukan hijau lunas), sehingga baris "Habis" kamar lewat tempo tampil PUTIH
+ * tebal + baris keterangan hari REAL-TIME di bawahnya: "Lewat tempo 5 hari" /
+ * "Jatuh tempo hari ini" / "Jatuh tempo 2 hari lagi" (arrearsLine — bukan
+ * teks statis). Warna status BAKU sama di 12 tema, light maupun dark.
  */
 export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onRenew, onCreateAd, canManage = true, propertyType }: RoomCardProps) {
   const isVacant = room.status === "kosong";
@@ -88,8 +89,8 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onRene
   const habisLabel = contractEndOf(room).label;
   /** Lewat tempo: status efektif "menunggak" — hari ini sudah melewati jatuh
    *  tempo TAGIHAN (dihitung terpusat di room-status.ts oleh dashboard, aturan
-   *  murni tanggal). Baris Habis tampil MERAH. Kamar "jatuhTempo" (jendela
-   *  H-3..H+0) belum lewat — tanpa merah ini. */
+   *  murni tanggal). Baris Habis tampil PUTIH tebal di kartu merah tegas.
+   *  Kamar "jatuhTempo" (jendela H-3..H+0) belum lewat — tanpa ini. */
   const isLewatTempo = !isVacant && room.status === "menunggak" && isBillingOverdue(room);
   /** Keterangan tunggakan/jatuh tempo REAL-TIME — sumber tanggal sama dengan
    *  status (billingDueOf) sehingga teks & warna kartu selalu konsisten:
@@ -196,8 +197,9 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onRene
             <div className="flex min-w-0 items-center">{priceChip}</div>
 
             {/* Baris 4: tanggal sewa — Masuk & Habis, SATU baris per info
-                (text-xs, tabular-nums). Lewat tempo → SELURUH baris MERAH tebal
-                via var tema --ik-card-late-alert agar terbaca di 12 tema. */}
+                (text-xs, tabular-nums). Lewat tempo → SELURUH baris PUTIH tebal
+                di atas kartu merah tegas (bg-red-600) — kontras penuh di SEMUA
+                tema tanpa bergantung variabel tema. */}
             {(masukLabel || habisLabel) && (
               <div className="mt-1.5 min-w-0 space-y-0.5">
                 {masukLabel && (
@@ -209,8 +211,7 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onRene
                   <p
                     className={cn(
                       "ik-num truncate text-xs leading-4 tabular-nums opacity-90",
-                      isLewatTempo &&
-                        "font-bold opacity-100 [color:var(--ik-card-late-alert,var(--ik-card-late-fg))]"
+                      isLewatTempo && "font-bold text-white opacity-100"
                     )}
                   >
                     Habis: {habisLabel}
@@ -221,15 +222,14 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onRene
                   // pemilik 25 Okt 2026): "Lewat tempo 5 hari" / "Jatuh tempo
                   // hari ini" / "Jatuh tempo 2 hari lagi" — angka hari hidup,
                   // bertambah sendiri begitu tanggal melewati jatuh tempo.
-                  // Merah tegas di kartu menunggak (var late-alert), amber
-                  // gelap di kartu jatuh tempo (var due-fg) — dua-duanya
-                  // kontras di latar kartunya masing-masing di SEMUA tema.
+                  // Warna status BAKU (tanpa variabel tema): PUTIH tebal di
+                  // kartu menunggak merah tegas, HITAM pekat (slate-950) di
+                  // kartu jatuh tempo kuning tegas — dua-duanya kontras maksimum
+                  // di latar kartunya masing-masing di SEMUA tema (light & dark).
                   <p
                     className={cn(
-                      "text-xs font-semibold leading-4 tabular-nums",
-                      isLewatTempo
-                        ? "[color:var(--ik-card-late-alert,var(--ik-card-late-fg))]"
-                        : "[color:var(--ik-card-due-fg,var(--ik-card-due-muted))]"
+                      "text-xs font-bold leading-4 tabular-nums",
+                      isLewatTempo ? "text-white" : "text-slate-950"
                     )}
                   >
                     {arrears}
