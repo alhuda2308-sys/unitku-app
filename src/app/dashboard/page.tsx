@@ -1760,9 +1760,10 @@ export default function IndoKostPage() {
       if (renewCycles === 0) renewCycles = 1;
     }
     const renewAmount = Math.max(0, Math.round(room.price)) * renewCycles;
-    const renewDescription = `Pembayaran sewa Kamar ${roomNomor(room)} - ${
+    // Deskripsi kanonik perpanjangan — cermin renewalIncomeDescription server
+    const renewDescription = `Perpanjangan sewa Kamar ${roomNomor(room)} - ${
       room.tenant?.name ?? "Penyewa"
-    } (Sewa ${periodShortLabel(periodKeyOf(renewAnchor ?? renewEnd))})${
+    } (Periode ${periodShortLabel(periodKeyOf(renewAnchor ?? renewEnd))})${
       renewCycles > 1 ? ` · ${renewCycles} siklus` : ""
     }`;
 
@@ -1903,88 +1904,131 @@ export default function IndoKostPage() {
 
   // ── Buku Kas ───────────────────────────────────────────────────────────────
 
-  /** Sinkronkan Data Sewa — self-heal manual Buku Kas (tombol di header).
-   *  Menyinkronkan seluruh kamar AKTIF yang sudah membayar tetapi belum punya
-   *  catatan pemasukan (data lama pra-fitur pencatatan otomatis — akar kasus
-   *  "denah 14-15 kamar lunas, Buku Kas hanya 2 transaksi"). Idempoten via id
-   *  deterministik KM-ROOMSYNC-<roomId> — ditekan berulang pun tidak mendobel.
-   *  Mengembalikan jumlah entri BARU, atau null bila gagal (toast error). */
-  const handleSyncCashRooms = useCallback(async (): Promise<number | null> => {
-    // MODE DEMO: cermin pass kamar di state lokal — dataset simulasi tidak
-    // ada di database. Aturan identik dgn server: kamar terisi tanpa catatan
-    // sewa (bukan id/nominal+tanggal yang sama) → SATU entri backfill dengan
-    // tanggal bukti terbaik (masuk penyewa → mulai kontrak → siklus terbayar).
-    if (instantDemo || isDemoSession) {
-      const { rooms: curRooms, cashEntries: curCash } = getDashboardSnapshot();
-      const covered = new Set(
-        curCash.filter((e) => e.type === "masuk").map((e) => `${e.amount}|${e.dateSort}`),
-      );
-      const syncIds = new Set(curCash.map((e) => e.id));
-      const now = new Date();
-      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const created: CashEntry[] = [];
-      for (const room of curRooms) {
-        if (room.status === "kosong" || room.price <= 0) continue;
-        const id = `KM-ROOMSYNC-${room.id}`;
-        if (syncIds.has(id)) continue; // backfill kamar ini sudah pernah dibuat
-        const moveInLabel =
-          room.tenant?.moveInDate && room.tenant.moveInDate !== "—" ? room.tenant.moveInDate : "";
-        // Menunggak = siklus berjalan BELUM dibayar — hanya backfill bila ada
-        // bukti tanggal pembayaran lama (tanggal masuk / mulai kontrak).
-        if (
-          deriveRoomStatus(room, now) === "menunggak" &&
-          !moveInLabel &&
-          !room.contract?.startDate
-        ) {
-          continue;
-        }
-        let payLabel = moveInLabel || room.contract?.startDate || "";
-        let payDate = payLabel ? parseDateLabel(payLabel) : null;
-        if (!payDate) {
-          const due = room.nextBillingDate
+  /** Sinkronkan Data Sewa — self-heal manual Buku Kas (tombol di header),
+   *  PERIODE-AWARE: menyembuhkan bulan-bulan DALAM RENTANG TAMPILAN aktif
+   *  (mis. tampilan Nov 2026 → seluruh kamar aktif yang siklus Nov-nya
+   *  terbayar langsung dibuatkan pemasukan Nov). Menyembuhkan kasus nyata
+   *  "14-15 kamar check-in Okt, diperpanjang Nov, kas Nov tetap kosong walau
+   *  sync ditekan" — sinkron lama hanya membuat SATU entri backfill per kamar
+   *  seumur kamar. Idempoten via id deterministik KM-ROOMSYNC2-<roomId>-<tgl>
+   *  — ditekan berulang pun tidak mendobel. Mengembalikan jumlah entri BARU,
+   *  atau null bila gagal (toast error). */
+  const handleSyncCashRooms = useCallback(
+    async (range?: { fromISO: string | null; toISO: string | null }): Promise<number | null> => {
+      // MODE DEMO: cermin pass kamar per-bulan di state lokal — dataset
+      // simulasi tidak ada di database. Aturan identik dgn server: setiap
+      // kamar terisi wajib punya bukti pemasukan utk setiap bulan siklusnya
+      // yang terbayar (due < anchor nextBillingDate/contractEnd).
+      if (instantDemo || isDemoSession) {
+        const { rooms: curRooms, cashEntries: curCash } = getDashboardSnapshot();
+        const now = new Date();
+        const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const fromSort = range?.fromISO ? Number(range.fromISO.replace(/-/g, "")) : null;
+        const toSort = range?.toISO ? Number(range.toISO.replace(/-/g, "")) : null;
+        const existingIds = new Set(curCash.map((e) => e.id));
+        const created: CashEntry[] = [];
+        for (const room of curRooms) {
+          if (room.status === "kosong" || room.price <= 0) continue;
+          const nomorLower = roomNomor(room).toLowerCase();
+          const tenantLower = (room.tenant?.name ?? "").trim().toLowerCase();
+          // Bulan yang sudah tercatat utk kamar ini — atribusi entri masuk
+          const coveredMonths = new Set<string>();
+          for (const e of curCash) {
+            if (e.type !== "masuk") continue;
+            const sortStr = String(e.dateSort).padStart(8, "0");
+            const month = `${sortStr.slice(0, 4)}-${sortStr.slice(4, 6)}`;
+            const desc = e.description.toLowerCase();
+            let hit = false;
+            const needle = `kamar ${nomorLower}`;
+            let idx = desc.indexOf(needle);
+            while (idx !== -1) {
+              const after = desc[idx + needle.length] ?? "";
+              if (!/[a-z0-9-]/.test(after)) {
+                hit = true;
+                break;
+              }
+              idx = desc.indexOf(needle, idx + 1);
+            }
+            if (!hit && tenantLower && e.amount === room.price && desc.includes(tenantLower)) {
+              hit = true;
+            }
+            if (hit) coveredMonths.add(month);
+          }
+          // Siklus terbayar: due berjalan dari tanggal mulai s.d. satu langkah
+          // sebelum anchor — due == anchor = siklus berjalan (belum dibayar).
+          const startLabel =
+            (room.tenant?.moveInDate && room.tenant.moveInDate !== "—" ? room.tenant.moveInDate : "") ||
+            room.contract?.startDate ||
+            "";
+          const start = startLabel ? parseDateLabel(startLabel) : null;
+          const anchor = room.nextBillingDate
             ? parseDateLabel(room.nextBillingDate)
             : contractEndOf(room).date;
-          if (due) {
-            payDate = stepBackOneCycle(due, room.contract?.duration);
-            payLabel = dateToLabel(payDate);
-          } else {
-            payDate = now;
-            payLabel = dateToLabel(now);
+          const dues: Date[] = [];
+          if (start && anchor && anchor.getTime() > start.getTime()) {
+            let cursor = new Date(start.getTime());
+            let guard = 0;
+            while (cursor.getTime() < anchor.getTime() && guard < 240) {
+              if (cursor.getTime() <= todayMid.getTime()) dues.push(new Date(cursor.getTime()));
+              cursor = advanceOneCycle(cursor, room.contract?.duration);
+              guard += 1;
+            }
+          } else if (start && !anchor) {
+            if (start.getTime() <= todayMid.getTime()) dues.push(new Date(start.getTime()));
+          } else if (!start && anchor && anchor.getTime() >= todayMid.getTime()) {
+            dues.push(stepBackOneCycle(anchor, room.contract?.duration));
+          }
+          const duesByMonth = new Map<string, Date[]>();
+          for (const due of dues) {
+            const key = periodKeyOf(due);
+            const arr = duesByMonth.get(key);
+            if (arr) arr.push(due);
+            else duesByMonth.set(key, [due]);
+          }
+          for (const [monthKey, monthDues] of [...duesByMonth.entries()].sort((a, b) =>
+            a[0].localeCompare(b[0]),
+          )) {
+            if (coveredMonths.has(monthKey)) continue;
+            for (const due of monthDues) {
+              const label = dateToLabel(due);
+              const sort = dateSortFromLabel(label);
+              if (fromSort !== null && sort < fromSort) continue;
+              if (toSort !== null && sort > toSort) continue;
+              const id = `KM-ROOMSYNC2-${room.id.replace(/[^A-Za-z0-9-]/g, "") || "room"}-${String(due.getFullYear())}${String(due.getMonth() + 1).padStart(2, "0")}${String(due.getDate()).padStart(2, "0")}`;
+              if (existingIds.has(id)) continue; // idempoten
+              existingIds.add(id);
+              created.push({
+                id,
+                dateLabel: label,
+                dateSort: sort,
+                type: "masuk",
+                category: "Sewa Kamar",
+                description: `Pembayaran sewa Kamar ${roomNomor(room)} - ${
+                  room.tenant?.name?.trim() || "Penyewa"
+                } (Sewa ${periodShortLabel(monthKey)})`,
+                amount: room.price,
+              });
+            }
+            coveredMonths.add(monthKey);
           }
         }
-        if (payDate.getTime() > todayMidnight.getTime()) {
-          payDate = now; // tanpa transaksi masa depan
-          payLabel = dateToLabel(now);
-        }
-        const sort = dateSortFromLabel(payLabel);
-        if (covered.has(`${room.price}|${sort}`)) continue; // catatan manual sama
-        created.push({
-          id,
-          dateLabel: payLabel,
-          dateSort: sort,
-          type: "masuk",
-          category: "Sewa Kamar",
-          description: `Pembayaran sewa Kamar ${roomNomor(room)} - ${
-            room.tenant?.name?.trim() || "Penyewa"
-          } (Sewa ${periodShortLabel(periodKeyOf(payDate))})`,
-          amount: room.price,
-        });
+        if (created.length > 0) updateCashEntries((prev) => [...created, ...prev]);
+        return created.length;
       }
-      if (created.length > 0) updateCashEntries((prev) => [...created, ...prev]);
-      return created.length;
-    }
-    // AKUN RIIL — server menjalankan KEDUA pass (invoice lunas + kamar tanpa
-    // invoice) secara idempoten dan mengembalikan isi Buku Kas terbaru;
-    // state diganti tanpa reload.
-    try {
-      const res = await api.syncCash(activePropertyId);
-      if (Array.isArray(res.entries)) updateCashEntries(() => res.entries);
-      return res.created;
-    } catch (err) {
-      console.error("[UnitKu] Sinkronkan Data Sewa gagal:", err);
-      return null;
-    }
-  }, [instantDemo, isDemoSession, activePropertyId]);
+      // AKUN RIIL — server menjalankan KEDUA pass (invoice lunas + kamar per
+      // bulan siklus terbayar) secara idempoten utk RENTANG TAMPILAN aktif dan
+      // mengembalikan isi Buku Kas terbaru; state diganti tanpa reload.
+      try {
+        const res = await api.syncCash(activePropertyId, range);
+        if (Array.isArray(res.entries)) updateCashEntries(() => res.entries);
+        return res.created;
+      } catch (err) {
+        console.error("[UnitKu] Sinkronkan Data Sewa gagal:", err);
+        return null;
+      }
+    },
+    [instantDemo, isDemoSession, activePropertyId],
+  );
 
   const handleAddExpense = (draft: ExpenseDraft) => {
     const dateLabel = formatDateLabel(draft.tanggal);

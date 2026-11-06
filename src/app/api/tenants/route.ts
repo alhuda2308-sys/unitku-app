@@ -17,7 +17,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
 import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientCashEntry, toClientInvoice, toClientRoom } from "@/lib/server/mappers";
-import { autoCashId, rentalIncomeDescription, renewalCashId } from "@/lib/server/cash-sync";
+import { autoCashId, renewalCashId, renewalIncomeDescription, rentalIncomeDescription } from "@/lib/server/cash-sync";
 import { getAuthUser } from "@/lib/auth/server";
 import { getOwnedPropertyIds, unauthorized } from "@/lib/auth/ownership";
 import { MONTH_NAMES, newPortalToken, parseDateLabel, addMonths, diffNights, formatDateLabel, wibDateLabel, wibMidnight } from "@/lib/kost-data";
@@ -443,10 +443,13 @@ export async function PATCH(request: NextRequest) {
     }
 
     // ── Perpanjangan sewa = pembayaran periode baru → Buku Kas ──────────────
-    // Nominal = jumlah siklus sewa yang dibayar × harga sewa kamar. Siklus
-    // dihitung dari berapa kali penanda tempo maju dari anchor lama
+    // WAJIB setiap aksi "Perpanjang Sewa": satu entri pemasukan baru per
+    // perpanjangan — type masuk, kategori "Sewa Kamar", nominal = jumlah
+    // siklus yang dibayar × harga sewa, tanggal = hari aksi dilakukan (WIB).
+    // Nominal dihitung dari berapa kali penanda tempo maju dari anchor lama
     // (nextBillingDate/contractEnd) menuju akhir kontrak baru — meliputi
     // tunggakan sekaligus periode baru bila kamar sempat menunggak.
+    // Deskripsi kanonik: "Perpanjangan sewa Kamar 02 - Budi (Periode Nov 2026)".
     let cashEntryJson: ReturnType<typeof toClientCashEntry> | null = null;
     if (body.recordIncome === true && newEndDate) {
       try {
@@ -473,7 +476,7 @@ export async function PATCH(request: NextRequest) {
               type: "masuk",
               category: "Sewa Kamar",
               description:
-                rentalIncomeDescription(
+                renewalIncomeDescription(
                   room.nomor?.trim() || roomId,
                   room.tenant?.name,
                   periodKeyOf(anchor ?? newEndDate),

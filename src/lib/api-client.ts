@@ -478,13 +478,25 @@ export const api = {
   deleteCash: (id: string) =>
     request<{ ok: true }>(`/api/cash?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
   /** Self-heal manual Buku Kas — tombol "Sinkronkan Data Sewa". Menjalankan
-   *  sinkronisasi DUA pass (invoice lunas + kamar terisi tanpa catatan) yang
-   *  IDEMPOTEN; mengembalikan jumlah entri BARU + isi Buku Kas terbaru. */
-  syncCash: (propertyId?: string | null) =>
-    request<{ created: number; scanned: number; entries: ClientCashEntry[] }>(
-      scopedPropertyUrl("/api/cash/sync", propertyId),
-      { method: "POST" },
-    ),
+   *  sinkronisasi DUA pass (invoice lunas + kamar per bulan siklus terbayar)
+   *  yang IDEMPOTEN; mengembalikan jumlah entri BARU + isi Buku Kas terbaru.
+   *  `range` = periode aktif tampilan (from/to ISO "yyyy-mm-dd", null/kosong =
+   *  tanpa batas sisi tsb) — sync menyembuhkan bulan-bulan DALAM TAMPILAN. */
+  syncCash: (
+    propertyId?: string | null,
+    range?: { fromISO?: string | null; toISO?: string | null },
+  ) => {
+    const base = scopedPropertyUrl("/api/cash/sync", propertyId);
+    const qs: string[] = [];
+    if (range) {
+      qs.push(`from=${encodeURIComponent(range.fromISO ?? "")}`);
+      qs.push(`to=${encodeURIComponent(range.toISO ?? "")}`);
+    }
+    const url = qs.length > 0 ? `${base}${base.includes("?") ? "&" : "?"}${qs.join("&")}` : base;
+    return request<{ created: number; scanned: number; entries: ClientCashEntry[] }>(url, {
+      method: "POST",
+    });
+  },
 
   // /api/staff
   getStaff: () => request<{ staff: StaffAccessMember[] }>("/api/staff"),
