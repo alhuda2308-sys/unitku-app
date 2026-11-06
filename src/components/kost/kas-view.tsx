@@ -15,6 +15,7 @@ import {
   Plus,
   Printer,
   ReceiptText,
+  RefreshCw,
   ShieldAlert,
   Trash2,
   TrendingDown,
@@ -75,6 +76,12 @@ interface KasViewProps {
   onAddIncome: (draft: IncomeDraft) => void;
   onUpdateExpense: (entry: CashEntry, draft: ExpenseDraft) => void;
   onDeleteEntry: (entry: CashEntry) => void;
+  /** Self-heal manual — tombol "Sinkronkan Data Sewa" di header: sinkronkan
+   *  seluruh pembayaran sewa kamar aktif yang belum tercatat ke Buku Kas
+   *  (idempoten). Mengembalikan jumlah entri BARU yang lahir, atau null bila
+   *  gagal/tidak tersedia (mode staf). Auto-sync juga berjalan saat Buku Kas
+   *  dimuat (GET /api/cash) — tombol ini utk kepastian manual pemilik. */
+  onSyncRooms?: () => Promise<number | null>;
   /** Nama properti aktif — kop laporan cetak */
   propertyName: string;
   /** Role sesi staf aktif — null/undefined = owner penuh */
@@ -129,6 +136,7 @@ export function KasView({
   onAddIncome,
   onUpdateExpense,
   onDeleteEntry,
+  onSyncRooms,
   propertyName,
   staffRole = null,
 }: KasViewProps) {
@@ -252,6 +260,33 @@ export function KasView({
   /** Cetak laporan — jendela print browser memakai layout khusus @media print */
   const printReport = () => window.print();
 
+  /** Sinkronkan Data Sewa — self-heal manual: pastikan seluruh kamar aktif
+   *  yang sudah membayar punya catatan pemasukan di Buku Kas. Idempoten:
+   *  hasil 0 = semua sudah tersinkron (bukan error). */
+  const [syncing, setSyncing] = useState(false);
+  const handleSyncRooms = async () => {
+    if (!onSyncRooms || syncing) return;
+    setSyncing(true);
+    try {
+      const created = await onSyncRooms();
+      if (created === null) {
+        toast.error("Gagal menyinkronkan data sewa", {
+          description: "Coba lagi beberapa saat — atau muat ulang halaman.",
+        });
+      } else if (created > 0) {
+        toast.success(`Berhasil menyinkronkan ${created} transaksi sewa ke buku kas`, {
+          description: "Pembayaran kamar aktif yang belum tercatat kini masuk Buku Kas.",
+        });
+      } else {
+        toast.info("Semua transaksi sewa sudah tersinkron", {
+          description: "Tidak ada pembayaran kamar aktif yang belum tercatat — buku kas sudah lengkap.",
+        });
+      }
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   /** Reset kategori bila pindah bulan/arus & kategori tidak lagi tersedia — via derived value */
   const categoryValue =
     category === "all" || categoryOptions.includes(category)
@@ -302,6 +337,24 @@ export function KasView({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          {/* Sinkronkan Data Sewa — self-heal manual di samping Ekspor
+              (owner saja; idempoten, aman ditekan berulang) */}
+          {canModify && onSyncRooms && (
+            <Button
+              variant="outline"
+              onClick={handleSyncRooms}
+              disabled={syncing}
+              className="h-9 border-zinc-200 bg-white px-3 text-[13px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+            >
+              <RefreshCw
+                className={cn("size-3.5 text-zinc-700", syncing && "animate-spin")}
+                strokeWidth={1.75}
+                aria-hidden="true"
+              />
+              <span className="hidden sm:inline">Sinkronkan Data Sewa</span>
+              <span className="sm:hidden">Sinkron</span>
+            </Button>
+          )}
           {/* Ekspor & cetak laporan (khusus owner) — di sisi kanan filter periode */}
           {canModify && (
             <DropdownMenu>

@@ -76,6 +76,29 @@ export function advanceOneCycle(from: Date, duration: string | undefined | null)
   }
 }
 
+/**
+ * Mundur SATU siklus sewa — kebalikan advanceOneCycle. Dipakai self-heal Buku
+ * Kas utk MENAKSIR tanggal pembayaran terakhir kamar yang hanya punya
+ * nextBillingDate: siklus terbayar berakhir di nextBillingDate, jadi pembayaran
+ * itu terjadi ≈ satu siklus sebelumnya. Harian −1 hari, Mingguan −7 hari,
+ * Bulanan −1 bln (clamp ujung bulan), Per 3 Bulan −3, Tahunan −12.
+ */
+export function stepBackOneCycle(from: Date, duration: string | undefined | null): Date {
+  switch (duration) {
+    case "Harian":
+      return new Date(from.getTime() - DAY_MS);
+    case "Mingguan":
+      return new Date(from.getTime() - 7 * DAY_MS);
+    case "Per 3 Bulan":
+      return addMonths(from, -3);
+    case "Tahunan":
+      return addMonths(from, -12);
+    default:
+      // "Bulanan" & durasi legacy/tak dikenal
+      return addMonths(from, -1);
+  }
+}
+
 export interface ContractEndInfo {
   /** Tanggal (tengah malam lokal) — null bila tak dapat ditentukan */
   date: Date | null;

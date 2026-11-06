@@ -477,6 +477,14 @@ export const api = {
     }),
   deleteCash: (id: string) =>
     request<{ ok: true }>(`/api/cash?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** Self-heal manual Buku Kas — tombol "Sinkronkan Data Sewa". Menjalankan
+   *  sinkronisasi DUA pass (invoice lunas + kamar terisi tanpa catatan) yang
+   *  IDEMPOTEN; mengembalikan jumlah entri BARU + isi Buku Kas terbaru. */
+  syncCash: (propertyId?: string | null) =>
+    request<{ created: number; scanned: number; entries: ClientCashEntry[] }>(
+      scopedPropertyUrl("/api/cash/sync", propertyId),
+      { method: "POST" },
+    ),
 
   // /api/staff
   getStaff: () => request<{ staff: StaffAccessMember[] }>("/api/staff"),
