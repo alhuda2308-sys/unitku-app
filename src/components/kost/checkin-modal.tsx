@@ -94,7 +94,9 @@ export function CheckinModal({
   const [tanggalCheckout, setTanggalCheckout] = useState(() => addDaysISO(todayISO(), 1));
   const [siklus, setSiklus] = useState<BillingCycle>(isVillaType(propertyType) ? "Harian" : "Bulanan");
   const [rentTouched, setRentTouched] = useState(false);
-  const [deposit, setDeposit] = useState(1_000_000);
+  // Deposit default Rp0 — pemilik mengisi sendiri sesuai ketentuan tiap kamar
+  // (sebelumnya 1.000.000 otomatis, sering tidak sesuai & menggeser total awal).
+  const [deposit, setDeposit] = useState(0);
   const [addons, setAddons] = useState<string[]>([]);
   const ktpInputRef = useRef<HTMLInputElement>(null);
 
