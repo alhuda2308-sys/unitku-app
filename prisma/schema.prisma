@@ -9,7 +9,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // binaryTargets: native (dev lokal) + rhel-openssl-3.0.x (Linux Vercel
+  // serverless / Amazon Linux 2023) — engine utk OS lain tidak ikut
+  // ter-bundle ke artefak deploy (memangkas ukuran function).
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
