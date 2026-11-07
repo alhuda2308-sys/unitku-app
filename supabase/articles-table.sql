@@ -5,7 +5,7 @@
 -- SQL Editor → New query → Run. Idempotent (aman dijalankan berulang).
 --
 -- Skema sesuai spesifikasi cron /api/cron/auto-article:
---   insert (title, slug, meta_description, content, is_published: true)
+--   insert (title, slug, meta_description, content, image_url, is_published: true)
 -- Akses:
 --   • SELECT  — publik (anon) HANYA utk baris is_published = true (policy RLS)
 --   • INSERT  — HANYA service role (bypass RLS) dari route cron Vercel
@@ -17,9 +17,14 @@ create table if not exists public.articles (
   slug             text not null unique,
   meta_description text not null default '',
   content          text not null,
+  image_url        text,
   is_published     boolean not null default true,
   created_at       timestamptz not null default now()
 );
+
+-- MIGRASI utk tabel yg SUDAH terdeploy sebelum kolom image_url ada
+-- (idempotent — tanpa efek samping bila kolom sudah ada)
+alter table public.articles add column if not exists image_url text;
 
 -- Urutan listing (terbaru dulu) + filter published — index pendukung
 create index if not exists articles_created_at_idx on public.articles (created_at desc);
@@ -44,7 +49,7 @@ create policy "Public read published articles"
 -- berjalan. Hapus blok ini bila ingin blog mulai dari nol.
 -- ═════════════════════════════════════════════════════════════════════════════
 
-insert into public.articles (title, slug, meta_description, content, is_published)
+insert into public.articles (title, slug, meta_description, content, image_url, is_published)
 values
 (
   'Panduan Pembukuan Arus Kas Kost: Cara Mudah Agar Untung Terlihat Jelas',
@@ -79,6 +84,7 @@ Fitur *denah kamar* juga membantu Anda melihat berapa persentase kamar terisi �
 ## Kesimpulan
 
 Pembukuan yang rapi bukan pekerjaan tambahan; ia adalah alat untuk melihat kesehatan bisnis. Mulailah dengan memisahkan rekening, mencatat harian, dan rekap bulanan. Jika ingin cara yang lebih praktis, coba gratis demo UnitKu di unitku.my.id — pembukuan kost Anda akan tersusun otomatis dari aktivitas harian yang sudah Anda lakukan.$content$,
+  'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=1200&q=80',
   true
 ),
 (
@@ -118,6 +124,7 @@ Ada juga pengingat tagihan otomatis berbasis template WhatsApp, jadi pesan di at
 ## Kesimpulan
 
 Penagihan tepat waktu = pengingat ramah sebelum jatuh tempo + kuitansi segera + pencatatan otomatis. Bangun kebiasaan ini sejak sekarang, atau biarkan UnitKu (unitku.my.id) mengerjakannya untuk Anda.$content$,
+  'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=1200&q=80',
   true
 ),
 (
@@ -157,6 +164,7 @@ Aplikasi **UnitKu** (unitku.my.id) menghadirkan denah kamar interaktif persis se
 ## Kesimpulan
 
 Memantau kamar lewat denah interaktif mengubah cara Anda mengambil keputusan: dari mengingat-ingat menjadi melihat. Pasangkan dengan sistem tiket perawatan, dan seluruh operasional kost Anda terkendali dari satu layar HP.$content$,
+  'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=1200&q=80',
   true
 )
 on conflict (slug) do nothing;

@@ -13,6 +13,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, BookOpen, Newspaper, Sparkles } from "lucide-react";
 
+import { ArticleCover } from "@/components/blog/article-cover";
 import { SiteFooter } from "@/components/landing/site-footer";
 import { listPublishedArticles } from "@/lib/blog-articles";
 import { SITE_URL } from "@/lib/landing-config";
@@ -133,6 +134,13 @@ export default async function BlogListingPage() {
                   key={article.slug}
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                 >
+                  {/* ── Thumbnail cover 16:9 (fallback otomatis ke cover default) */}
+                  <ArticleCover
+                    imageUrl={article.image_url}
+                    title={article.title}
+                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                    imgClassName="transition-transform duration-300 group-hover:scale-[1.03]"
+                  />
                   <div className="flex flex-1 flex-col p-5">
                     <time
                       dateTime={article.created_at}

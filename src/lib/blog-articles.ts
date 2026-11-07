@@ -24,6 +24,7 @@ export interface BlogArticleRow {
   slug: string;
   meta_description: string;
   content: string;
+  image_url: string | null;
   is_published: boolean;
   created_at: string;
 }
@@ -67,7 +68,7 @@ function getBlogPublicClient(): SupabaseClient | null {
 }
 
 const SELECT_COLUMNS =
-  "id, title, slug, meta_description, content, is_published, created_at";
+  "id, title, slug, meta_description, content, image_url, is_published, created_at";
 
 /**
  * Seluruh artikel published, terbaru dulu (created_at desc).
@@ -149,6 +150,8 @@ export interface NewArticleInput {
   slug: string;
   meta_description: string;
   content: string;
+  /** URL cover Unsplash terverifikasi — null → UI memakai cover default */
+  image_url: string | null;
 }
 
 export interface InsertArticlesResult {
@@ -183,6 +186,7 @@ export async function insertGeneratedArticles(
     slug: a.slug,
     meta_description: a.meta_description,
     content: a.content,
+    image_url: a.image_url,
     is_published: true,
   }));
 

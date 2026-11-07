@@ -9,6 +9,16 @@ const nextConfig: NextConfig = {
   // API/Server Action — query engine dimuat langsung dari node_modules
   // (hanya satu salinan di artefak standalone).
   serverExternalPackages: ["@prisma/client", "prisma"],
+  // Remote image optimizer — cover artikel blog dari Unsplash (dipilih cron
+  // Gemini dari pool URL terverifikasi; dioptimasi Next Image on-the-fly).
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+      },
+    ],
+  },
   /* config options here */
   typescript: {
     ignoreBuildErrors: true,

@@ -122,3 +122,7 @@ export function adminPaymentConfirmWaLink(
 
 export const COPYRIGHT_LINE =
   "© 2026 UnitKu by Elvindigital. All rights reserved.";
+
+/** Cover default artikel blog (lokal, selalu ada) — dipakai bila kolom
+ *  image_url artikel kosong/invalid. Ilustrasi kost brand-consistent. */
+export const DEFAULT_ARTICLE_COVER = "/blog/default-cover.jpg";

@@ -18,9 +18,10 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
 import Markdown from "react-markdown";
 
+import { ArticleCover } from "@/components/blog/article-cover";
 import { SiteFooter } from "@/components/landing/site-footer";
 import { getPublishedArticleBySlug } from "@/lib/blog-articles";
-import { SITE_URL } from "@/lib/landing-config";
+import { DEFAULT_ARTICLE_COVER, SITE_URL } from "@/lib/landing-config";
 
 // ISR 10 menit — artikel baru dari cron harian tampil tanpa deploy.
 export const revalidate = 600;
@@ -39,6 +40,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   if (!article) return { title: "Artikel tidak ditemukan — UnitKu" };
 
   const canonical = `${SITE_URL}/blog/${article.slug}`;
+  // Cover absolut utk social preview: link dishare ke WhatsApp/Facebook/X
+  // langsung menampilkan gambar artikel (og:image + twitter large card).
+  const cover =
+    article.image_url && article.image_url.startsWith("https://images.unsplash.com/")
+      ? article.image_url
+      : `${SITE_URL}${DEFAULT_ARTICLE_COVER}`;
   return {
     title: `${article.title} — Blog UnitKu`,
     description: article.meta_description,
@@ -49,6 +56,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       url: canonical,
       type: "article",
       publishedTime: article.created_at,
+      images: [{ url: cover, width: 1200, height: 675, alt: article.title }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: article.title,
+      description: article.meta_description,
+      images: [cover],
     },
   };
 }
@@ -84,6 +98,12 @@ export default async function BlogArticlePage({ params }: PageProps) {
         "@type": "BlogPosting",
         headline: article.title,
         description: article.meta_description,
+        image: [
+          article.image_url &&
+          article.image_url.startsWith("https://images.unsplash.com/")
+            ? article.image_url
+            : `${SITE_URL}${DEFAULT_ARTICLE_COVER}`,
+        ],
         datePublished: article.created_at,
         dateModified: article.created_at,
         mainEntityOfPage: canonical,
@@ -163,6 +183,15 @@ export default async function BlogArticlePage({ params }: PageProps) {
               {article.meta_description}
             </p>
           </header>
+
+          {/* ── Hero banner cover artikel (sebelum isi konten) ─────────────── */}
+          <ArticleCover
+            imageUrl={article.image_url}
+            title={article.title}
+            priority
+            sizes="(max-width: 768px) 100vw, 768px"
+            className="mt-6 rounded-2xl border border-zinc-200 shadow-sm"
+          />
 
           {/* ── Konten Markdown ────────────────────────────────────────────── */}
           <div className="mt-6">
