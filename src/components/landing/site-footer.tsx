@@ -86,6 +86,11 @@ export function SiteFooter({ variant = "full" }: { variant?: "full" | "slim" }) 
                 </a>
               </li>
               <li>
+                <Link href="/blog" className="text-zinc-600 hover:text-zinc-900">
+                  Blog — Tips &amp; Panduan Kost
+                </Link>
+              </li>
+              <li>
                 <Link href="/login" className="text-zinc-600 hover:text-zinc-900">
                   Masuk / Dashboard Owner
                 </Link>

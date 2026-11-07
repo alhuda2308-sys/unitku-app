@@ -336,6 +336,9 @@ export default async function LandingPage() {
             <a href="#faq" className="text-sm font-medium text-zinc-600 hover:text-zinc-900">
               Tanya Jawab
             </a>
+            <Link href="/blog" className="text-sm font-medium text-zinc-600 hover:text-zinc-900">
+              Blog
+            </Link>
           </nav>
 
           <ButtonLink href={authHref}>

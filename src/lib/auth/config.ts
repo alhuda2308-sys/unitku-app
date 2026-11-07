@@ -73,6 +73,7 @@ export const PUBLIC_PAGE_PREFIXES = [
   "/login",
   "/register",
   "/legal", // halaman legalitas (S&K, privasi, refund) — KYC Mayar
+  "/blog", // blog SEO otomatis (listing + artikel) — publik utk Googlebot
   "/portal", // portal penyewa (magic token)
   "/staff", // portal staf (token + PIN)
   "/auth/callback", // exchange kode OAuth Google (Supabase)

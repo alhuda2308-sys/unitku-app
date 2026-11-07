@@ -3,8 +3,11 @@
 //
 // Otomatis tersaji di https://unitku.my.id/sitemap.xml oleh App Router.
 // HANYA halaman PUBLIK yang indeksable:
-//   / (landing) · /demo (trial satu klik) · /checkout (iklan) · /legal/*
-//   · /login · /register.
+//   / (landing) · /blog + /blog/[slug] (artikel otomatis dari Supabase)
+//   · /demo (trial satu klik) · /checkout (iklan) · /legal/* · /login · /register.
+// Artikel blog diambil dari tabel `articles` (listPublishedArticleSlugs) —
+// fail-open: DB tak tersedia → sitemap tetap memuat halaman statis.
+// Revalidasi tiap jam supaya artikel baru hasil cron harian cepat terindeks.
 // RUTE PRIVAT SENGJA DIKECUALIKAN: /dashboard, /admin, /staff, /onboarding,
 // /portal (token penyewa), /payment, /api/* — dibatasi via robots.ts dan/atau
 // sifatnya personal per sesi (tak ada nilai indeks).
@@ -13,11 +16,19 @@
 
 import type { MetadataRoute } from "next";
 
+import { listPublishedArticleSlugs } from "@/lib/blog-articles";
 import { LEGAL_DOCS } from "@/lib/legal-content";
 import { SITE_URL } from "@/lib/landing-config";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+// Sitemap diperbarui maksimal 1 jam sekali (ISR) — mengejar artikel harian
+// tanpa menekan database pada tiap request.
+export const revalidate = 3600;
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const lastModified = new Date();
+
+  // Slug artikel dari Supabase — [] bila DB gagal (fail-open)
+  const articles = await listPublishedArticleSlugs();
 
   return [
     // Homepage — landing komersial (fitur, harga, legalitas — KYC Mayar)
@@ -27,6 +38,20 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "daily",
       priority: 1,
     },
+    // Blog listing + seluruh artikel SEO otomatis (changeFrequency weekly
+    // sesuai spesifikasi cron artikel harian)
+    {
+      url: `${SITE_URL}/blog`,
+      lastModified,
+      changeFrequency: "weekly",
+      priority: 0.7,
+    },
+    ...articles.map((article) => ({
+      url: `${SITE_URL}/blog/${article.slug}`,
+      lastModified: new Date(article.created_at),
+      changeFrequency: "weekly" as const,
+      priority: 0.6,
+    })),
     // Demo instan tanpa registrasi — pintu utama trial produk
     {
       url: `${SITE_URL}/demo`,
