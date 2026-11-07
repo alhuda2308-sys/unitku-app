@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { MetaPixel } from "@/components/meta-pixel";
+import Histats from "@/components/Histats";
 import { SITE_URL } from "@/lib/landing-config";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -83,6 +84,8 @@ export default function RootLayout({
         {/* Vercel Web Analytics — hanya aktif di deployment Vercel (produksi/preview),
             data terlihat di dashboard Vercel → tab Analytics */}
         <Analytics />
+        {/* Histats visitor counter situs-lebar (ID 5062868) — last element <body> */}
+        <Histats />
       </body>
     </html>
   );
