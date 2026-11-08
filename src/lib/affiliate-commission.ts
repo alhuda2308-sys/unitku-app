@@ -1,7 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// UnitKu — Sistem affiliate, Tahap 3: pencatatan komisi (server-only)
+// UnitKu — Sistem affiliate: tabel + pencatatan komisi (server-only)
 //
-// Dipanggil webhook Mayar (payment.received). Idempoten / anti-komisi-ganda:
+// Dipanggil webhook Mayar (payment.received), portal affiliator
+// (src/lib/affiliate-portal.ts) dan dashboard /affiliate/dashboard.
+// Idempoten / anti-komisi-ganda:
 //   1. orderId (id transaksi Mayar) UNIQUE di affiliate_commissions — retry
 //      webhook untuk transaksi yang sama gagal di P2002 → dianggap duplikat
 //      (pola sama dengan LicensePurchase.transactionId).
@@ -11,9 +13,14 @@
 // (produk utama) harus tetap sukses; kegagalan cukup dicatat di log dan bisa
 // direkonsiliasi manual lewat orderId yang unik.
 //
-// Self-heal tabel (pola ensureLicenseLeadTable): produksi yang belum menjalankan
-// `prisma db push` tetap berfungsi — tabel dibuat idempoten saat pertama kali
-// dipakai. Referensi SQL manual: supabase/affiliate-tables.sql.
+// Self-heal skema (fix P2022 "column affiliates.xxx does not exist"):
+// produksi yang tabelnya dibuat manual / dari versi SQL lama sering kali
+// TIDAK lengkap — CREATE TABLE IF NOT EXISTS tidak menambah kolom ke tabel
+// yang sudah ada. Karena itu ensureAffiliateTables() menjamin SETIAP kolom
+// model Prisma (Affiliate & AffiliateCommission) benar-benar ada lewat
+// ALTER TABLE ADD COLUMN IF NOT EXISTS untuk SEMUA kolom + backfill baris
+// legacy, sehingga tidak perlu migrasi manual saat runtime. Referensi SQL
+// manual (identik): supabase/affiliate-tables.sql.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
@@ -27,70 +34,247 @@ import { prisma } from "@/lib/prisma";
 let affiliateTablesReady: Promise<void> | null = null;
 
 /**
- * Jaminan tabel `affiliates` & `affiliate_commissions` tersedia — idempoten,
- * dieksekusi sekali per proses; cache dibatalkan saat gagal agar dicoba ulang
- * di webhook berikutnya (pola sama dengan ensureLicenseLeadTable).
+ * Langkah bootstrap skema affiliate — SATU perintah SQL per elemen
+ * ($executeRawUnsafe memakai prepared protocol Postgres yang melarang
+ * multi-statement dalam satu string).
+ *
+ * bestEffort = kegagalan dilewati (hanya log) — mis. guard PK/FK pada tabel
+ * yang sudah punya constraint berbeda, atau RLS pada role tanpa hak DDL.
+ * Langkah wajib yang gagal membuat bootstrap dianggap gagal → cache di-reset
+ * → dicoba ulang otomatis pada request berikutnya (pola ensureLicenseLeadTable).
+ *
+ * PENTING: nama kolom camelCase TANPA @map di prisma/schema.prisma — identifier
+ * di-quote persis ("refCode", "totalEarnings", …) agar cocok dengan mapping.
  */
-export async function ensureAffiliateTables(): Promise<void> {
-  if (!affiliateTablesReady) {
-    affiliateTablesReady = (async () => {
-      await prisma.$executeRawUnsafe(
-        `CREATE TABLE IF NOT EXISTS "affiliates" (
-           "id"            TEXT        NOT NULL,
-           "name"          TEXT        NOT NULL,
+const AFFILIATE_SCHEMA_STEPS: Array<{
+  label: string;
+  sql: string;
+  bestEffort?: boolean;
+}> = [
+  // ── a. Tabel baru (fresh install) — definisi lengkap versi FINAL ──────────
+  {
+    label: "create table affiliates",
+    sql: `CREATE TABLE IF NOT EXISTS "affiliates" (
+           "id"            TEXT         NOT NULL,
+           "userId"        TEXT,
+           "name"          TEXT         NOT NULL,
            "email"         TEXT,
            "phone"         TEXT,
-           "refCode"       TEXT        NOT NULL,
-           "totalEarnings" INTEGER     NOT NULL DEFAULT 0,
-           "isActive"      BOOLEAN     NOT NULL DEFAULT true,
+           "refCode"       TEXT         NOT NULL,
+           "totalEarnings" INTEGER      NOT NULL DEFAULT 0,
+           "isActive"      BOOLEAN      NOT NULL DEFAULT true,
+           "bankName"        TEXT,
+           "bankAccountNo"   TEXT,
+           "bankAccountName" TEXT,
            "createdAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-           "updatedAt"     TIMESTAMP(3) NOT NULL,
+           "updatedAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
            CONSTRAINT "affiliates_pkey" PRIMARY KEY ("id")
          )`,
-      );
-      // Tahap 4 (portal affiliator): pemilik akun + rekening pencairan —
-      // tabel lama tetap naik versi tanpa migrasi manual (idempoten).
-      await prisma.$executeRawUnsafe(
-        `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "userId" TEXT`,
-      );
-      await prisma.$executeRawUnsafe(
-        `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "bankName" TEXT`,
-      );
-      await prisma.$executeRawUnsafe(
-        `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "bankAccountNo" TEXT`,
-      );
-      await prisma.$executeRawUnsafe(
-        `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "bankAccountName" TEXT`,
-      );
-      await prisma.$executeRawUnsafe(
-        `CREATE UNIQUE INDEX IF NOT EXISTS "affiliates_refCode_key"
-           ON "affiliates"("refCode")`,
-      );
-      await prisma.$executeRawUnsafe(
-        `CREATE UNIQUE INDEX IF NOT EXISTS "affiliates_userId_key"
-           ON "affiliates"("userId")`,
-      );
-      await prisma.$executeRawUnsafe(
-        `CREATE TABLE IF NOT EXISTS "affiliate_commissions" (
-           "id"               TEXT        NOT NULL,
-           "affiliateId"      TEXT        NOT NULL,
-           "orderId"          TEXT        NOT NULL,
+  },
+  // ── b. Upgrade tabel LAMA — SEMUA kolom wajib dijamin ada (anti P2022) ────
+  {
+    label: "affiliates.userId",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "userId" TEXT`,
+  },
+  {
+    label: "affiliates.name",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "name" TEXT NOT NULL DEFAULT ''`,
+  },
+  {
+    label: "affiliates.email",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "email" TEXT`,
+  },
+  {
+    label: "affiliates.phone",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "phone" TEXT`,
+  },
+  {
+    label: "affiliates.refCode",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "refCode" TEXT NOT NULL DEFAULT ''`,
+  },
+  {
+    label: "affiliates.totalEarnings",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "totalEarnings" INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    label: "affiliates.isActive",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "isActive" BOOLEAN NOT NULL DEFAULT true`,
+  },
+  {
+    label: "affiliates.bankName",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "bankName" TEXT`,
+  },
+  {
+    label: "affiliates.bankAccountNo",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "bankAccountNo" TEXT`,
+  },
+  {
+    label: "affiliates.bankAccountName",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "bankAccountName" TEXT`,
+  },
+  {
+    label: "affiliates.createdAt",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+  },
+  {
+    label: "affiliates.updatedAt",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+  },
+  // ── c. Backfill baris legacy agar NOT NULL & unique index tetap valid ─────
+  {
+    label: "backfill affiliates.name",
+    sql: `UPDATE "affiliates" SET "name" = 'Affiliator' WHERE "name" IS NULL OR "name" = ''`,
+  },
+  {
+    label: "backfill affiliates.refCode",
+    sql: `UPDATE "affiliates" SET "refCode" = 'aff_' || substr(md5("id" || random()::text), 1, 10)
+             WHERE "refCode" IS NULL OR "refCode" = ''`,
+  },
+  // ── d. Primary key — tabel buatan manual bisa tanpa PK (best effort) ──────
+  {
+    label: "affiliates primary key",
+    bestEffort: true,
+    sql: `DO $$
+           BEGIN
+             ALTER TABLE "affiliates" ADD CONSTRAINT "affiliates_pkey" PRIMARY KEY ("id");
+           EXCEPTION
+             WHEN duplicate_object THEN NULL;            -- constraint sudah ada
+             WHEN invalid_table_definition THEN NULL;    -- PK lain sudah ada
+           END $$`,
+  },
+  // ── e. Unique index Prisma (AFTER backfill — duplikat kosong tak mungkin) ─
+  {
+    label: "index affiliates.refCode",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS "affiliates_refCode_key" ON "affiliates"("refCode")`,
+  },
+  {
+    label: "index affiliates.userId",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS "affiliates_userId_key" ON "affiliates"("userId")`,
+  },
+  // ── affiliate_commissions ─────────────────────────────────────────────────
+  {
+    label: "create table affiliate_commissions",
+    sql: `CREATE TABLE IF NOT EXISTS "affiliate_commissions" (
+           "id"               TEXT         NOT NULL,
+           "affiliateId"      TEXT         NOT NULL,
+           "orderId"          TEXT         NOT NULL,
            "customerEmail"    TEXT,
-           "commissionAmount" INTEGER     NOT NULL,
-           "status"           TEXT        NOT NULL DEFAULT 'approved',
+           "commissionAmount" INTEGER      NOT NULL,
+           "status"           TEXT         NOT NULL DEFAULT 'approved',
            "createdAt"        TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
            CONSTRAINT "affiliate_commissions_pkey" PRIMARY KEY ("id")
          )`,
-      );
-      await prisma.$executeRawUnsafe(
-        `CREATE UNIQUE INDEX IF NOT EXISTS "affiliate_commissions_orderId_key"
-           ON "affiliate_commissions"("orderId")`,
-      );
-      await prisma.$executeRawUnsafe(
-        `CREATE INDEX IF NOT EXISTS "affiliate_commissions_affiliateId_idx"
-           ON "affiliate_commissions"("affiliateId")`,
-      );
-    })().catch((err) => {
+  },
+  {
+    label: "affiliate_commissions.affiliateId",
+    sql: `ALTER TABLE "affiliate_commissions" ADD COLUMN IF NOT EXISTS "affiliateId" TEXT NOT NULL DEFAULT ''`,
+  },
+  {
+    label: "affiliate_commissions.orderId",
+    sql: `ALTER TABLE "affiliate_commissions" ADD COLUMN IF NOT EXISTS "orderId" TEXT NOT NULL DEFAULT ''`,
+  },
+  {
+    label: "affiliate_commissions.customerEmail",
+    sql: `ALTER TABLE "affiliate_commissions" ADD COLUMN IF NOT EXISTS "customerEmail" TEXT`,
+  },
+  {
+    label: "affiliate_commissions.commissionAmount",
+    sql: `ALTER TABLE "affiliate_commissions" ADD COLUMN IF NOT EXISTS "commissionAmount" INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    label: "affiliate_commissions.status",
+    sql: `ALTER TABLE "affiliate_commissions" ADD COLUMN IF NOT EXISTS "status" TEXT NOT NULL DEFAULT 'approved'`,
+  },
+  {
+    label: "affiliate_commissions.createdAt",
+    sql: `ALTER TABLE "affiliate_commissions" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+  },
+  {
+    label: "affiliate_commissions primary key",
+    bestEffort: true,
+    sql: `DO $$
+           BEGIN
+             ALTER TABLE "affiliate_commissions" ADD CONSTRAINT "affiliate_commissions_pkey" PRIMARY KEY ("id");
+           EXCEPTION
+             WHEN duplicate_object THEN NULL;
+             WHEN invalid_table_definition THEN NULL;
+           END $$`,
+  },
+  {
+    label: "index affiliate_commissions.orderId",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS "affiliate_commissions_orderId_key" ON "affiliate_commissions"("orderId")`,
+  },
+  {
+    label: "index affiliate_commissions.affiliateId",
+    sql: `CREATE INDEX IF NOT EXISTS "affiliate_commissions_affiliateId_idx" ON "affiliate_commissions"("affiliateId")`,
+  },
+  // ── f. Foreign key + RLS (best effort — tergantung hak role & data legacy) ─
+  {
+    label: "foreign key affiliate_commissions.affiliateId",
+    bestEffort: true,
+    sql: `DO $$
+           BEGIN
+             IF NOT EXISTS (
+               SELECT 1 FROM pg_constraint
+                WHERE conname = 'affiliate_commissions_affiliateId_fkey'
+             ) THEN
+               ALTER TABLE "affiliate_commissions"
+                 ADD CONSTRAINT "affiliate_commissions_affiliateId_fkey"
+                 FOREIGN KEY ("affiliateId") REFERENCES "affiliates"("id")
+                 ON DELETE CASCADE;
+             END IF;
+           EXCEPTION WHEN OTHERS THEN NULL;
+           END $$`,
+  },
+  {
+    label: "RLS affiliates",
+    bestEffort: true,
+    sql: `ALTER TABLE "affiliates" ENABLE ROW LEVEL SECURITY`,
+  },
+  {
+    label: "RLS affiliate_commissions",
+    bestEffort: true,
+    sql: `ALTER TABLE "affiliate_commissions" ENABLE ROW LEVEL SECURITY`,
+  },
+];
+
+/** Jalankan seluruh langkah bootstrap; lempar bila ada langkah WAJIB gagal. */
+async function runAffiliateSchemaBootstrap(): Promise<void> {
+  let failedRequired = 0;
+  for (const step of AFFILIATE_SCHEMA_STEPS) {
+    try {
+      await prisma.$executeRawUnsafe(step.sql);
+    } catch (error) {
+      if (step.bestEffort) {
+        console.error(
+          `[UnitKu Affiliate] Self-heal (best-effort) gagal pada "${step.label}" — dilewati:`,
+          error,
+        );
+      } else {
+        failedRequired += 1;
+        console.error(
+          `[UnitKu Affiliate] Self-heal GAGAL pada "${step.label}":`,
+          error,
+        );
+      }
+    }
+  }
+  if (failedRequired > 0) {
+    throw new Error(
+      `Self-heal skema affiliate: ${failedRequired} langkah wajib gagal (lihat log)`,
+    );
+  }
+}
+
+/**
+ * Jaminan tabel `affiliates` & `affiliate_commissions` LENGKAP tersedia —
+ * idempoten, dieksekusi sekali per proses; cache dibatalkan saat gagal agar
+ * dicoba ulang di request berikutnya (pola sama dengan ensureLicenseLeadTable).
+ * Menambah kolom yang hilang pada tabel lama secara otomatis — fix P2022.
+ */
+export async function ensureAffiliateTables(): Promise<void> {
+  if (!affiliateTablesReady) {
+    affiliateTablesReady = runAffiliateSchemaBootstrap().catch((err) => {
       affiliateTablesReady = null; // izinkan retry pada request berikutnya
       throw err;
     });
