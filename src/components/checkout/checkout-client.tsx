@@ -15,11 +15,12 @@
 //                   server menyimpan lead dulu, membuat invoice per-pembeli
 //                   via Mayar API dgn metadata.affiliate_ref dari cookie
 //                   `unitku_ref` (atribusi afiliasi), lalu client redirect ke
-//                   {paymentUrl}. Fallback bila /api/checkout belum aktif
-//                   (503): buka link statis Mayar (MAYAR_CHECKOUT_URL →
-//                   MAYAR_CHECKOUT_URL_FALLBACK) yang DITEMPELI query param
-//                   referral (?ref=…&affiliate_ref=…) via
-//                   appendAffiliateRefToUrl() — atribusi tetap terbawa.
+//                   {paymentUrl}. FALLBACK MULUS: bila invoice gagal dibuat
+//                   (Mayar 409/timeout/503 — apapun), server mengembalikan
+//                   `fallbackUrl` = payment link statis UnitKu dgn query
+//                   param referral (?ref=…&affiliate_ref=…) dan client
+//                   LANGSUNG me-redirect pembeli ke sana — tidak pernah
+//                   terhenti di layar error.
 //      - Sekunder : "Pesan Manual via WhatsApp Admin" → VALIDASI form →
 //                   POST /api/leads (simpan kontak — fire-and-forget) → wa.me
 //                   Admin dengan pesan draft pembelian terisi Nama/No. WA
@@ -52,7 +53,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { appendAffiliateRefToUrl } from "@/lib/affiliate";
 import {
   EMPTY_CHECKOUT_FORM,
   buildManualOrderWaLink,
@@ -60,12 +60,7 @@ import {
   type CheckoutFieldErrors,
   type CheckoutFormState,
 } from "@/lib/checkout-validation";
-import {
-  LICENSE_AMOUNT_IDR,
-  MAYAR_CHECKOUT_URL,
-  MAYAR_CHECKOUT_URL_FALLBACK,
-  SUPPORT_WA_PURCHASE_LINK,
-} from "@/lib/landing-config";
+import { LICENSE_AMOUNT_IDR, SUPPORT_WA_PURCHASE_LINK } from "@/lib/landing-config";
 import { toast } from "@/lib/toast";
 
 /** Harga referensi sebelum diskon (dicoret) — tampilan iklan early adopter */
@@ -114,12 +109,6 @@ export function CheckoutClient() {
       return next;
     });
   };
-
-  // URL checkout Mayar statis — HANYA fallback bila /api/checkout belum aktif
-  // (503). Selalu ditempeli query param referral dari cookie `unitku_ref`
-  // (appendAffiliateRefToUrl) agar atribusi afiliasi tetap terbawa.
-  const mayarCheckoutUrl =
-    MAYAR_CHECKOUT_URL.trim() || MAYAR_CHECKOUT_URL_FALLBACK.trim();
 
   // Link WA manual mengikuti isi form (draft pesan terisi otomatis);
   // fallback link default selama form belum valid (tak pernah dinavigasi —
@@ -178,10 +167,11 @@ export function CheckoutClient() {
    *  internal POST /api/checkout (lead tersimpan di server SEBELUM redirect;
    *  metadata.affiliate_ref dari cookie `unitku_ref` dikirim ke Mayar untuk
    *  atribusi komisi afiliasi via webhook). Form wajib valid (invoice butuh
-   *  Nama + No. WhatsApp). Momen sah (a) InitiateCheckout: invoice sukses
-   *  dibuat — event ditembakkan tepat sekali sebelum redirect. Fallback 503
-   *  (checkout otomatis belum aktif): buka link statis Mayar dgn query param
-   *  referral tetap menyertai. */
+   *  Nama + No. WhatsApp). Momen sah (a) InitiateCheckout: sebelum redirect
+   *  ke halaman bayar — event ditembakkan tepat sekali. FALLBACK MULUS:
+   *  invoice gagal (Mayar 409/timeout/503) → server kirim `fallbackUrl`
+   *  (payment link statis + param referral) → redirect otomatis, pembeli
+   *  tidak pernah terhenti di layar error. */
   const handleAutoPay = async () => {
     if (submitting) return;
     // Percobaan submit baru → reset guard
@@ -204,8 +194,12 @@ export function CheckoutClient() {
           phone: form.phone,
         }),
       });
-      const data: { paymentUrl?: string; error?: string; field?: string } =
-        await response.json().catch(() => ({}));
+      const data: {
+        paymentUrl?: string;
+        fallbackUrl?: string;
+        error?: string;
+        field?: string;
+      } = await response.json().catch(() => ({}));
 
       if (response.ok && typeof data.paymentUrl === "string") {
         fireInitiateCheckoutOnce();
@@ -215,12 +209,15 @@ export function CheckoutClient() {
         return;
       }
 
-      // Checkout otomatis belum aktif (MAYAR_API_KEY kosong) → fallback link
-      // statis Mayar DENGAN kode referral dari cookie `unitku_ref`.
-      if (response.status === 503 && mayarCheckoutUrl) {
+      // Fallback mulus — invoice gagal dibuat (Mayar menolak / gangguan /
+      // belum aktif) → payment link langsung UnitKu (server sudah menempel
+      // query param referral dari cookie `unitku_ref`). Pembeli tetap jalan.
+      if (typeof data.fallbackUrl === "string" && data.fallbackUrl) {
         fireInitiateCheckoutOnce();
-        toast.info("Membuka halaman pembayaran Mayar…");
-        window.location.assign(appendAffiliateRefToUrl(mayarCheckoutUrl));
+        toast.info(
+          "Checkout otomatis sedang terkendala — membuka pembayaran langsung…",
+        );
+        window.location.assign(data.fallbackUrl);
         return;
       }
 
