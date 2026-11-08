@@ -48,12 +48,25 @@ create unique index if not exists "affiliate_commissions_orderId_key"
 create index if not exists "affiliate_commissions_affiliateId_idx"
   on public."affiliate_commissions"("affiliateId");
 
+-- Tahap 4 (portal affiliator): pemilik akun + rekening pencairan —
+-- idempoten untuk tabel yang dibuat oleh versi sebelumnya.
+alter table public."affiliates" add column if not exists "userId" text;
+alter table public."affiliates" add column if not exists "bankName" text;
+alter table public."affiliates" add column if not exists "bankAccountNo" text;
+alter table public."affiliates" add column if not exists "bankAccountName" text;
+create unique index if not exists "affiliates_userId_key" on public."affiliates"("userId");
+
 -- Proteksi: tabel hanya diakses Prisma (koneksi postgres, bypass RLS) &
 -- service-role — blokir akses anon/public key.
 alter table public."affiliates"            enable row level security;
 alter table public."affiliate_commissions" enable row level security;
 
 -- Contoh daftar affiliator (hapus komentar & sesuaikan):
--- insert into public."affiliates" ("id", "name", "email", "phone", "refCode", "updatedAt")
--- values (gen_random_uuid()::text, 'Budi Santoso', 'budi@example.com', '6281234567890',
+-- "userId" = id user dari auth.users (Supabase) — kunci akses dashboard
+-- /affiliate/dashboard milik user tersebut.
+-- insert into public."affiliates"
+--   ("id", "userId", "name", "email", "phone", "refCode", "updatedAt")
+-- values (gen_random_uuid()::text,
+--         '<auth.users.id milik affiliator>',
+--         'Budi Santoso', 'budi@example.com', '6281234567890',
 --         'budi123', now());

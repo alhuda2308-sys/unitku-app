@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import Image from "next/image";
-import { Check, ChevronsUpDown, DatabaseBackup, LayoutGrid, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, ShieldCheck, Smartphone, Users, Wallet, Wrench } from "lucide-react";
+import { Check, ChevronsUpDown, DatabaseBackup, HandCoins, LayoutGrid, LogOut, Megaphone, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, ShieldCheck, Smartphone, Users, Wallet, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STAFF_ROLE_META, type StaffAccessRole } from "@/lib/staff-access";
 import { CloudSyncBadge } from "@/components/kost/cloud-sync-badge";
@@ -329,6 +329,22 @@ export function Sidebar({
               </button>
             );
           })}
+
+          {/* Program Afiliasi — pintasan ke portal affiliator (owner saja;
+              staf tidak perlu melihat menu affiliate pemilik) */}
+          {!isStaff && (
+            <>
+              <div aria-hidden="true" className="my-1 border-t border-border" />
+              <a
+                href="/affiliate/dashboard"
+                title={collapsed ? "Program Afiliasi" : undefined}
+                className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+              >
+                <HandCoins className="size-[18px] shrink-0" strokeWidth={1.75} />
+                {!collapsed && <span className="flex-1 text-left">Program Afiliasi</span>}
+              </a>
+            </>
+          )}
 
           {/* Panel Super Admin — hanya untuk sesi Super Admin (bukan staf);
               badge merah = pendaftar baru yang belum ditinjau */}

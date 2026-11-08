@@ -31,7 +31,7 @@ let affiliateTablesReady: Promise<void> | null = null;
  * dieksekusi sekali per proses; cache dibatalkan saat gagal agar dicoba ulang
  * di webhook berikutnya (pola sama dengan ensureLicenseLeadTable).
  */
-async function ensureAffiliateTables(): Promise<void> {
+export async function ensureAffiliateTables(): Promise<void> {
   if (!affiliateTablesReady) {
     affiliateTablesReady = (async () => {
       await prisma.$executeRawUnsafe(
@@ -48,9 +48,27 @@ async function ensureAffiliateTables(): Promise<void> {
            CONSTRAINT "affiliates_pkey" PRIMARY KEY ("id")
          )`,
       );
+      // Tahap 4 (portal affiliator): pemilik akun + rekening pencairan —
+      // tabel lama tetap naik versi tanpa migrasi manual (idempoten).
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "userId" TEXT`,
+      );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "bankName" TEXT`,
+      );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "bankAccountNo" TEXT`,
+      );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "bankAccountName" TEXT`,
+      );
       await prisma.$executeRawUnsafe(
         `CREATE UNIQUE INDEX IF NOT EXISTS "affiliates_refCode_key"
            ON "affiliates"("refCode")`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "affiliates_userId_key"
+           ON "affiliates"("userId")`,
       );
       await prisma.$executeRawUnsafe(
         `CREATE TABLE IF NOT EXISTS "affiliate_commissions" (

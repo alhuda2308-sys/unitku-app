@@ -152,6 +152,10 @@ model LicensePurchase {
 
 model Affiliate {
   id      String @id @default(cuid())
+  // Pemilik akun affiliator — auth.users.id (Supabase) / OwnerAccount.id (lokal).
+  // UNIQUE: satu akun user = satu akun affiliator; kunci akses dashboard
+  // /affiliate/dashboard (profil dicari berdasarkan user yang sedang login).
+  userId  String? @unique
   name    String
   email   String? // opsional — kontak payout/komisi
   phone   String? // opsional — WhatsApp affiliator
@@ -161,6 +165,11 @@ model Affiliate {
   totalEarnings Int    @default(0)
   // Nonaktif = kode masih mengikuti cookie, tetapi komisi baru TIDAK dicatat
   isActive      Boolean @default(true)
+  // Rekening pencairan komisi — diisi affiliator sendiri dari dashboard
+  // /affiliate/dashboard (kartu Pengaturan Rekening Pencairan)
+  bankName        String? // "BCA"
+  bankAccountNo   String? // "0970545093"
+  bankAccountName String? // "Budi Santoso"
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
