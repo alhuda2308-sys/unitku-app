@@ -13,11 +13,15 @@
 //   langsung dari data yang diinput mitra di dashboardnya (sinkron real-time:
 //   refresh otomatis saat kembali ke tab / fokus jendela) + tombol "Copy
 //   Rekening" (format "[Bank] [No Rek] a.n [Nama]") + "Tandai Sudah
-//   Ditransfer" (status paid + paidAt).
+//   Ditransfer" (status paid + paidAt) + tombol "Kirim Bukti WA" (pesan
+//   konfirmasi transfer sapaan "Kak" via wa.me, buka tab baru) di sampingnya
+//   + riwayat komisi PAID dengan tombol Kirim Bukti WA per baris; setelah
+//   tandai-transfer, toast sukses menyediakan pintasan "Langsung Kirim Bukti
+//   via WhatsApp".
 // • Tab 2 Daftar Mitra : WhatsApp (wa.me), kode referral, info rekening +
 //   copy, link portal mitra (magic-link), total komisi, toggle aktif +
-//   aksi "Kirim WA Sambutan" (wa.me + template baku, buka tab baru) &
-//   "Hapus Mitra" (confirm native → DELETE /api/admin/affiliate/[id] →
+//   aksi "Kirim WA Sambutan" (wa.me + template baku sapaan "Kak", buka tab
+//   baru) & "Hapus Mitra" (confirm native → DELETE /api/admin/affiliate/[id] →
 //   tabel diperbarui optimistis tanpa reload halaman penuh) +
 //   modal "Tambah Mitra Baru" (3 field: Nama, Kode Referral, No. WhatsApp —
 //   TANPA email; backend membuat fallback identifier otomatis) → modal sukses
@@ -146,34 +150,69 @@ function sanitizeRefCodeInput(raw: string): string {
   return raw.toLowerCase().replace(/\s+/g, "");
 }
 
-/** Pesan sambutan WhatsApp — format baku permintaan admin */
-function welcomeMessage(name: string, refCode: string, link: string): string {
-  return [
-    `Halo ${name}, akun kemitraan UnitKu Anda telah aktif!`,
-    `- Kode Referral: ${refCode}`,
-    `- Link Portal Dashboard Anda: ${link}`,
-    "Silakan buka link dashboard untuk melengkapi nomor rekening pencairan komisi Anda.",
-  ].join("\n");
-}
-
 /**
- * Pesan sambutan WhatsApp utk tombol "Kirim WA Sambutan" di tabel Daftar
- * Mitra — TEMPLATE BAKU permintaan admin (persis, termasuk emoji & poin).
- * Link memakai SITE_URL (https://unitku.my.id).
+ * Pesan sambutan WhatsApp mitra — TEMPLATE BAKU permintaan admin (persis,
+ * termasuk emoji & poin) dengan sapaan ramah "Kak" — dipakai modal sukses
+ * pendaftaran & tombol "Kirim WA Sambutan" di Daftar Mitra. Link memakai
+ * SITE_URL (https://unitku.my.id).
  */
 function waSambutanMessage(name: string, refCode: string): string {
   return [
-    `Halo ${name}, akun kemitraan afiliasi UnitKu Anda sudah aktif! 🎉`,
+    `Halo Kak ${name}, akun kemitraan afiliasi UnitKu Kakak sudah aktif! 🎉`,
     "",
-    "Detail akun Anda:",
+    "Berikut detail akun kemitraan Kakak:",
     `• Kode Referral: ${refCode}`,
     `• Link Promosi Utama: ${SITE_URL}/?ref=${refCode}`,
     `• Link Direct Checkout: ${SITE_URL}/checkout?ref=${refCode}`,
     "",
-    "Akses Dashboard Afiliasi Anda di:",
+    "Kakak bisa mengakses Dashboard Afiliasi pribadi di:",
     `${SITE_URL}/affiliate/dashboard`,
     "",
-    "Silakan buka dashboard untuk melengkapi data rekening bank/e-wallet Anda agar pencairan komisi (Rp150.000/penjualan) bisa langsung diproses. Sukses selalu bersama UnitKu!",
+    "Jangan lupa buka dashboard untuk melengkapi data rekening bank/e-wallet ya Kak, agar pencairan komisi (Rp150.000 per penjualan) bisa langsung kami transfer.",
+    "",
+    "Semangat berpromosi dan sukses selalu bersama UnitKu ya, Kak!",
+  ].join("\n");
+}
+
+/** Tanggal hari ini, format Indonesia panjang — "9 November 2026" */
+function todayLabel(): string {
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
+}
+
+/**
+ * Link wa.me — nomor WAJIB format internasional 62xxx tanpa '+' / '-' dan
+ * pesan ter-encode URL (link dibuka di tab baru).
+ */
+function waLink(phone: string, message: string): string {
+  return `https://wa.me/${normalizeWaPhone(phone)}?text=${encodeURIComponent(message)}`;
+}
+
+/**
+ * Pesan konfirmasi transfer komisi — TEMPLATE BAKU permintaan admin (sapaan
+ * ramah "Kak"): nominal, rekening tujuan, ID transaksi, tanggal. Tanggal
+ * memakai paidAt (riwayat paid) atau hari ini (baru ditandai ditransfer).
+ */
+function waTransferMessage(row: AdminPayoutRow): string {
+  const tanggal = row.paidAt ? dateLabel(row.paidAt) : todayLabel();
+  return [
+    `Halo Kak ${row.affiliateName}, `,
+    "",
+    "Kabar gembira! Komisi kemitraan afiliasi UnitKu Kakak telah berhasil ditransfer. 🎉",
+    "",
+    "Detail Pencairan:",
+    `• Nominal Komisi: ${formatIDR(row.commissionAmount)}`,
+    `• Rekening Tujuan: ${row.bankName ?? "-"} - ${row.bankAccountNo ?? "-"} (a.n. ${row.bankAccountName ?? "-"})`,
+    `• ID Transaksi: ${row.orderId}`,
+    `• Tanggal: ${tanggal}`,
+    "",
+    "Terima kasih banyak atas kerja sama dan kontribusinya dalam mempromosikan UnitKu ya, Kak. Kakak juga bisa mengecek riwayat komisi langsung di portal:",
+    `${SITE_URL}/affiliate/dashboard`,
+    "",
+    "Semangat terus dan semoga closing-an berikutnya makin lancar ya Kak!",
   ].join("\n");
 }
 
@@ -255,6 +294,11 @@ export function AffiliateAdminPanel({
         });
         return;
       }
+      // Baris pindah ke riwayat paid (paidAt = sekarang) — dipakai pesan WA
+      const paidRow: AdminPayoutRow = {
+        ...row,
+        paidAt: new Date().toISOString(),
+      };
       setData((prev) => ({
         stats: {
           ...prev.stats,
@@ -264,10 +308,26 @@ export function AffiliateAdminPanel({
           paidCount: prev.stats.paidCount + 1,
         },
         payoutQueue: prev.payoutQueue.filter((r) => r.id !== row.id),
+        paidHistory: [paidRow, ...prev.paidHistory],
         partners: prev.partners,
       }));
+      // Sinkronkan riwayat paid di server di belakang layar (tanpa reload)
+      router.refresh();
+      const waUrl = row.affiliatePhone
+        ? waLink(row.affiliatePhone, waTransferMessage(paidRow))
+        : null;
       toast.success("Komisi ditandai sudah ditransfer", {
         description: `${row.affiliateName} · ${formatIDR(row.commissionAmount)} · ${row.orderId}`,
+        // Pintasan WA — klik action toast adalah user gesture, popup diizinkan
+        duration: 20000,
+        ...(waUrl
+          ? {
+              action: {
+                label: "Langsung Kirim Bukti via WhatsApp",
+                onClick: () => window.open(waUrl, "_blank", "noopener,noreferrer"),
+              },
+            }
+          : {}),
       });
     } catch {
       toast.error("Koneksi bermasalah — coba lagi sebentar.");
@@ -356,6 +416,13 @@ export function AffiliateAdminPanel({
           (sum, row) => sum + row.commissionAmount,
           0,
         );
+        const removedPaid = prev.paidHistory.filter(
+          (row) => row.refCode === partner.refCode,
+        );
+        const removedPaidSum = removedPaid.reduce(
+          (sum, row) => sum + row.commissionAmount,
+          0,
+        );
         return {
           stats: {
             ...prev.stats,
@@ -364,6 +431,8 @@ export function AffiliateAdminPanel({
               0,
               prev.stats.pendingCount - removedQueue.length,
             ),
+            paidAmount: Math.max(0, prev.stats.paidAmount - removedPaidSum),
+            paidCount: Math.max(0, prev.stats.paidCount - removedPaid.length),
             partnersTotal: Math.max(0, prev.stats.partnersTotal - 1),
             partnersActive: Math.max(
               0,
@@ -371,6 +440,9 @@ export function AffiliateAdminPanel({
             ),
           },
           payoutQueue: prev.payoutQueue.filter(
+            (row) => row.refCode !== partner.refCode,
+          ),
+          paidHistory: prev.paidHistory.filter(
             (row) => row.refCode !== partner.refCode,
           ),
           partners: prev.partners.filter((p) => p.id !== partner.id),
@@ -443,11 +515,7 @@ export function AffiliateAdminPanel({
       const portalUrl =
         portalLink(json.partner.refCode, token ?? null) ??
         `${SITE_URL}/affiliate/dashboard`;
-      const waMessage = welcomeMessage(
-        json.partner.name,
-        json.partner.refCode,
-        portalUrl,
-      );
+      const waMessage = waSambutanMessage(json.partner.name, json.partner.refCode);
 
       setData((prev) => ({
         ...prev,
@@ -495,7 +563,7 @@ export function AffiliateAdminPanel({
     }
   };
 
-  const { stats, payoutQueue, partners } = data;
+  const { stats, payoutQueue, paidHistory, partners } = data;
   const pendingValue = formatIDR(stats.pendingAmount);
 
   return (
@@ -684,6 +752,10 @@ export function AffiliateAdminPanel({
                           row.bankName && row.bankAccountNo && row.bankAccountName,
                         );
                         const busy = busyId === row.id;
+                        // wa.me wajib format internasional 62 + digit murni
+                        const waPhone = row.affiliatePhone
+                          ? normalizeWaPhone(row.affiliatePhone)
+                          : null;
                         return (
                           <TableRow key={row.id} className="text-[13px]">
                             <TableCell className="whitespace-nowrap pl-4 align-top sm:pl-5">
@@ -760,26 +832,153 @@ export function AffiliateAdminPanel({
                             <TableCell className="whitespace-nowrap text-right align-top font-bold tabular-nums text-emerald-700">
                               {formatIDR(row.commissionAmount)}
                             </TableCell>
-                            <TableCell className="whitespace-nowrap pr-4 text-right align-top sm:pr-5">
-                              <Button
-                                size="sm"
-                                onClick={() => markPaid(row)}
-                                disabled={busy}
-                                className="h-8 gap-1.5 bg-emerald-600 px-3 text-[12.5px] text-white hover:bg-emerald-700"
-                              >
-                                {busy ? (
-                                  <Loader2 className="size-3.5 animate-spin" strokeWidth={2} aria-hidden="true" />
+                            <TableCell className="pr-4 align-top sm:pr-5">
+                              <span className="flex flex-wrap items-center justify-end gap-1.5">
+                                {/* Kirim Bukti WA — pesan konfirmasi transfer
+                                    sapaan "Kak", buka tab baru */}
+                                {waPhone ? (
+                                  <a
+                                    href={waLink(waPhone, waTransferMessage(row))}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-[12.5px] font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
+                                    title="Buka WhatsApp dengan pesan konfirmasi transfer siap kirim"
+                                  >
+                                    <MessageCircle className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                                    Kirim Bukti WA
+                                  </a>
                                 ) : (
-                                  <Check className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                                  <span
+                                    className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-3 text-[12.5px] font-medium text-zinc-400"
+                                    title="No. WhatsApp mitra belum tersedia"
+                                  >
+                                    <MessageCircle className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                                    Kirim Bukti WA
+                                  </span>
                                 )}
-                                Tandai Sudah Ditransfer
-                              </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => markPaid(row)}
+                                  disabled={busy}
+                                  className="h-8 gap-1.5 bg-emerald-600 px-3 text-[12.5px] text-white hover:bg-emerald-700"
+                                >
+                                  {busy ? (
+                                    <Loader2 className="size-3.5 animate-spin" strokeWidth={2} aria-hidden="true" />
+                                  ) : (
+                                    <Check className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                                  )}
+                                  Tandai Sudah Ditransfer
+                                </Button>
+                              </span>
                             </TableCell>
                           </TableRow>
                         );
                       })}
                     </TableBody>
                   </Table>
+                </div>
+              )}
+
+              {/* ── Riwayat Sudah Ditransfer (paid) — Kirim Bukti WA kapan pun ── */}
+              {paidHistory.length > 0 && (
+                <div className="border-t border-border">
+                  <div className="px-4 py-3 sm:px-5">
+                    <h3 className="text-[13px] font-bold text-zinc-900">
+                      Riwayat Sudah Ditransfer (Paid)
+                    </h3>
+                    <p className="text-xs text-zinc-500">
+                      {stats.paidCount} komisi paid total — kirim ulang pesan
+                      konfirmasi transfer via WhatsApp kapan pun (50 terbaru
+                      tampil di sini).
+                    </p>
+                  </div>
+                  <div className="max-h-[340px] overflow-auto scrollbar-thin">
+                    <Table className="min-w-[820px]">
+                      <TableHeader className="sticky top-0 z-10 bg-zinc-50 [&_tr]:border-b">
+                        <TableRow className="hover:bg-transparent">
+                          <TableHead className="h-9 pl-4 text-[12.5px] font-medium text-zinc-500 sm:pl-5">
+                            Tanggal Transfer
+                          </TableHead>
+                          <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">
+                            Mitra
+                          </TableHead>
+                          <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">
+                            ID Transaksi
+                          </TableHead>
+                          <TableHead className="h-9 text-right text-[12.5px] font-medium text-zinc-500">
+                            Nominal
+                          </TableHead>
+                          <TableHead className="h-9 pr-4 text-right text-[12.5px] font-medium text-zinc-500 sm:pr-5">
+                            Aksi
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paidHistory.map((row) => {
+                          const waPhone = row.affiliatePhone
+                            ? normalizeWaPhone(row.affiliatePhone)
+                            : null;
+                          return (
+                            <TableRow key={row.id} className="text-[13px]">
+                              <TableCell className="whitespace-nowrap pl-4 align-top sm:pl-5">
+                                <span className="font-medium text-zinc-800">
+                                  {dateLabel(row.paidAt ?? row.createdAt)}
+                                </span>
+                                <span
+                                  className="block max-w-[180px] truncate text-[11px] text-zinc-400"
+                                  title={row.orderId}
+                                >
+                                  {row.orderId}
+                                </span>
+                              </TableCell>
+                              <TableCell className="align-top">
+                                <span className="font-semibold text-zinc-900">
+                                  {row.affiliateName}
+                                </span>
+                                <Badge
+                                  variant="outline"
+                                  className="mt-0.5 h-5 border-zinc-200 px-1.5 text-[11px] font-bold text-zinc-600"
+                                >
+                                  ref: {row.refCode}
+                                </Badge>
+                              </TableCell>
+                              <TableCell
+                                className="max-w-[200px] truncate align-top text-[12px] text-zinc-600"
+                                title={row.orderId}
+                              >
+                                {row.orderId}
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap text-right align-top font-bold tabular-nums text-emerald-700">
+                                {formatIDR(row.commissionAmount)}
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap pr-4 text-right align-top sm:pr-5">
+                                {waPhone ? (
+                                  <a
+                                    href={waLink(waPhone, waTransferMessage(row))}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-[12.5px] font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
+                                    title="Buka WhatsApp dengan pesan konfirmasi transfer siap kirim"
+                                  >
+                                    <MessageCircle className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                                    Kirim Bukti WA
+                                  </a>
+                                ) : (
+                                  <span
+                                    className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-3 text-[12.5px] font-medium text-zinc-400"
+                                    title="No. WhatsApp mitra belum tersedia"
+                                  >
+                                    <MessageCircle className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                                    Kirim Bukti WA
+                                  </span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               )}
             </section>

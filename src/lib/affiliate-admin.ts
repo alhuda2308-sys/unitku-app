@@ -26,13 +26,15 @@ import { listAllSupabaseUsers } from "@/lib/supabase-admin";
 
 // ── Tipe data panel ──────────────────────────────────────────────────────────
 
-/** Satu baris Payout Queue — komisi approved menunggu transfer admin */
+/** Satu baris Payout Queue / riwayat paid — komisi affiliator */
 export interface AdminPayoutRow {
   id: string;
   orderId: string;
   commissionAmount: number;
   /** ISO — tanggal komisi tercatat (webhook) */
   createdAt: string;
+  /** ISO — komisi ditransfer ke mitra (status paid) — null saat menunggu */
+  paidAt: string | null;
   affiliateName: string;
   refCode: string;
   affiliatePhone: string | null;
@@ -78,6 +80,8 @@ export interface AffiliateAdminOverview {
   stats: AffiliateAdminStats;
   /** Komisi approved — paling lama menunggu di atas */
   payoutQueue: AdminPayoutRow[];
+  /** Komisi paid terbaru (riwayat transfer) — sumber tombol Kirim Bukti WA */
+  paidHistory: AdminPayoutRow[];
   /** Seluruh mitra — terbaru dulu */
   partners: AdminPartnerRow[];
 }
@@ -92,7 +96,7 @@ export async function getAffiliateAdminOverview(): Promise<AffiliateAdminOvervie
   try {
     await ensureAffiliateTables();
 
-    const [statusGroups, queue, partners] = await Promise.all([
+    const [statusGroups, queue, paidRows, partners] = await Promise.all([
       prisma.affiliateCommission.groupBy({
         by: ["status"],
         _sum: { commissionAmount: true },
@@ -102,6 +106,23 @@ export async function getAffiliateAdminOverview(): Promise<AffiliateAdminOvervie
         where: { status: "approved" },
         orderBy: { createdAt: "asc" }, // paling lama menunggu → paling atas
         take: 200,
+        include: {
+          affiliate: {
+            select: {
+              name: true,
+              refCode: true,
+              phone: true,
+              bankName: true,
+              bankAccountNo: true,
+              bankAccountName: true,
+            },
+          },
+        },
+      }),
+      prisma.affiliateCommission.findMany({
+        where: { status: "paid" },
+        orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }],
+        take: 50,
         include: {
           affiliate: {
             select: {
@@ -190,6 +211,20 @@ export async function getAffiliateAdminOverview(): Promise<AffiliateAdminOvervie
         orderId: c.orderId,
         commissionAmount: c.commissionAmount,
         createdAt: c.createdAt.toISOString(),
+        paidAt: null,
+        affiliateName: c.affiliate.name,
+        refCode: c.affiliate.refCode,
+        affiliatePhone: c.affiliate.phone,
+        bankName: c.affiliate.bankName,
+        bankAccountNo: c.affiliate.bankAccountNo,
+        bankAccountName: c.affiliate.bankAccountName,
+      })),
+      paidHistory: paidRows.map((c) => ({
+        id: c.id,
+        orderId: c.orderId,
+        commissionAmount: c.commissionAmount,
+        createdAt: c.createdAt.toISOString(),
+        paidAt: c.paidAt?.toISOString() ?? null,
         affiliateName: c.affiliate.name,
         refCode: c.affiliate.refCode,
         affiliatePhone: c.affiliate.phone,
