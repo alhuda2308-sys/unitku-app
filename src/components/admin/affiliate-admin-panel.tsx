@@ -16,6 +16,9 @@
 //   Ditransfer" (status paid + paidAt).
 // • Tab 2 Daftar Mitra : WhatsApp (wa.me), kode referral, info rekening +
 //   copy, link portal mitra (magic-link), total komisi, toggle aktif +
+//   aksi "Kirim WA Sambutan" (wa.me + template baku, buka tab baru) &
+//   "Hapus Mitra" (confirm native → DELETE /api/admin/affiliate/[id] →
+//   tabel diperbarui optimistis tanpa reload halaman penuh) +
 //   modal "Tambah Mitra Baru" (3 field: Nama, Kode Referral, No. WhatsApp —
 //   TANPA email; backend membuat fallback identifier otomatis) → modal sukses
 //   berisi ringkasan + link portal + "Salin Pesan Sambutan WhatsApp".
@@ -39,6 +42,7 @@ import {
   Plus,
   RefreshCw,
   SquareArrowOutUpRight,
+  Trash2,
 } from "lucide-react";
 
 import { MetricCard } from "@/components/kost/metric-card";
@@ -152,6 +156,27 @@ function welcomeMessage(name: string, refCode: string, link: string): string {
   ].join("\n");
 }
 
+/**
+ * Pesan sambutan WhatsApp utk tombol "Kirim WA Sambutan" di tabel Daftar
+ * Mitra — TEMPLATE BAKU permintaan admin (persis, termasuk emoji & poin).
+ * Link memakai SITE_URL (https://unitku.my.id).
+ */
+function waSambutanMessage(name: string, refCode: string): string {
+  return [
+    `Halo ${name}, akun kemitraan afiliasi UnitKu Anda sudah aktif! 🎉`,
+    "",
+    "Detail akun Anda:",
+    `• Kode Referral: ${refCode}`,
+    `• Link Promosi Utama: ${SITE_URL}/?ref=${refCode}`,
+    `• Link Direct Checkout: ${SITE_URL}/checkout?ref=${refCode}`,
+    "",
+    "Akses Dashboard Afiliasi Anda di:",
+    `${SITE_URL}/affiliate/dashboard`,
+    "",
+    "Silakan buka dashboard untuk melengkapi data rekening bank/e-wallet Anda agar pencairan komisi (Rp150.000/penjualan) bisa langsung diproses. Sukses selalu bersama UnitKu!",
+  ].join("\n");
+}
+
 /** Ringkasan mitra yang BARU dibuat — dipakai modal sukses */
 interface CreatedPartner {
   name: string;
@@ -176,6 +201,7 @@ export function AffiliateAdminPanel({
 
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // ── State modal Tambah Mitra ──
   const [createOpen, setCreateOpen] = useState(false);
@@ -294,6 +320,73 @@ export function AffiliateAdminPanel({
       toast.error("Koneksi bermasalah — coba lagi sebentar.");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // ── Aksi: hapus mitra (confirm native → DELETE API → update tanpa reload) ──
+  const deletePartner = async (partner: AdminPartnerRow) => {
+    const confirmed = window.confirm(
+      `Yakin ingin menghapus mitra ${partner.name}? Semua data kode referral dan komisi terkait akan terhapus.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(partner.id);
+    try {
+      const res = await fetch(`/api/admin/affiliate/${partner.id}`, {
+        method: "DELETE",
+      });
+      const json = (await res.json().catch(() => null)) as {
+        success?: boolean;
+        error?: string;
+        deletedCommissions?: number;
+      } | null;
+      if (!res.ok || !json?.success) {
+        toast.error(json?.error ?? "Gagal menghapus mitra.");
+        return;
+      }
+
+      // Update optimistis TANPA reload halaman penuh — baris mitra hilang,
+      // antrean pencairan & statistik menyesuaikan, lalu router.refresh()
+      // menyinkronkan ulang seluruh angka dari server di belakang layar.
+      setData((prev) => {
+        const removedQueue = prev.payoutQueue.filter(
+          (row) => row.refCode === partner.refCode,
+        );
+        const removedSum = removedQueue.reduce(
+          (sum, row) => sum + row.commissionAmount,
+          0,
+        );
+        return {
+          stats: {
+            ...prev.stats,
+            pendingAmount: Math.max(0, prev.stats.pendingAmount - removedSum),
+            pendingCount: Math.max(
+              0,
+              prev.stats.pendingCount - removedQueue.length,
+            ),
+            partnersTotal: Math.max(0, prev.stats.partnersTotal - 1),
+            partnersActive: Math.max(
+              0,
+              prev.stats.partnersActive - (partner.isActive ? 1 : 0),
+            ),
+          },
+          payoutQueue: prev.payoutQueue.filter(
+            (row) => row.refCode !== partner.refCode,
+          ),
+          partners: prev.partners.filter((p) => p.id !== partner.id),
+        };
+      });
+      router.refresh();
+      toast.success(`Mitra ${partner.name} dihapus`, {
+        description:
+          json.deletedCommissions && json.deletedCommissions > 0
+            ? `${json.deletedCommissions} baris komisi terkait ikut terhapus.`
+            : "Kode referral kini bebas dipakai mitra baru.",
+      });
+    } catch {
+      toast.error("Koneksi bermasalah — coba lagi sebentar.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -742,17 +835,22 @@ export function AffiliateAdminPanel({
                           Total Komisi
                         </TableHead>
                         <TableHead className="h-9 pr-4 text-right text-[12.5px] font-medium text-zinc-500 sm:pr-5">
-                          Status
+                          Status &amp; Aksi
                         </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {partners.map((p) => {
                         const busy = busyId === p.id;
+                        const deleting = deletingId === p.id;
                         const rekeningLengkap = Boolean(
                           p.bankName && p.bankAccountNo && p.bankAccountName,
                         );
                         const pLink = portalLink(p.refCode, p.accessToken);
+                        // wa.me wajib format internasional 62 + digit murni
+                        const cleanPhone = p.phone
+                          ? normalizeWaPhone(p.phone)
+                          : null;
                         return (
                           <TableRow key={p.id} className="text-[13px]">
                             {/* Nama Mitra */}
@@ -860,7 +958,7 @@ export function AffiliateAdminPanel({
                             <TableCell className="whitespace-nowrap text-right align-top font-bold tabular-nums text-emerald-700">
                               {formatIDR(p.totalEarnings)}
                             </TableCell>
-                            {/* Status Aktif + toggle */}
+                            {/* Status + toggle + Kirim WA Sambutan + Hapus */}
                             <TableCell className="pr-4 align-top sm:pr-5">
                               <span className="flex flex-col items-end gap-1.5">
                                 <Badge
@@ -877,7 +975,7 @@ export function AffiliateAdminPanel({
                                   variant="outline"
                                   size="sm"
                                   onClick={() => toggleActive(p)}
-                                  disabled={busy}
+                                  disabled={busy || deleting}
                                   className={cn(
                                     "h-7 gap-1 px-2 text-[11.5px]",
                                     p.isActive
@@ -889,6 +987,43 @@ export function AffiliateAdminPanel({
                                     <Loader2 className="size-3 animate-spin" strokeWidth={2} aria-hidden="true" />
                                   )}
                                   {p.isActive ? "Nonaktifkan" : "Aktifkan"}
+                                </Button>
+                                {/* Kirim WA Sambutan — wa.me + template baku,
+                                    buka tab baru (tanpa interaksi server) */}
+                                {cleanPhone ? (
+                                  <a
+                                    href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(waSambutanMessage(p.name, p.refCode))}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex h-7 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11.5px] font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
+                                    title="Buka WhatsApp dgn pesan sambutan siap kirim"
+                                  >
+                                    <MessageCircle className="size-3" strokeWidth={2} aria-hidden="true" />
+                                    Kirim WA Sambutan
+                                  </a>
+                                ) : (
+                                  <span
+                                    className="inline-flex h-7 cursor-not-allowed items-center gap-1 rounded-md border border-zinc-200 bg-zinc-50 px-2 text-[11.5px] font-medium text-zinc-400"
+                                    title="No. WhatsApp mitra belum tersedia"
+                                  >
+                                    <MessageCircle className="size-3" strokeWidth={2} aria-hidden="true" />
+                                    Kirim WA Sambutan
+                                  </span>
+                                )}
+                                {/* Hapus Mitra — confirm native → DELETE */}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => deletePartner(p)}
+                                  disabled={busy || deleting}
+                                  className="h-7 gap-1 border-red-200 px-2 text-[11.5px] text-red-700 hover:bg-red-50"
+                                >
+                                  {deleting ? (
+                                    <Loader2 className="size-3 animate-spin" strokeWidth={2} aria-hidden="true" />
+                                  ) : (
+                                    <Trash2 className="size-3" strokeWidth={2} aria-hidden="true" />
+                                  )}
+                                  Hapus Mitra
                                 </Button>
                               </span>
                             </TableCell>

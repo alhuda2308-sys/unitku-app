@@ -295,6 +295,51 @@ export async function setAffiliateActive(
   }
 }
 
+// ── Aksi: hapus akun mitra + seluruh komisinya ───────────────────────────────
+
+export type DeleteAffiliateResult =
+  | { ok: true; deletedCommissions: number }
+  | { ok: false; reason: "not-found" | "error" };
+
+/**
+ * Hapus PERMANEN satu mitra dari tabel affiliates BESERTA semua baris komisi
+ * terkait di affiliate_commissions. Komisi dihapus dulu (deleteMany) dalam
+ * satu transaksi — aman untuk tabel produksi yang FK-nya tidak membawa
+ * ON DELETE CASCADE (self-heal menambah CASCADE bila FK dibuat ulang, tetapi
+ * bentuk tabel buatan manual bisa berbeda). Kode referral yang dihapus otomatis
+ * bebas dipakai mitra baru; cookie unitku_ref calon pembeli lama tidak lagi
+ * menghasilkan komisi (affiliator-not-found di webhook).
+ */
+export async function deleteAffiliate(
+  affiliateId: string,
+): Promise<DeleteAffiliateResult> {
+  try {
+    await ensureAffiliateTables();
+    const existing = await prisma.affiliate.findUnique({
+      where: { id: affiliateId },
+      select: { id: true, refCode: true },
+    });
+    if (!existing) return { ok: false, reason: "not-found" };
+
+    const deletedCommissions = await prisma.$transaction(async (tx) => {
+      const removed = await tx.affiliateCommission.deleteMany({
+        where: { affiliateId },
+      });
+      await tx.affiliate.delete({ where: { id: affiliateId } });
+      return removed.count;
+    });
+
+    console.log(
+      `[UnitKu Affiliate Admin] Mitra "${existing.refCode}" DIHAPUS beserta ` +
+        `${deletedCommissions} baris komisi terkait.`,
+    );
+    return { ok: true, deletedCommissions };
+  } catch (error) {
+    console.error("[UnitKu Affiliate Admin] Gagal menghapus mitra:", error);
+    return { ok: false, reason: "error" };
+  }
+}
+
 // ── Aksi: daftarkan mitra baru dari UI admin ─────────────────────────────────
 
 /** Domain fallback identifier — email sintetis utk mitra tanpa akun/email */
