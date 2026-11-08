@@ -352,12 +352,66 @@ export type CreateAffiliateResult =
       detail?: string;
     };
 
-/** Ringkasan error Prisma/postgres — satu baris pendek untuk ditampilkan */
+/**
+ * Ringkasan error Prisma/postgres — satu baris pendek untuk ditampilkan.
+ * Menyertakan NAMA KOLOM sasaran bila bisa dideteksi (meta.field utk P2011,
+ * meta.target utk P2002, atau pola teks postgres/prisma) — Super Admin
+ * langsung tahu kolom mana yang bermasalah tanpa membuka server logs.
+ */
 function describePrismaError(error: unknown): string | undefined {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    const firstLine = (error.message.split("\n")[0] ?? "").trim();
-    const short = firstLine.replace(/^\s*(Invalid|Error)[^:]*:\s*/i, "").slice(0, 160);
-    return `Kode ${error.code}${short && !short.includes(error.code) ? ` — ${short}` : ""}`;
+    const meta = (error.meta ?? {}) as Record<string, unknown>;
+
+    // meta.field (P2011) — bisa "userId" atau "Affiliate.userId"; "(not
+    // available)" dianggap tidak tersedia.
+    const rawField = typeof meta.field === "string" ? meta.field : undefined;
+    const field =
+      rawField && !rawField.startsWith("(")
+        ? rawField.replace(/^[^.]+\./, "")
+        : undefined;
+
+    // meta.target (P2002) — daftar kolom unik yang bentrok
+    const targetRaw = meta.target;
+    const target =
+      Array.isArray(targetRaw)
+        ? targetRaw.filter((t): t is string => typeof t === "string").join(", ")
+        : typeof targetRaw === "string"
+          ? targetRaw
+          : undefined;
+
+    // Cadangan: ekstrak nama kolom dari teks pesan (format postgres & prisma)
+    const msg = typeof error.message === "string" ? error.message : "";
+    const columnFromMessage =
+      /null value in column ["']([A-Za-z_][\w]*)["']/i.exec(msg)?.[1] ?? // postgres 23502
+      /null constraint (?:violation on the )?(?:null constraint )?field[:\s]+[`"']?([A-Za-z_][\w.]*)[`"']?/i.exec(msg)?.[1] ?? // teks P2011
+      /["']([A-Za-z_][\w]*)["'](?: of relation)? does not exist/i.exec(msg)?.[1]; // teks P2022
+    const column = field ?? columnFromMessage;
+
+    if (error.code === "P2011") {
+      return column
+        ? `Kode P2011 — kolom '${column}' menolak nilai kosong (constraint NOT NULL di DB)`
+        : "Kode P2011 — kolom NOT NULL tanpa default menolak nilai kosong";
+    }
+    if (error.code === "P2002") {
+      const subject = target ?? column;
+      return subject
+        ? `Kode P2002 — nilai sudah dipakai pada '${subject}'`
+        : "Kode P2002 — pelanggaran keunikan";
+    }
+    if (error.code === "P2022") {
+      return column
+        ? `Kode P2022 — kolom '${column}' tidak ada di DB`
+        : "Kode P2022 — kolom tidak ditemukan di DB";
+    }
+
+    // Fallback: baris inti pesan (lewati konteks query Prisma multi-baris)
+    const core = msg
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0 && !/^(Invalid|→|\d|\}|\{|$)/.test(l));
+    return core
+      ? `Kode ${error.code} — ${core.replace(/^\s*(Invalid|Error)[^:]*:\s*/i, "").slice(0, 140)}`
+      : `Kode ${error.code}`;
   }
   if (error instanceof Error && error.message) {
     return error.message.split("\n")[0]?.slice(0, 160);
@@ -477,6 +531,22 @@ export async function createAffiliate(
           partner,
         };
       } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2011" &&
+          attempt === 0
+        ) {
+          // P2011 (null violates not-null) → bentuk tabel fisik masih menyimpan
+          // constraint NOT NULL warisan pada kolom yang di skema NULL-able.
+          // Paksa self-heal ulang TANPA cache lalu coba sekali lagi — perbaikan
+          // berlaku on-the-spot tanpa redeploy.
+          console.error(
+            "[UnitKu Affiliate Admin] INSERT kena P2011 — self-heal ulang dipaksa lalu dicoba sekali lagi.",
+            error,
+          );
+          await ensureAffiliateTables({ force: true }).catch(() => undefined);
+          continue;
+        }
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
           error.code === "P2002"

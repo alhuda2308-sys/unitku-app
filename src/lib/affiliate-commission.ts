@@ -342,6 +342,60 @@ const AFFILIATE_SCHEMA_STEPS: Array<{
            EXCEPTION WHEN OTHERS THEN NULL;
            END $$`,
   },
+  // ── h. Paksa kolom yang di skema Prisma NULL-able benar-benar NULL-able di
+  //       DB — fix P2011 "Gagal mendaftarkan mitra (Kode P2011)" yang tetap
+  //       terjadi: INSERT Prisma TIDAK mengirim nilai utk userId (eksplisit
+  //       null) & bankName/bankAccountNo/bankAccountName (tak diisi saat
+  //       daftar) — bila tabel fisik produksi masih membawa constraint NOT
+  //       NULL dari bentuk lama pada SALAH SATU kolom ini, Postgres menolak
+  //       (23502 → P2011). Repair-g sengaja mengecualikan kolom dikenal,
+  //       maka langkah ini melonggarkan justru kolom-kolom tersebut.
+  //       Idempoten & aman — data lama tidak disentuh. ─────────────────────
+  {
+    label: "repair affiliates known nullable columns (drop NOT NULL)",
+    bestEffort: true,
+    sql: `DO $$
+           DECLARE r record;
+           BEGIN
+             FOR r IN
+               SELECT c.column_name
+                 FROM information_schema.columns c
+                WHERE c.table_name = 'affiliates'
+                  AND c.table_schema = current_schema()
+                  AND c.is_nullable = 'NO'
+                  AND c.column_name IN ('userId','email','phone','bankName',
+                      'bankAccountNo','bankAccountName','accessToken')
+             LOOP
+               BEGIN
+                 EXECUTE format('ALTER TABLE "affiliates" ALTER COLUMN %I DROP NOT NULL', r.column_name);
+               EXCEPTION WHEN OTHERS THEN NULL;
+               END;
+             END LOOP;
+           EXCEPTION WHEN OTHERS THEN NULL;
+           END $$`,
+  },
+  {
+    label: "repair affiliate_commissions known nullable columns (drop NOT NULL)",
+    bestEffort: true,
+    sql: `DO $$
+           DECLARE r record;
+           BEGIN
+             FOR r IN
+               SELECT c.column_name
+                 FROM information_schema.columns c
+                WHERE c.table_name = 'affiliate_commissions'
+                  AND c.table_schema = current_schema()
+                  AND c.is_nullable = 'NO'
+                  AND c.column_name IN ('customerEmail','paidAt')
+             LOOP
+               BEGIN
+                 EXECUTE format('ALTER TABLE "affiliate_commissions" ALTER COLUMN %I DROP NOT NULL', r.column_name);
+               EXCEPTION WHEN OTHERS THEN NULL;
+               END;
+             END LOOP;
+           EXCEPTION WHEN OTHERS THEN NULL;
+           END $$`,
+  },
   // ── f. Foreign key + RLS (best effort — tergantung hak role & data legacy) ─
   {
     label: "foreign key affiliate_commissions.affiliateId",
@@ -405,8 +459,15 @@ async function runAffiliateSchemaBootstrap(): Promise<void> {
  * idempoten, dieksekusi sekali per proses; cache dibatalkan saat gagal agar
  * dicoba ulang di request berikutnya (pola sama dengan ensureLicenseLeadTable).
  * Menambah kolom yang hilang pada tabel lama secara otomatis — fix P2022.
+ *
+ * Opsi { force: true } membatalkan cache proses dan menjalankan bootstrap
+ * ulang SEKARANG — dipakai createAffiliate saat INSERT kena P2011 (constraint
+ * NOT NULL warisan) agar perbaikan bentuk tabel berlaku tanpa redeploy.
  */
-export async function ensureAffiliateTables(): Promise<void> {
+export async function ensureAffiliateTables(
+  options?: { force?: boolean },
+): Promise<void> {
+  if (options?.force) affiliateTablesReady = null;
   if (!affiliateTablesReady) {
     affiliateTablesReady = runAffiliateSchemaBootstrap().catch((err) => {
       affiliateTablesReady = null; // izinkan retry pada request berikutnya
