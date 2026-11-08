@@ -66,6 +66,7 @@ const AFFILIATE_SCHEMA_STEPS: Array<{
            "bankName"        TEXT,
            "bankAccountNo"   TEXT,
            "bankAccountName" TEXT,
+           "accessToken"     TEXT,
            "createdAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
            "updatedAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
            CONSTRAINT "affiliates_pkey" PRIMARY KEY ("id")
@@ -113,6 +114,10 @@ const AFFILIATE_SCHEMA_STEPS: Array<{
     sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "bankAccountName" TEXT`,
   },
   {
+    label: "affiliates.accessToken",
+    sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "accessToken" TEXT`,
+  },
+  {
     label: "affiliates.createdAt",
     sql: `ALTER TABLE "affiliates" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`,
   },
@@ -150,6 +155,10 @@ const AFFILIATE_SCHEMA_STEPS: Array<{
   {
     label: "index affiliates.userId",
     sql: `CREATE UNIQUE INDEX IF NOT EXISTS "affiliates_userId_key" ON "affiliates"("userId")`,
+  },
+  {
+    label: "index affiliates.accessToken",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS "affiliates_accessToken_key" ON "affiliates"("accessToken")`,
   },
   // ── affiliate_commissions ─────────────────────────────────────────────────
   {
@@ -298,7 +307,8 @@ const AFFILIATE_SCHEMA_STEPS: Array<{
                   AND c.column_default IS NULL
                   AND c.column_name NOT IN ('id','userId','name','email','phone',
                       'refCode','totalEarnings','isActive','bankName',
-                      'bankAccountNo','bankAccountName','createdAt','updatedAt')
+                      'bankAccountNo','bankAccountName','accessToken',
+                      'createdAt','updatedAt')
              LOOP
                BEGIN
                  EXECUTE format('ALTER TABLE "affiliates" ALTER COLUMN %I DROP NOT NULL', r.column_name);

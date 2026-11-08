@@ -16,9 +16,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
+import { randomBytes } from "node:crypto";
 
 import { sanitizeAffiliateRef } from "@/lib/affiliate";
 import { ensureAffiliateTables } from "@/lib/affiliate-commission";
+import { normalizeWaPhone } from "@/lib/checkout-validation";
 import { prisma } from "@/lib/prisma";
 import { listAllSupabaseUsers } from "@/lib/supabase-admin";
 
@@ -52,6 +54,12 @@ export interface AdminPartnerRow {
   isActive: boolean;
   /** true = terhubung akun user → bisa buka /affiliate/dashboard sendiri */
   hasUser: boolean;
+  /** Rekening pencairan (terbaru dari dashboard mitra) — bisa null */
+  bankName: string | null;
+  bankAccountNo: string | null;
+  bankAccountName: string | null;
+  /** Magic-link portal mitra — null = baris legacy belum punya token */
+  accessToken: string | null;
   createdAt: string;
 }
 
@@ -118,10 +126,45 @@ export async function getAffiliateAdminOverview(): Promise<AffiliateAdminOvervie
           totalEarnings: true,
           isActive: true,
           userId: true,
+          bankName: true,
+          bankAccountNo: true,
+          bankAccountName: true,
+          accessToken: true,
           createdAt: true,
         },
       }),
     ]);
+
+    // Backfill lazy token portal utk baris legacy (dibuat sebelum kolom
+    // accessToken ada) — agar tombol "Link Portal" selalu tersedia. Best
+    // effort: kegagalan update tidak menggagalkan overview.
+    const missingToken = partners.filter((p) => !p.accessToken);
+    if (missingToken.length > 0) {
+      await Promise.all(
+        missingToken.map(async (p) => {
+          try {
+            await prisma.affiliate.update({
+              where: { id: p.id },
+              data: { accessToken: generateAffiliateAccessToken() },
+            });
+          } catch (error) {
+            console.error(
+              `[UnitKu Affiliate Admin] Backfill token portal gagal utk ${p.refCode}:`,
+              error,
+            );
+          }
+        }),
+      );
+      // Ambil ulang ringan utk baris yang barusan diisi tokennya
+      const refreshed = await prisma.affiliate.findMany({
+        where: { id: { in: missingToken.map((p) => p.id) } },
+        select: { id: true, accessToken: true },
+      });
+      const tokenById = new Map(refreshed.map((r) => [r.id, r.accessToken]));
+      for (const p of partners) {
+        if (!p.accessToken) p.accessToken = tokenById.get(p.id) ?? null;
+      }
+    }
 
     const sumOf = (status: string) => {
       const row = statusGroups.find((g) => g.status === status);
@@ -163,6 +206,10 @@ export async function getAffiliateAdminOverview(): Promise<AffiliateAdminOvervie
         totalEarnings: p.totalEarnings,
         isActive: p.isActive,
         hasUser: Boolean(p.userId),
+        bankName: p.bankName,
+        bankAccountNo: p.bankAccountNo,
+        bankAccountName: p.bankAccountName,
+        accessToken: p.accessToken,
         createdAt: p.createdAt.toISOString(),
       })),
     };
@@ -250,21 +297,42 @@ export async function setAffiliateActive(
 
 // ── Aksi: daftarkan mitra baru dari UI admin ─────────────────────────────────
 
+/** Domain fallback identifier — email sintetis utk mitra tanpa akun/email */
+const AFFILIATE_FALLBACK_EMAIL_DOMAIN = "affiliate.unitku.my.id";
+
+/**
+ * Email fallback otomatis dari No. WhatsApp — identifier unik per mitra
+ * (skema affiliates.email dipertahankan; mitra tanpa email memakai bentuk
+ * ini, mis. 6281234567890@affiliate.unitku.my.id).
+ */
+export function affiliateFallbackEmail(normalizedPhone: string): string {
+  return `${normalizedPhone}@${AFFILIATE_FALLBACK_EMAIL_DOMAIN}`;
+}
+
+/** Magic-link token portal mitra — "afk_" + 48 hex (pattern StaffMember) */
+export function generateAffiliateAccessToken(): string {
+  return `afk_${randomBytes(24).toString("hex")}`;
+}
+
 export interface CreateAffiliateInput {
-  /** Email akun user (auth.users) pemilik kode — kunci akses dashboard */
-  email: string;
   name: string;
-  /** Kode referral untuk link ?ref= — [A-Za-z0-9_-], maks 64 */
+  /** Kode referral untuk link ?ref= — [A-Za-z0-9_-], maks 64 (di-lowercase) */
   refCode: string;
+  /** No. WhatsApp mitra — dinormalisasi ke 62xxxxxxxxxx (kunci identitas) */
+  phone: string;
 }
 
 export type CreateAffiliateResult =
   | {
       ok: true;
-      /** true = ketemu di Supabase Auth → dashboard affiliator langsung aktif */
+      /** true = akun Supabase dengan No. WA itu ketemu → dashboard terhubung */
       linkedUser: boolean;
-      /** No. WA dari user_metadata bila tersedia (otomatis tersimpan) */
-      phone: string | null;
+      /** No. WA ternormalisasi yang tersimpan */
+      phone: string;
+      /** Email efektif (asli dari akun, atau fallback sintetis) */
+      email: string | null;
+      /** Magic-link portal — untuk modal sukses di UI admin */
+      accessToken: string;
       /** Baris mitra yang baru dibuat — untuk update state panel tanpa refetch */
       partner: AdminPartnerRow;
     }
@@ -273,7 +341,7 @@ export type CreateAffiliateResult =
       reason:
         | "invalid-input"
         | "ref-code-taken"
-        | "email-taken"
+        | "phone-taken"
         | "user-linked"
         | "error";
       /**
@@ -283,8 +351,6 @@ export type CreateAffiliateResult =
        */
       detail?: string;
     };
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Ringkasan error Prisma/postgres — satu baris pendek untuk ditampilkan */
 function describePrismaError(error: unknown): string | undefined {
@@ -300,42 +366,64 @@ function describePrismaError(error: unknown): string | undefined {
 }
 
 /**
- * Daftarkan mitra baru tanpa SQL manual. userId di-resolve dari Supabase Auth
- * berdasarkan email — bila user belum ada, baris tetap dibuat (userId null,
- * email tersimpan) dan dashboard affiliator baru terhubung setelah user
- * terdaftar + admin menjalankan ulang pendaftaran.
+ * Daftarkan mitra baru TANPA email & TANPA SQL manual — cukup Nama, Kode
+ * Referral, dan No. WhatsApp:
+ *   • No. WA dinormalisasi 62xxxxxxxxxx → identifier utama mitra.
+ *   • Email diisi fallback otomatis `${phone}@affiliate.unitku.my.id` bila
+ *     tidak ada akun Supabase yang cocok (skema tetap butuh identifier unik).
+ *   • Bila akun Supabase dengan No. WA yang sama ditemukan, mitra langsung
+ *     terhubung (userId) + memakai email asli akun tersebut.
+ *   • accessToken (magic-link) dibuat → link portal mitra tanpa login.
  */
 export async function createAffiliate(
   input: CreateAffiliateInput,
 ): Promise<CreateAffiliateResult> {
   try {
     const name = input.name?.trim().slice(0, 80) ?? "";
-    const email = input.email?.trim().toLowerCase() ?? "";
     const refCode = sanitizeAffiliateRef(input.refCode);
+    const phone = normalizeWaPhone(input.phone ?? "");
 
-    if (!name || !EMAIL_RE.test(email) || !refCode) {
+    if (
+      !name ||
+      !refCode ||
+      !/^62[0-9]{8,13}$/.test(phone)
+    ) {
       return { ok: false, reason: "invalid-input" };
     }
 
     await ensureAffiliateTables();
 
-    // Cegah duplikasi email sebelum insert (email tidak UNIQUE di DB —
-    // duplikat baris per email bikin payout rancu, jadi ditegakkan di sini)
-    const sameEmail = await prisma.affiliate.findFirst({
-      where: { email },
-      select: { refCode: true },
+    // Cegah duplikasi SEBELUM insert — satu No. WA = satu mitra, satu kode
+    // referral = satu mitra. Perbandingan phone dinormalisasi dua sisi agar
+    // baris legacy berformat 08… / +62… tetap terdeteksi.
+    const existing = await prisma.affiliate.findMany({
+      select: { id: true, phone: true, email: true, refCode: true },
+      take: 1000,
     });
-    if (sameEmail) return { ok: false, reason: "email-taken" };
+    if (existing.some((a) => a.refCode.toLowerCase() === refCode.toLowerCase())) {
+      return { ok: false, reason: "ref-code-taken" };
+    }
+    const fallbackEmail = affiliateFallbackEmail(phone);
+    const samePhone = existing.some(
+      (a) =>
+        (a.phone ? normalizeWaPhone(a.phone) === phone : false) ||
+        a.email === fallbackEmail,
+    );
+    if (samePhone) return { ok: false, reason: "phone-taken" };
 
-    // Resolve akun user dari Supabase Auth (+ ambil No. WA bila ada)
+    // Resolve akun user dari Supabase Auth berdasarkan No. WhatsApp (+ email
+    // asli akun bila ada) — bila tidak ketemu, buat baris tanpa keterkaitan
+    // user dengan email fallback sintetis.
     let userId: string | null = null;
-    let phone: string | null = null;
+    let email: string | null = fallbackEmail;
     try {
       const users = await listAllSupabaseUsers();
-      const match = users.find((u) => u.email === email);
+      const match = users.find(
+        (u) => u.phone && normalizeWaPhone(u.phone) === phone,
+      );
       if (match) {
         userId = match.id;
-        phone = match.phone;
+        if (match.email) email = match.email;
       }
     } catch (error) {
       // Auth tidak terjangkau → tetap buat baris tanpa keterkaitan user
@@ -345,56 +433,72 @@ export async function createAffiliate(
       );
     }
 
-    try {
-      const created = await prisma.affiliate.create({
-        data: {
-          name,
-          email,
+    // Insert — P2002 accessToken (tabrakan acak yang nyaris mustahil) di-retry
+    // dengan token baru; P2002 lain dipetakan ke alasan yang tepat.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const accessToken = generateAffiliateAccessToken();
+      try {
+        const created = await prisma.affiliate.create({
+          data: {
+            name,
+            email,
+            phone,
+            refCode,
+            userId,
+            accessToken,
+            isActive: true,
+          },
+        });
+        const partner: AdminPartnerRow = {
+          id: created.id,
+          name: created.name,
+          email: created.email,
+          phone: created.phone,
+          refCode: created.refCode,
+          totalEarnings: created.totalEarnings,
+          isActive: created.isActive,
+          hasUser: Boolean(created.userId),
+          bankName: created.bankName,
+          bankAccountNo: created.bankAccountNo,
+          bankAccountName: created.bankAccountName,
+          accessToken: created.accessToken,
+          createdAt: created.createdAt.toISOString(),
+        };
+        console.log(
+          `[UnitKu Affiliate Admin] Mitra baru "${refCode}" (${name}, WA ${phone})` +
+            `${userId ? " — terhubung user Supabase" : " — tanpa akun (akses portal via magic-link)"}.`,
+        );
+        return {
+          ok: true,
+          linkedUser: Boolean(userId),
           phone,
-          refCode,
-          userId,
-          isActive: true,
-        },
-      });
-      const partner: AdminPartnerRow = {
-        id: created.id,
-        name: created.name,
-        email: created.email,
-        phone: created.phone,
-        refCode: created.refCode,
-        totalEarnings: created.totalEarnings,
-        isActive: created.isActive,
-        hasUser: Boolean(created.userId),
-        createdAt: created.createdAt.toISOString(),
-      };
-      console.log(
-        `[UnitKu Affiliate Admin] Mitra baru "${refCode}" (${name}, ${email})` +
-          `${userId ? " — terhubung user Supabase" : " — user belum ketemu (tanpa userId)"}.`,
-      );
-      return { ok: true, linkedUser: Boolean(userId), phone, partner };
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002"
-      ) {
-        // P2002 — bentrok UNIQUE. Bedakan constraint yang dilanggar dari
-        // meta.target agar pesan ke admin akurat (bukan selalu refCode):
-        //   • affiliates_userId_key → email sudah jadi pemilik mitra lain
-        //     (satu akun user = satu affiliator — lihat schema Affiliate)
-        //   • selain itu → refCode sudah dipakai mitra lain
-        const target = error.meta?.target;
-        const targetText = Array.isArray(target)
-          ? target.join(",")
-          : typeof target === "string"
-            ? target
-            : "";
-        if (/userid/i.test(targetText)) {
-          return { ok: false, reason: "user-linked" };
+          email: created.email,
+          accessToken: created.accessToken ?? accessToken,
+          partner,
+        };
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          const target = error.meta?.target;
+          const targetText = Array.isArray(target)
+            ? target.join(",")
+            : typeof target === "string"
+              ? target
+              : "";
+          if (/accesstoken|access_token/i.test(targetText) && attempt === 0) {
+            continue; // tabrakan token — coba sekali lagi dgn token baru
+          }
+          if (/userid/i.test(targetText)) {
+            return { ok: false, reason: "user-linked" };
+          }
+          return { ok: false, reason: "ref-code-taken" };
         }
-        return { ok: false, reason: "ref-code-taken" };
+        throw error;
       }
-      throw error;
     }
+    return { ok: false, reason: "error", detail: "Gagal membuat token portal." };
   } catch (error) {
     console.error("[UnitKu Affiliate Admin] Gagal mendaftarkan mitra:", error);
     const detail = describePrismaError(error);

@@ -9,10 +9,16 @@
 //
 // • Statistik : menunggu ditransfer (approved), sudah ditransfer (paid),
 //   mitra terdaftar & aktif.
-// • Tab 1 Pencairan Komisi : antrean komisi approved → "Tandai Sudah
+// • Tab 1 Antrean Pencairan Komisi : komisi approved → info rekening TERBARU
+//   langsung dari data yang diinput mitra di dashboardnya (sinkron real-time:
+//   refresh otomatis saat kembali ke tab / fokus jendela) + tombol "Copy
+//   Rekening" (format "[Bank] [No Rek] a.n [Nama]") + "Tandai Sudah
 //   Ditransfer" (status paid + paidAt).
-// • Tab 2 Daftar Mitra : kontak, kode referral (salin link), total komisi,
-//   toggle aktif/nonaktif, + modal "Tambah Mitra Baru".
+// • Tab 2 Daftar Mitra : WhatsApp (wa.me), kode referral, info rekening +
+//   copy, link portal mitra (magic-link), total komisi, toggle aktif +
+//   modal "Tambah Mitra Baru" (3 field: Nama, Kode Referral, No. WhatsApp —
+//   TANPA email; backend membuat fallback identifier otomatis) → modal sukses
+//   berisi ringkasan + link portal + "Salin Pesan Sambutan WhatsApp".
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from "react";
@@ -23,6 +29,7 @@ import {
   ArrowLeft,
   Banknote,
   Check,
+  CircleCheck,
   Copy,
   Gift,
   Inbox,
@@ -31,7 +38,7 @@ import {
   MessageCircle,
   Plus,
   RefreshCw,
-  UserRoundX,
+  SquareArrowOutUpRight,
 } from "lucide-react";
 
 import { MetricCard } from "@/components/kost/metric-card";
@@ -58,6 +65,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatWaDisplay } from "@/lib/auth/phone-email";
 import { normalizeWaPhone } from "@/lib/checkout-validation";
+import { SITE_URL } from "@/lib/landing-config";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type {
@@ -107,7 +115,54 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-const REF_CODE_RE = /^[A-Za-z0-9_-]{1,64}$/;
+/**
+ * Format rekening siap-tempel m-Banking — persis permintaan:
+ * "[Bank] [No Rek] a.n [Nama]" → "BCA 0970545093 a.n Budi Santoso"
+ */
+function formatRekeningText(
+  bankName: string | null,
+  bankAccountNo: string | null,
+  bankAccountName: string | null,
+): string {
+  return `${bankName ?? ""} ${bankAccountNo ?? ""} a.n ${bankAccountName ?? ""}`.trim();
+}
+
+/** Link portal mitra (magic-link) — ref utk konteks, token utk akses nyata */
+function portalLink(refCode: string, accessToken: string | null): string | null {
+  if (!accessToken) return null;
+  return `${SITE_URL}/affiliate/dashboard?ref=${refCode}&token=${accessToken}`;
+}
+
+/**
+ * Sanitasi live input kode referral — huruf kecil tanpa spasi (permintaan):
+ * lowercase + buang SEMUA whitespace. Karakter lain divalidasi saat submit
+ * (hanya [a-z0-9_-] yang lolos — sama dengan sanitizeAffiliateRef backend).
+ */
+function sanitizeRefCodeInput(raw: string): string {
+  return raw.toLowerCase().replace(/\s+/g, "");
+}
+
+/** Pesan sambutan WhatsApp — format baku permintaan admin */
+function welcomeMessage(name: string, refCode: string, link: string): string {
+  return [
+    `Halo ${name}, akun kemitraan UnitKu Anda telah aktif!`,
+    `- Kode Referral: ${refCode}`,
+    `- Link Portal Dashboard Anda: ${link}`,
+    "Silakan buka link dashboard untuk melengkapi nomor rekening pencairan komisi Anda.",
+  ].join("\n");
+}
+
+/** Ringkasan mitra yang BARU dibuat — dipakai modal sukses */
+interface CreatedPartner {
+  name: string;
+  refCode: string;
+  phone: string; // ternormalisasi 62…
+  portalUrl: string;
+  waMessage: string;
+  linkedUser: boolean;
+}
+
+const REF_CODE_RE = /^[a-z0-9_-]{1,64}$/;
 
 export function AffiliateAdminPanel({
   initial,
@@ -124,15 +179,37 @@ export function AffiliateAdminPanel({
 
   // ── State modal Tambah Mitra ──
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({ email: "", name: "", refCode: "" });
+  const [form, setForm] = useState({ name: "", refCode: "", phone: "" });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // ── State modal sukses (ringkasan mitra + link portal + pesan WA) ──
+  const [created, setCreated] = useState<CreatedPartner | null>(null);
 
   const refresh = () => {
     setRefreshing(true);
     router.refresh();
     window.setTimeout(() => setRefreshing(false), 900);
   };
+
+  // ── Sinkron real-time rekening mitra ────────────────────────────────────────
+  // Mitra bisa memperbarui rekening kapan saja di dashboardnya — setiap kali
+  // admin kembali ke tab ini / jendela regains focus, data server dimuat ulang
+  // (router.refresh → prop `initial` baru → useEffect di atas menyinkronkan).
+  useEffect(() => {
+    const sync = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [router]);
 
   // ── Aksi 1: tandai komisi sudah ditransfer ────────────────────────────────
   const markPaid = async (row: AdminPayoutRow) => {
@@ -220,34 +297,43 @@ export function AffiliateAdminPanel({
     }
   };
 
-  // ── Aksi 3: daftarkan mitra baru ──────────────────────────────────────────
+  // ── Aksi 3: daftarkan mitra baru (Nama + Kode Referral + No. WhatsApp) ────
   const submitCreate = async () => {
-    const email = form.email.trim();
     const name = form.name.trim();
-    const refCode = form.refCode.trim();
-    if (!email || !name || !refCode) {
+    const refCode = sanitizeRefCodeInput(form.refCode);
+    const phone = normalizeWaPhone(form.phone);
+
+    if (!name || !refCode || !form.phone.trim()) {
       setFormError("Semua kolom wajib diisi.");
       return;
     }
     if (!REF_CODE_RE.test(refCode)) {
       setFormError(
-        "Kode referral hanya boleh huruf, angka, tanda hubung, atau garis bawah (maks 64).",
+        "Kode referral hanya boleh huruf kecil, angka, tanda hubung, atau garis bawah (maks 64).",
       );
       return;
     }
+    if (!/^62[0-9]{8,13}$/.test(phone)) {
+      setFormError(
+        "Nomor WhatsApp belum sesuai — gunakan format Indonesia, mis. 081234567890 atau 6281234567890.",
+      );
+      return;
+    }
+
     setSubmitting(true);
     setFormError(null);
     try {
       const res = await fetch("/api/admin/affiliate/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name, refCode }),
+        body: JSON.stringify({ name, refCode, phone }),
       });
       const json = (await res.json().catch(() => null)) as {
         success?: boolean;
         error?: string;
         detail?: string;
         linkedUser?: boolean;
+        accessToken?: string;
         partner?: AdminPartnerRow;
       } | null;
       if (!res.ok || !json?.success || !json.partner) {
@@ -260,6 +346,16 @@ export function AffiliateAdminPanel({
         );
         return;
       }
+      const token = json.accessToken ?? json.partner.accessToken;
+      const portalUrl =
+        portalLink(json.partner.refCode, token ?? null) ??
+        `${SITE_URL}/affiliate/dashboard`;
+      const waMessage = welcomeMessage(
+        json.partner.name,
+        json.partner.refCode,
+        portalUrl,
+      );
+
       setData((prev) => ({
         ...prev,
         stats: {
@@ -269,22 +365,40 @@ export function AffiliateAdminPanel({
         },
         partners: [json.partner!, ...prev.partners],
       }));
+
+      // Tutup form → buka MODAL SUKSES (ringkasan + link portal + pesan WA)
       setCreateOpen(false);
-      setForm({ email: "", name: "", refCode: "" });
-      toast.success("Mitra baru terdaftar", {
-        description: `${name} · kode "${refCode}" · link https://unitku.my.id/?ref=${refCode}`,
+      setForm({ name: "", refCode: "", phone: "" });
+      setCreated({
+        name: json.partner.name,
+        refCode: json.partner.refCode,
+        phone,
+        portalUrl,
+        waMessage,
+        linkedUser: Boolean(json.linkedUser),
       });
-      if (!json.linkedUser) {
-        toast.warning("Kode belum terhubung ke akun user", {
-          description:
-            "Email tidak ditemukan di Supabase Auth — dashboard affiliator akan terhubung setelah user mendaftar dengan email tersebut, lalu daftarkan ulang kodenya.",
-          duration: 9000,
-        });
-      }
+      toast.success("Akun mitra aktif dibuat", {
+        description: `${json.partner.name} · kode "${json.partner.refCode}"`,
+      });
     } catch {
       setFormError("Koneksi bermasalah — coba lagi sebentar.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // ── Aksi 4: salin rekening instan (m-Banking friendly) ────────────────────
+  const copyRekening = async (
+    bankName: string | null,
+    bankAccountNo: string | null,
+    bankAccountName: string | null,
+  ) => {
+    const text = formatRekeningText(bankName, bankAccountNo, bankAccountName);
+    const ok = await copyText(text);
+    if (ok) {
+      toast.success("Rekening tersalin", { description: text });
+    } else {
+      toast.error("Gagal menyalin rekening");
     }
   };
 
@@ -374,7 +488,15 @@ export function AffiliateAdminPanel({
         </section>
 
         {/* ── Tabs ───────────────────────────────────────────────────────── */}
-        <Tabs defaultValue="payout" className="mt-5">
+        <Tabs
+          defaultValue="payout"
+          className="mt-5"
+          onValueChange={(value) => {
+            // Antrean pencairan wajib memakai rekening TERBARU yang diinput
+            // mitra — muat ulang data server setiap kali tab dibuka.
+            if (value === "payout") router.refresh();
+          }}
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <TabsList className="h-9 bg-zinc-100">
               <TabsTrigger
@@ -382,7 +504,7 @@ export function AffiliateAdminPanel({
                 className="gap-1.5 text-[12.5px] data-[state=active]:bg-white"
               >
                 <Banknote className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
-                Pencairan Komisi
+                Antrean Pencairan Komisi
                 {payoutQueue.length > 0 && (
                   <Badge className="ml-1 h-5 border-transparent bg-amber-100 px-1.5 text-[11px] tabular-nums text-amber-800">
                     {payoutQueue.length}
@@ -421,7 +543,8 @@ export function AffiliateAdminPanel({
                 </h2>
                 <p className="text-xs text-zinc-500">
                   Komisi approved menunggu transfer — paling lama menunggu
-                  tampil paling atas. Total{" "}
+                  tampil paling atas. Rekening tampil LANGSUNG dari data
+                  terbaru yang diinput mitra di dashboardnya. Total{" "}
                   <span className="font-bold text-amber-700">{pendingValue}</span>.
                 </p>
               </div>
@@ -442,7 +565,7 @@ export function AffiliateAdminPanel({
                 </div>
               ) : (
                 <div className="max-h-[520px] overflow-auto scrollbar-thin">
-                  <Table className="min-w-[880px]">
+                  <Table className="min-w-[980px]">
                     <TableHeader className="sticky top-0 z-10 bg-zinc-50 [&_tr]:border-b">
                       <TableRow className="hover:bg-transparent">
                         <TableHead className="h-9 pl-4 text-[12.5px] font-medium text-zinc-500 sm:pl-5">
@@ -505,7 +628,7 @@ export function AffiliateAdminPanel({
                                 )}
                               </span>
                             </TableCell>
-                            <TableCell className="max-w-[240px] align-top">
+                            <TableCell className="max-w-[260px] align-top">
                               {rekeningLengkap ? (
                                 <>
                                   <span className="flex items-center gap-1.5 font-semibold text-zinc-800">
@@ -515,11 +638,29 @@ export function AffiliateAdminPanel({
                                   <span className="mt-0.5 block truncate text-[12px] tabular-nums text-zinc-600">
                                     {row.bankAccountNo} a.n. {row.bankAccountName}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      copyRekening(
+                                        row.bankName,
+                                        row.bankAccountNo,
+                                        row.bankAccountName,
+                                      )
+                                    }
+                                    className="mt-1.5 inline-flex h-7 items-center gap-1 rounded-md border border-zinc-200 bg-zinc-50 px-2 text-[11.5px] font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-white"
+                                    title="Salin format: [Bank] [No Rek] a.n [Nama]"
+                                  >
+                                    <Copy className="size-3" strokeWidth={2} aria-hidden="true" />
+                                    Copy Rekening
+                                  </button>
                                 </>
                               ) : (
-                                <span className="inline-flex items-start gap-1 text-[12px] font-medium leading-snug text-amber-700">
+                                <span
+                                  className="inline-flex items-start gap-1 text-[12px] font-medium leading-snug text-amber-700"
+                                  title="Rekening belum diisi mitra — minta lengkapi di dashboard affiliator (link portal)"
+                                >
                                   <AlertTriangle className="mt-0.5 size-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
-                                  Rekening belum diisi mitra — minta lengkapi di dashboard affiliator
+                                  Belum diisi mitra
                                 </span>
                               )}
                             </TableCell>
@@ -574,53 +715,56 @@ export function AffiliateAdminPanel({
                   </p>
                   <p className="max-w-sm text-xs leading-snug text-zinc-500">
                     Klik &quot;Tambah Mitra Baru&quot; untuk mendaftarkan affiliator
-                    pertama — tanpa perlu SQL manual.
+                    pertama — cukup Nama, Kode Referral, dan No. WhatsApp.
                   </p>
                 </div>
               ) : (
-                <div className="max-h-[520px] overflow-auto scrollbar-thin">
-                  <Table className="min-w-[900px]">
+                <div className="max-h-[560px] overflow-auto scrollbar-thin">
+                  <Table className="min-w-[1180px]">
                     <TableHeader className="sticky top-0 z-10 bg-zinc-50 [&_tr]:border-b">
                       <TableRow className="hover:bg-transparent">
                         <TableHead className="h-9 pl-4 text-[12.5px] font-medium text-zinc-500 sm:pl-5">
-                          Nama Lengkap
+                          Nama Mitra
                         </TableHead>
                         <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">
-                          Kontak
+                          Nomor WhatsApp
                         </TableHead>
                         <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">
                           Kode Referral
                         </TableHead>
+                        <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">
+                          Rekening Bank
+                        </TableHead>
+                        <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">
+                          Portal Mitra
+                        </TableHead>
                         <TableHead className="h-9 text-right text-[12.5px] font-medium text-zinc-500">
                           Total Komisi
                         </TableHead>
-                        <TableHead className="h-9 text-[12.5px] font-medium text-zinc-500">
-                          Status
-                        </TableHead>
                         <TableHead className="h-9 pr-4 text-right text-[12.5px] font-medium text-zinc-500 sm:pr-5">
-                          Bergabung
+                          Status
                         </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {partners.map((p) => {
                         const busy = busyId === p.id;
+                        const rekeningLengkap = Boolean(
+                          p.bankName && p.bankAccountNo && p.bankAccountName,
+                        );
+                        const pLink = portalLink(p.refCode, p.accessToken);
                         return (
                           <TableRow key={p.id} className="text-[13px]">
+                            {/* Nama Mitra */}
                             <TableCell className="pl-4 align-top sm:pl-5">
                               <span className="font-semibold text-zinc-900">
                                 {p.name}
                               </span>
-                              {!p.hasUser && (
-                                <span
-                                  className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-amber-700"
-                                  title="Email belum ditemukan di Supabase Auth — kode belum terhubung ke dashboard affiliator mana pun."
-                                >
-                                  <UserRoundX className="size-3" strokeWidth={2} aria-hidden="true" />
-                                  Belum terhubung akun
-                                </span>
-                              )}
+                              <span className="mt-0.5 block text-[11px] text-zinc-400">
+                                Gabung {dateLabel(p.createdAt)}
+                              </span>
                             </TableCell>
+                            {/* Nomor WhatsApp — link wa.me langsung */}
                             <TableCell className="align-top">
                               {p.phone ? (
                                 <a
@@ -628,6 +772,7 @@ export function AffiliateAdminPanel({
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="flex items-center gap-1 font-medium text-emerald-700 hover:underline"
+                                  title="Buka chat WhatsApp"
                                 >
                                   <MessageCircle className="size-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
                                   {formatWaDisplay(normalizeWaPhone(p.phone))}
@@ -635,17 +780,13 @@ export function AffiliateAdminPanel({
                               ) : (
                                 <span className="text-zinc-400">—</span>
                               )}
-                              {p.email && (
-                                <span className="mt-0.5 block max-w-[200px] truncate text-[11.5px] text-zinc-500" title={p.email}>
-                                  {p.email}
-                                </span>
-                              )}
                             </TableCell>
+                            {/* Kode Referral — klik = salin link referral */}
                             <TableCell className="align-top">
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  const link = `${window.location.origin}/?ref=${p.refCode}`;
+                                  const link = `${SITE_URL}/?ref=${p.refCode}`;
                                   const ok = await copyText(link);
                                   if (ok) {
                                     toast.success("Link referral tersalin", {
@@ -656,7 +797,7 @@ export function AffiliateAdminPanel({
                                   }
                                 }}
                                 className="group inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-[12px] font-bold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-white"
-                                title={`Salin link referral: ${window.location.origin}/?ref=${p.refCode}`}
+                                title={`Salin link referral: ${SITE_URL}/?ref=${p.refCode}`}
                               >
                                 {p.refCode}
                                 <Copy
@@ -666,11 +807,62 @@ export function AffiliateAdminPanel({
                                 />
                               </button>
                             </TableCell>
+                            {/* Rekening Bank + Copy Rekening instan */}
+                            <TableCell className="max-w-[250px] align-top">
+                              {rekeningLengkap ? (
+                                <>
+                                  <span className="flex items-center gap-1.5 font-semibold text-zinc-800">
+                                    <Landmark className="size-3.5 shrink-0 text-zinc-400" strokeWidth={1.75} aria-hidden="true" />
+                                    {p.bankName}
+                                  </span>
+                                  <span className="mt-0.5 block truncate text-[12px] tabular-nums text-zinc-600" title={`${p.bankAccountNo} a.n. ${p.bankAccountName}`}>
+                                    {p.bankAccountNo} a.n. {p.bankAccountName}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      copyRekening(p.bankName, p.bankAccountNo, p.bankAccountName)
+                                    }
+                                    className="mt-1.5 inline-flex h-7 items-center gap-1 rounded-md border border-zinc-200 bg-zinc-50 px-2 text-[11.5px] font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-white"
+                                    title="Salin format: [Bank] [No Rek] a.n [Nama]"
+                                  >
+                                    <Copy className="size-3" strokeWidth={2} aria-hidden="true" />
+                                    Copy Rekening
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="inline-flex items-start gap-1 text-[11.5px] font-medium leading-snug text-amber-700">
+                                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
+                                  Belum diisi mitra
+                                </span>
+                              )}
+                            </TableCell>
+                            {/* Link Portal Mitra — buka/intip dashboard mitra */}
+                            <TableCell className="align-top">
+                              {pLink ? (
+                                <a
+                                  href={pLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 text-[11.5px] font-semibold text-sky-800 transition-colors hover:bg-sky-100"
+                                  title={`Buka portal mitra: ${pLink}`}
+                                >
+                                  <SquareArrowOutUpRight className="size-3" strokeWidth={2} aria-hidden="true" />
+                                  Buka Portal
+                                </a>
+                              ) : (
+                                <span className="text-[11.5px] text-zinc-400">
+                                  Token belum tersedia
+                                </span>
+                              )}
+                            </TableCell>
+                            {/* Total Komisi */}
                             <TableCell className="whitespace-nowrap text-right align-top font-bold tabular-nums text-emerald-700">
                               {formatIDR(p.totalEarnings)}
                             </TableCell>
-                            <TableCell className="align-top">
-                              <span className="flex items-center gap-2">
+                            {/* Status Aktif + toggle */}
+                            <TableCell className="pr-4 align-top sm:pr-5">
+                              <span className="flex flex-col items-end gap-1.5">
                                 <Badge
                                   className={cn(
                                     "border-transparent px-2 text-[11.5px] font-bold",
@@ -700,9 +892,6 @@ export function AffiliateAdminPanel({
                                 </Button>
                               </span>
                             </TableCell>
-                            <TableCell className="whitespace-nowrap pr-4 text-right align-top text-[12px] text-zinc-500 sm:pr-5">
-                              {dateLabel(p.createdAt)}
-                            </TableCell>
                           </TableRow>
                         );
                       })}
@@ -715,7 +904,7 @@ export function AffiliateAdminPanel({
         </Tabs>
       </div>
 
-      {/* ── Modal Tambah Mitra Baru ──────────────────────────────────────── */}
+      {/* ── Modal Tambah Mitra Baru (Nama + Kode Referral + No. WhatsApp) ── */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -724,29 +913,11 @@ export function AffiliateAdminPanel({
               Tambah Mitra Baru
             </DialogTitle>
             <DialogDescription className="text-[12.5px] leading-snug">
-              Daftarkan affiliator tanpa SQL. Kode referral otomatis aktif dan
-              link referral langsung bisa dibagikan.
+              Cukup 3 data — tanpa email. Akun mitra langsung aktif dan link
+              portal pribadinya otomatis dibuat.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3.5 py-1">
-            <div className="grid gap-1.5">
-              <Label htmlFor="aff-email" className="text-[12.5px]">
-                Email User <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="aff-email"
-                type="email"
-                inputMode="email"
-                autoComplete="off"
-                placeholder="mitra@email.com"
-                value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                className="h-9 text-[13px]"
-              />
-              <p className="text-[11px] leading-snug text-zinc-500">
-                Email akun user Supabase — kunci akses dashboard affiliator.
-              </p>
-            </div>
             <div className="grid gap-1.5">
               <Label htmlFor="aff-name" className="text-[12.5px]">
                 Nama Lengkap <span className="text-red-500">*</span>
@@ -757,6 +928,7 @@ export function AffiliateAdminPanel({
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className="h-9 text-[13px]"
+                autoComplete="off"
               />
             </div>
             <div className="grid gap-1.5">
@@ -767,15 +939,39 @@ export function AffiliateAdminPanel({
                 id="aff-ref"
                 placeholder="mis. huda"
                 value={form.refCode}
-                onChange={(e) => setForm((f) => ({ ...f, refCode: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    refCode: sanitizeRefCodeInput(e.target.value),
+                  }))
+                }
                 className="h-9 font-mono text-[13px]"
+                autoComplete="off"
               />
               <p className="text-[11px] leading-snug text-zinc-500">
-                Link referral:{" "}
+                Huruf kecil tanpa spasi — link referral:{" "}
                 <span className="font-mono">
-                  {typeof window !== "undefined" ? window.location.origin : ""}/?ref=
-                  {form.refCode.trim() || "<kode>"}
+                  {SITE_URL}/?ref={form.refCode.trim() || "<kode>"}
                 </span>
+              </p>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="aff-phone" className="text-[12.5px]">
+                Nomor WhatsApp <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="aff-phone"
+                type="tel"
+                inputMode="tel"
+                placeholder="081234567890 / 6281234567890"
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                className="h-9 text-[13px]"
+                autoComplete="off"
+              />
+              <p className="text-[11px] leading-snug text-zinc-500">
+                Identitas utama mitra — dipakai menghubungkan akun, kirim pesan
+                sambutan, dan fallback identifier otomatis di backend.
               </p>
             </div>
             {formError && (
@@ -803,7 +999,156 @@ export function AffiliateAdminPanel({
               {submitting && (
                 <Loader2 className="size-3.5 animate-spin" strokeWidth={2} aria-hidden="true" />
               )}
-              Daftarkan Mitra
+              Simpan Mitra
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal Sukses: ringkasan mitra + link portal + pesan WA ──────── */}
+      <Dialog open={Boolean(created)} onOpenChange={(open) => !open && setCreated(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[15px] text-emerald-800">
+              <CircleCheck className="size-5 text-emerald-600" strokeWidth={2} aria-hidden="true" />
+              Akun Mitra Berhasil Dibuat
+            </DialogTitle>
+            <DialogDescription className="text-[12.5px] leading-snug">
+              Akun kemitraan aktif &amp; terkait kode referral di bawah.
+              Bagikan link portal + pesan sambutan ke mitra.
+            </DialogDescription>
+          </DialogHeader>
+
+          {created && (
+            <div className="grid gap-3.5 py-1">
+              {/* Ringkasan data mitra */}
+              <dl className="grid grid-cols-[92px_1fr] gap-x-3 gap-y-1.5 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-[12.5px]">
+                <dt className="font-medium text-zinc-500">Nama</dt>
+                <dd className="font-semibold text-zinc-900">{created.name}</dd>
+                <dt className="font-medium text-zinc-500">Kode Referral</dt>
+                <dd className="font-mono font-bold text-zinc-900">{created.refCode}</dd>
+                <dt className="font-medium text-zinc-500">No. WhatsApp</dt>
+                <dd className="font-semibold tabular-nums text-zinc-900">
+                  {formatWaDisplay(created.phone)}
+                </dd>
+                <dt className="font-medium text-zinc-500">Status</dt>
+                <dd>
+                  <Badge className="border-transparent bg-emerald-100 px-2 text-[11.5px] font-bold text-emerald-800">
+                    Aktif
+                  </Badge>
+                </dd>
+              </dl>
+
+              {/* Link Portal Mitra Pribadi */}
+              <div className="grid gap-1.5">
+                <Label className="text-[12.5px]">Link Portal Mitra Pribadi</Label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    readOnly
+                    value={created.portalUrl}
+                    aria-label="Link portal mitra"
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="min-w-0 flex-1 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-[11.5px] text-zinc-700 outline-none focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={async () => {
+                      const ok = await copyText(created.portalUrl);
+                      if (ok) toast.success("Link portal tersalin");
+                      else toast.error("Gagal menyalin link");
+                    }}
+                    className="h-9 shrink-0 gap-1.5 bg-zinc-900 text-white hover:bg-zinc-800"
+                  >
+                    <Copy className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                    Salin Link
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    asChild
+                    variant="outline"
+                    className="h-9 shrink-0 gap-1.5"
+                  >
+                    <a href={created.portalUrl} target="_blank" rel="noopener noreferrer">
+                      <SquareArrowOutUpRight className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                      Intip
+                    </a>
+                  </Button>
+                </div>
+                <p className="text-[11px] leading-snug text-zinc-500">
+                  Mitra membuka link ini tanpa perlu login untuk melengkapi
+                  rekening pencairan komisinya.
+                </p>
+              </div>
+
+              {/* Pesan sambutan WhatsApp */}
+              <div className="grid gap-1.5">
+                <Label className="text-[12.5px]">Pesan Sambutan WhatsApp</Label>
+                <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-emerald-100 bg-emerald-50/60 p-3 font-sans text-[12px] leading-relaxed text-emerald-900 scrollbar-thin">
+                  {created.waMessage}
+                </pre>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={async () => {
+                      const ok = await copyText(created.waMessage);
+                      if (ok) {
+                        toast.success("Pesan sambutan tersalin", {
+                          description: "Tempel langsung di chat WhatsApp mitra.",
+                        });
+                      } else {
+                        toast.error("Gagal menyalin pesan");
+                      }
+                    }}
+                    className="h-9 shrink-0 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                  >
+                    <Copy className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                    Salin Pesan Sambutan WhatsApp
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    asChild
+                    variant="outline"
+                    className="h-9 shrink-0 gap-1.5"
+                  >
+                    <a
+                      href={`https://wa.me/${created.phone}?text=${encodeURIComponent(created.waMessage)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <MessageCircle className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                      Kirim via WhatsApp
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setCreated(null);
+                setFormError(null);
+                setCreateOpen(true);
+              }}
+              className="h-8 text-[12.5px]"
+            >
+              <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
+              Daftarkan Mitra Lain
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setCreated(null)}
+              className="h-8 bg-zinc-900 text-[12.5px] text-white hover:bg-zinc-800"
+            >
+              Selesai
             </Button>
           </DialogFooter>
         </DialogContent>

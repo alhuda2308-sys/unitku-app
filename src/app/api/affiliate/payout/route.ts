@@ -2,15 +2,21 @@
 // UnitKu — API affiliator: simpan rekening pencairan komisi (server-only)
 //
 // POST /api/affiliate/payout
-//   Body : { bankName, bankAccountNo, bankAccountName }
-//   Auth : sesi wajib (getAuthUser) — 401 bila tamu.
-//   Ownership: baris affiliates dicari by userId sesi (bukan input client).
+//   Body : { bankName, bankAccountNo, bankAccountName, token? }
+//   Auth : DUA jalur (salah satu wajib):
+//          1. Magic-link token  → ownership by affiliates.accessToken — mitra
+//             yang didaftarkan admin tanpa akun email (akses portal via link
+//             pribadi) tetap bisa mengelola rekeningnya sendiri.
+//          2. Sesi login        → ownership by userId sesi (bukan input client).
 //   Respon: { success: true } | error JSON sesuai kondisi.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, type NextRequest } from "next/server";
 
-import { updateAffiliatePayout } from "@/lib/affiliate-portal";
+import {
+  updateAffiliatePayout,
+  updateAffiliatePayoutByToken,
+} from "@/lib/affiliate-portal";
 import { getAuthUser } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
@@ -25,14 +31,6 @@ function cleanText(value: unknown, max: number): string | null {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) {
-    return NextResponse.json(
-      { success: false, error: "Silakan masuk terlebih dahulu." },
-      { status: 401 },
-    );
-  }
-
   const body: unknown = await request.json().catch(() => null);
   if (typeof body !== "object" || body === null) {
     return NextResponse.json(
@@ -41,18 +39,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const bankName = cleanText(
-    (body as Record<string, unknown>).bankName,
-    64,
-  );
-  const bankAccountNo = cleanText(
-    (body as Record<string, unknown>).bankAccountNo,
-    32,
-  );
-  const bankAccountName = cleanText(
-    (body as Record<string, unknown>).bankAccountName,
-    128,
-  );
+  const raw = body as Record<string, unknown>;
+  const token = typeof raw.token === "string" ? raw.token.trim() : "";
+
+  // ── Gerbang auth: token magic-link ATAU sesi login ─────────────────────────
+  // Keabsahan token divalidasi di lib (findUnique by accessToken) — token
+  // salah diperlakukan seperti affiliator tidak ditemukan (404), bukan 403,
+  // agar pesan ke mitra tidak membocorkan detail internal.
+  let sessionUserId: string | null = null;
+  if (!token) {
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: "Silakan masuk terlebih dahulu." },
+        { status: 401 },
+      );
+    }
+    sessionUserId = user.id;
+  }
+
+  const bankName = cleanText(raw.bankName, 64);
+  const bankAccountNo = cleanText(raw.bankAccountNo, 32);
+  const bankAccountName = cleanText(raw.bankAccountName, 128);
 
   // Rekening pencairan wajib lengkap — salah satu kosong = tidak bisa dicairkan
   if (!bankName || !bankAccountNo || !bankAccountName) {
@@ -76,16 +84,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await updateAffiliatePayout(user.id, {
-    bankName,
-    bankAccountNo,
-    bankAccountName,
-  });
+  const input = { bankName, bankAccountNo, bankAccountName };
+  const result = token
+    ? await updateAffiliatePayoutByToken(token, input)
+    : await updateAffiliatePayout(sessionUserId as string, input);
 
   if (!result.ok) {
     const message =
       result.reason === "not-found"
-        ? "Akun affiliator tidak ditemukan untuk akun Anda. Hubungi admin untuk pendaftaran."
+        ? token
+          ? "Link portal tidak valid atau sudah berubah — minta link terbaru ke Admin."
+          : "Akun affiliator tidak ditemukan untuk akun Anda. Hubungi admin untuk pendaftaran."
         : "Gagal menyimpan rekening — coba lagi sebentar.";
     return NextResponse.json(
       { success: false, error: message },

@@ -42,6 +42,23 @@ function isPublicPage(pathname: string): boolean {
   );
 }
 
+/**
+ * Portal mitra affiliator via MAGIC-LINK — /affiliate/dashboard?token=…
+ * Mitra baru didaftarkan Super Admin tanpa akun email (identitas = No.
+ * WhatsApp), jadi akses portal memakai link pribadi ber-token (pattern
+ * /staff & /portal). Rute dianggap publik HANYA bila membawa token; halaman
+ * itu sendiri tetap memverifikasi token di server (getAffiliatePortalDataBy
+ * Token) — token salah/tanpa token → gerbang sesi berlaku seperti biasa.
+ */
+function isTokenizedAffiliatePortal(request: NextRequest): boolean {
+  const { pathname } = request.nextUrl;
+  return (
+    (pathname === "/affiliate/dashboard" ||
+      pathname.startsWith("/affiliate/dashboard/")) &&
+    Boolean(request.nextUrl.searchParams.get("token")?.trim())
+  );
+}
+
 function redirectToLogin(request: NextRequest): NextResponse {
   const url = request.nextUrl.clone();
   url.pathname = "/login";
@@ -136,7 +153,7 @@ async function handleRouteProtection(request: NextRequest): Promise<NextResponse
     // pola sama dengan mode lokal.
     const hasDemoCookie = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
 
-    if (isPublicPage(pathname)) {
+    if (isPublicPage(pathname) || isTokenizedAffiliatePortal(request)) {
       // Pemilik sesi TERVERIFIKASI tidak perlu melihat /login|/register lagi.
       // PENTING (anti infinite reload): pantulan ini HANYA saat user benar-benar
       // terverifikasi — cookie basi/sesi kedaluwarsa TIDAK boleh dipantulkan ke
@@ -162,7 +179,7 @@ async function handleRouteProtection(request: NextRequest): Promise<NextResponse
   // ── Mode lokal — keberadaan cookie sesi (verifikasi penuh di handler) ────
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
 
-  if (isPublicPage(pathname)) {
+  if (isPublicPage(pathname) || isTokenizedAffiliatePortal(request)) {
     if (hasSession && isAuthPage) {
       const url = request.nextUrl.clone();
       url.pathname = AUTHED_HOME;

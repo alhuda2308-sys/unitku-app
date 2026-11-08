@@ -48,6 +48,9 @@ create table if not exists public."affiliates" (
   "bankName"        text,        -- "BCA"
   "bankAccountNo"   text,        -- "0970545093"
   "bankAccountName" text,        -- "Budi Santoso"
+  -- Magic-link akses portal mitra tanpa login — "afk_<48 hex>" (pattern
+  -- StaffMember.accessToken). Link: /affiliate/dashboard?ref=<kode>&token=<...>
+  "accessToken"     text,
   "createdAt"       timestamp(3) not null default current_timestamp,
   "updatedAt"       timestamp(3) not null default current_timestamp,
   constraint "affiliates_pkey" primary key ("id")
@@ -68,6 +71,7 @@ alter table public."affiliates" add column if not exists "isActive"        boole
 alter table public."affiliates" add column if not exists "bankName"        text;
 alter table public."affiliates" add column if not exists "bankAccountNo"   text;
 alter table public."affiliates" add column if not exists "bankAccountName" text;
+alter table public."affiliates" add column if not exists "accessToken"     text;
 alter table public."affiliates" add column if not exists "createdAt"       timestamp(3) not null default current_timestamp;
 alter table public."affiliates" add column if not exists "updatedAt"       timestamp(3) not null default current_timestamp;
 
@@ -89,6 +93,7 @@ end $$;
 -- Unique index Prisma (setelah backfill)
 create unique index if not exists "affiliates_refCode_key" on public."affiliates"("refCode");
 create unique index if not exists "affiliates_userId_key"  on public."affiliates"("userId");
+create unique index if not exists "affiliates_accessToken_key" on public."affiliates"("accessToken");
 
 
 -- ─────────────────────────────────────────────────────────────────────────────

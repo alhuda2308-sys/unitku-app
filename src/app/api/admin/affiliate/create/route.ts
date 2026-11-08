@@ -1,10 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // /api/admin/affiliate/create — Daftarkan mitra affiliator baru (Super Admin)
 //
-//  POST   body { email, name, refCode } → baris affiliates baru. userId
-//         di-resolve otomatis dari Supabase Auth via email — bila user belum
-//         terdaftar, baris tetap dibuat tanpa keterkaitan (linkedUser:false)
-//         dan dashboard affiliator terhubung setelah user mendaftar.
+//  POST   body { name, refCode, phone } → baris affiliates baru AKTIF.
+//         • Tanpa email — backend membuat fallback identifier otomatis
+//           `${phone}@affiliate.unitku.my.id` bila skema membutuhkannya.
+//         • No. WA di-resolve ke akun Supabase (bila ada) → dashboard
+//           affiliator langsung terhubung (userId).
+//         • accessToken magic-link dibuat → link portal mitra tanpa login.
 //
 // Wajib requireSuperAdminUser() — 401 belum masuk, 403 bukan super admin.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -39,20 +41,23 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { email, name, refCode } = body as Record<string, unknown>;
+  const { name, refCode, phone } = body as Record<string, unknown>;
 
   if (
-    typeof email !== "string" ||
     typeof name !== "string" ||
-    typeof refCode !== "string"
+    typeof refCode !== "string" ||
+    typeof phone !== "string"
   ) {
     return NextResponse.json(
-      { success: false, error: "Email, nama, dan kode referral wajib diisi." },
+      {
+        success: false,
+        error: "Nama, kode referral, dan nomor WhatsApp wajib diisi.",
+      },
       { status: 400 },
     );
   }
 
-  const result = await createAffiliate({ email, name, refCode });
+  const result = await createAffiliate({ name, refCode, phone });
   if (!result.ok) {
     const status =
       result.reason === "invalid-input"
@@ -62,13 +67,13 @@ export async function POST(request: NextRequest) {
           : 409;
     const message: Record<string, string> = {
       "invalid-input":
-        "Data tidak valid — email harus berformat benar dan kode referral hanya boleh huruf, angka, tanda hubung, atau garis bawah.",
+        "Data tidak valid — nama wajib diisi, kode referral hanya boleh huruf kecil/angka/tanda hubung/garis bawah, dan No. WhatsApp harus format Indonesia yang sah (08…/62…).",
       "ref-code-taken":
         "Kode referral sudah dipakai mitra lain — gunakan kode berbeda.",
-      "email-taken":
-        "Email tersebut sudah terdaftar sebagai mitra affiliator.",
+      "phone-taken":
+        "No. WhatsApp tersebut sudah terdaftar sebagai mitra affiliator.",
       "user-linked":
-        "Email ini sudah terhubung ke mitra affiliator lain — satu akun user hanya boleh satu mitra.",
+        "No. WhatsApp ini milik akun yang sudah terhubung ke mitra affiliator lain — satu akun user hanya boleh satu mitra.",
       error: "Gagal mendaftarkan mitra — coba lagi sebentar.",
     };
     return NextResponse.json(
@@ -89,6 +94,8 @@ export async function POST(request: NextRequest) {
     success: true,
     linkedUser: result.linkedUser,
     phone: result.phone,
+    email: result.email,
+    accessToken: result.accessToken,
     partner: result.partner,
   });
 }

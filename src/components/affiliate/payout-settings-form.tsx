@@ -3,7 +3,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Form Pengaturan Rekening Pencairan komisi affiliator (Tahap 4)
 //
-// POST /api/affiliate/payout (sesi wajib; ownership by userId sesi).
+// POST /api/affiliate/payout. Auth dua jalur:
+//   • accessToken terisi (portal magic-link) → kirim token di body;
+//   • selain itu → sesi login (ownership by userId sesi).
 // Sukses → toast + router.refresh() agar data server terbaru tampil.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -22,12 +24,14 @@ interface PayoutSettingsFormProps {
     bankAccountNo: string | null;
     bankAccountName: string | null;
   };
+  /** Magic-link portal — terisi saat mitra mengakses via link pribadi token */
+  accessToken?: string;
 }
 
 const FIELD =
   "h-10 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
 
-export function PayoutSettingsForm({ initial }: PayoutSettingsFormProps) {
+export function PayoutSettingsForm({ initial, accessToken }: PayoutSettingsFormProps) {
   const router = useRouter();
   const [bankName, setBankName] = useState(initial.bankName ?? "");
   const [bankAccountNo, setBankAccountNo] = useState(initial.bankAccountNo ?? "");
@@ -52,6 +56,7 @@ export function PayoutSettingsForm({ initial }: PayoutSettingsFormProps) {
           bankName: bankName.trim(),
           bankAccountNo: bankAccountNo.trim(),
           bankAccountName: bankAccountName.trim(),
+          ...(accessToken ? { token: accessToken } : {}),
         }),
       });
       const payload: { success?: boolean; error?: string } = await response
@@ -81,11 +86,12 @@ export function PayoutSettingsForm({ initial }: PayoutSettingsFormProps) {
         </span>
         <div className="min-w-0">
           <h2 className="text-sm font-bold text-zinc-900 sm:text-base">
-            Rekening Pencairan Komisi
+            Kelola Rekening Pencairan (Bank / E-Wallet)
           </h2>
           <p className="mt-0.5 text-xs leading-snug text-zinc-700">
-            Rekening tujuan pencairan komisi Anda. Pastikan atas nama sesuai
-            identitas agar proses transfer lancar.
+            Rekening tujuan pencairan komisi Anda — tersimpan otomatis ke
+            sistem begitu disimpan, langsung terlihat oleh Admin. Pastikan
+            atas nama sesuai identitas agar proses transfer lancar.
           </p>
         </div>
       </div>
@@ -93,13 +99,13 @@ export function PayoutSettingsForm({ initial }: PayoutSettingsFormProps) {
       <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
           <Label htmlFor="payout-bank" className="text-xs font-semibold text-zinc-800">
-            Nama Bank
+            Nama Bank / E-Wallet
           </Label>
           <Input
             id="payout-bank"
             value={bankName}
             onChange={(e) => setBankName(e.target.value)}
-            placeholder="BCA / Mandiri / BRI"
+            placeholder="BCA / Mandiri / BRI / DANA / OVO"
             maxLength={64}
             className={FIELD}
             autoComplete="off"
@@ -122,13 +128,13 @@ export function PayoutSettingsForm({ initial }: PayoutSettingsFormProps) {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="payout-holder" className="text-xs font-semibold text-zinc-800">
-            Atas Nama Rekening
+            Nama Pemilik Rekening
           </Label>
           <Input
             id="payout-holder"
             value={bankAccountName}
             onChange={(e) => setBankAccountName(e.target.value)}
-            placeholder="Nama sesuai buku tabungan"
+            placeholder="Nama sesuai buku tabungan / e-wallet"
             maxLength={128}
             className={FIELD}
             autoComplete="off"

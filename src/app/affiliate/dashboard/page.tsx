@@ -1,15 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Dashboard / Portal Affiliator (Tahap 4)
 //
-// /affiliate/dashboard — RUTE TERPROTEKSI:
-//   • Middleware  : "/affiliate" tidak ada di PUBLIC_PAGE_PREFIXES → wajib sesi
-//     (tamu diarahkan /login?next=/affiliate/dashboard).
-//   • Halaman ini : getAuthUser() diverifikasi ulang (pattern /admin) — profil
-//     affiliator dicari berdasarkan user yang login (affiliates.userId),
-//     BUKAN dari parameter URL, sehingga tidak ada kebocoran antar akun.
+// /affiliate/dashboard — DUA jalur akses:
+//   1. SESI (pola lama)      : user login → profil dicari via affiliates.
+//     userId. Middleware menjaga rute ini (tamu → /login?next=…).
+//   2. MAGIC-LINK (baru)     : mitra yang didaftarkan admin TANPA akun email
+//     membuka link pribadi /affiliate/dashboard?ref=<kode>&token=<accessToken>.
+//     Middleware mengizinkan rute ber-token (isTokenizedAffiliatePortal), dan
+//     halaman INI yang memverifikasi token ke DB — token salah → redirect
+//     /login (tidak ada kebocoran antar mitra).
 //
-// Isi: link referral pribadi + salin, metrik komisi, riwayat komisi
-// (email pembeli disensor demi privasi), pengaturan rekening pencairan.
+// Isi: link referral + link direct checkout (salin), metrik komisi, riwayat
+// referral (email pembeli disensor demi privasi), pengaturan rekening
+// pencairan (tersimpan langsung ke tabel affiliates).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { redirect } from "next/navigation";
@@ -27,7 +30,11 @@ import { ReferralLinkCard } from "@/components/affiliate/referral-link-card";
 import { MetricCard } from "@/components/kost/metric-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getAffiliatePortalData } from "@/lib/affiliate-portal";
+import {
+  getAffiliatePortalData,
+  getAffiliatePortalDataByToken,
+  type AffiliatePortalData,
+} from "@/lib/affiliate-portal";
 import { getAuthUser } from "@/lib/auth/server";
 import { cn } from "@/lib/utils";
 
@@ -87,12 +94,59 @@ function CommissionStatusBadge({ status }: { status: string }) {
   );
 }
 
-export default async function AffiliateDashboardPage() {
-  // Gerbang sesi — tamu → /login dengan tujuan kembali (pattern /admin)
+/** Ambil nilai searchParams pertama (string | string[] | undefined) */
+function firstParam(
+  value: string | string[] | undefined,
+): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    const first = value.find((v) => typeof v === "string" && v.trim());
+    return first?.trim() ?? null;
+  }
+  return null;
+}
+
+export default async function AffiliateDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const params = await searchParams;
+  const token = firstParam(params.token);
+
+  // ── Jalur 2: magic-link — verifikasi token ke DB SEBELUM apa pun ──────────
+  if (token) {
+    const dataByToken = await getAffiliatePortalDataByToken(token);
+    // Token salah/kedaluwarsa → perlakukan seperti tamu: gerbang login
+    if (!dataByToken) redirect("/login?next=%2Faffiliate%2Fdashboard");
+    return (
+      <AffiliateDashboardView data={dataByToken} accessToken={token} />
+    );
+  }
+
+  // ── Jalur 1: sesi login (pola lama) — tamu → /login dgn tujuan kembali ────
   const user = await getAuthUser();
   if (!user) redirect("/login?next=%2Faffiliate%2Fdashboard");
 
   const data = await getAffiliatePortalData(user.id);
+
+  return <AffiliateDashboardView data={data} userEmail={user.email ?? null} />;
+}
+
+/**
+ * Seluruh isi portal — dipakai kedua jalur akses. `accessToken` hanya
+ * terisi pada jalur magic-link (diteruskan ke form rekening agar mitra
+ * tanpa akun login tetap bisa menyimpan rekeningnya).
+ */
+function AffiliateDashboardView({
+  data,
+  accessToken,
+  userEmail,
+}: {
+  data: AffiliatePortalData;
+  accessToken?: string;
+  userEmail?: string | null;
+}) {
 
   return (
     <main className="min-h-screen bg-zinc-50 pb-12">
@@ -156,7 +210,7 @@ export default async function AffiliateDashboardPage() {
                   cantumkan email akun Anda:
                 </p>
                 <p className="mt-2 inline-flex max-w-full items-center rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[13px] font-semibold text-zinc-800">
-                  <span className="truncate">{user.email || "—"}</span>
+                  <span className="truncate">{userEmail || "—"}</span>
                 </p>
                 <p className="mt-3 text-xs leading-snug text-zinc-500">
                   Setelah diaktifkan Admin, halaman ini otomatis menampilkan
@@ -291,6 +345,7 @@ export default async function AffiliateDashboardPage() {
                     bankAccountNo: affiliate.bankAccountNo,
                     bankAccountName: affiliate.bankAccountName,
                   }}
+                  accessToken={accessToken}
                 />
 
                 {/* Catatan payout */}

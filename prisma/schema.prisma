@@ -170,6 +170,12 @@ model Affiliate {
   bankName        String? // "BCA"
   bankAccountNo   String? // "0970545093"
   bankAccountName String? // "Budi Santoso"
+  // Magic-link akses portal mitra TANPA login — "afk_<48 hex>" (pattern
+  // StaffMember.accessToken). Diisi otomatis saat admin mendaftarkan mitra
+  // (form tanpa email — mitra baru belum tentu punya akun Supabase); baris
+  // legacy di-backfill lazy saat data dimuat. Link:
+  // https://unitku.my.id/affiliate/dashboard?ref=<refCode>&token=<accessToken>
+  accessToken     String? @unique
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
