@@ -15,6 +15,11 @@
 //          turunan No. WhatsApp ({phone}@wa.unitku.my.id) — format selalu valid
 //          sehingga pembuatan invoice tidak pernah gagal karena email kosong.
 //
+//   Affiliate (Tahap 3): kode referral dari cookie `unitku_ref` (30 hari,
+//          di-set middleware dari ?ref=… — lihat src/lib/affiliate.ts) diselipkan
+//          ke metadata invoice → ikut kembali pada webhook payment.received
+//          sebagai metadata.affiliate_ref untuk atribusi komisi afiliasi.
+//
 //   Invoice dibuat per-pembeli (nama/email/no. WA terkirim ke Mayar), sehingga
 //   data pembayaran & webhook balik (payment.received) selaras — lisensi
 //   diaktifkan otomatis oleh /api/webhooks/mayar setelah pembayaran sukses.
@@ -28,6 +33,8 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 
 import { upsertLicenseLead } from "@/lib/billing/license";
+import { sanitizeAffiliateRef } from "@/lib/affiliate";
+import { getAffiliateRefServer } from "@/lib/affiliate-server";
 import { parseBuyerInput } from "@/lib/checkout-validation";
 import { LICENSE_AMOUNT_IDR } from "@/lib/landing-config";
 import { notifyAdminLeadAlert } from "@/lib/notifications/admin-lead-alert";
@@ -69,6 +76,16 @@ export async function POST(request: NextRequest) {
     );
   }
   const { name, email, phone } = parsed.data;
+
+  // ── Kode referral afiliasi (Tahap 3) — dari cookie `unitku_ref` ──────────
+  // Cookie sudah disaring middleware, disaring ulang di sini sebagai pertahanan
+  // tambahan (defense-in-depth) sebelum dikirim ke API pihak ketiga.
+  const affiliateRef = sanitizeAffiliateRef(await getAffiliateRefServer());
+  if (affiliateRef) {
+    console.log(
+      `[UnitKu Checkout] Traffic referral afiliasi: "${affiliateRef}" (pembeli ${phone})`,
+    );
+  }
 
   // ── Simpan lead SEBELUM redirect/checkout — kontak Admin tetap tersimpan
   // walau user tidak menyelesaikan pembayaran, bahkan saat Mayar tidak aktif.
@@ -134,6 +151,11 @@ export async function POST(request: NextRequest) {
         amount: LICENSE_AMOUNT_IDR,
         description: MAYAR_DESCRIPTION,
         redirectUrl,
+        // Metadata afiliasi — Mayar mengembalikannya di webhook payment.received
+        // sehingga komisi Rp150.000 tercatat otomatis utk affiliator terkait.
+        metadata: {
+          affiliate_ref: affiliateRef || null,
+        },
       }),
       cache: "no-store",
       signal: AbortSignal.timeout(20_000),

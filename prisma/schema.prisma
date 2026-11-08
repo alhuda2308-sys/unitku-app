@@ -144,6 +144,49 @@ model LicensePurchase {
   @@map("license_purchases")
 }
 
+// ── Sistem affiliate (Tahap 2–3: referral tracking & komisi) ─────────────────
+// Affiliator menyebarkan link https://unitku.my.id/?ref=<refCode>; middleware
+// menyimpan kode ke cookie `unitku_ref` 30 hari (last-click). Saat checkout,
+// kode diselipkan ke metadata invoice Mayar → webhook payment.received
+// mencatat komisi + menambah saldo affiliator.
+
+model Affiliate {
+  id      String @id @default(cuid())
+  name    String
+  email   String? // opsional — kontak payout/komisi
+  phone   String? // opsional — WhatsApp affiliator
+  // Kode unik di link referral ([A-Za-z0-9_-], maks 64 — sanitizeAffiliateRef)
+  refCode String @unique
+  // Saldo komisi terakumulasi (IDR) — di-increment webhook Mayar per sale baru
+  totalEarnings Int    @default(0)
+  // Nonaktif = kode masih mengikuti cookie, tetapi komisi baru TIDAK dicatat
+  isActive      Boolean @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  commissions AffiliateCommission[]
+
+  @@map("affiliates")
+}
+
+// Komisi per penjualan lisensi — orderId (id transaksi Mayar) UNIQUE menjadi
+// kunci idempotensi: webhook Mayar yang me-retry tidak mencatat komisi ganda
+// (P2002 → perlakukan sebagai duplikat, pola sama dengan LicensePurchase).
+model AffiliateCommission {
+  id               String  @id @default(cuid())
+  affiliateId      String
+  orderId          String  @unique // id transaksi/invoice Mayar
+  customerEmail    String? // email pembeli dari webhook (bisa turunan WA)
+  commissionAmount Int // IDR — konstanta AFFILIATE_COMMISSION_IDR
+  status           String  @default("approved") // approved | reversed
+  createdAt        DateTime @default(now())
+
+  affiliate Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  @@index([affiliateId])
+  @@map("affiliate_commissions")
+}
+
 // ── Staf & Akses Mandiri (link undangan) ─────────────────────────────────────
 
 model StaffMember {

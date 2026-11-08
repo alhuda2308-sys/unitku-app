@@ -9,7 +9,11 @@
 //   • Payload         : flat maupun bersarang data{} — customer_email|email,
 //                       customer_name|name, customer_mobile|phone, amount,
 //                       transaction_id|id pembayaran Mayar.
-//   • Respons sukses  : HTTP 200 { success: true } (Mayar berhenti mengulang).
+//   • Affiliate (Tahap 3): metadata.affiliate_ref pada payload → komisi
+//                       Rp150.000 otomatis utk affiliator terkait — IDEMPOTEN
+//                       per order_id (retry webhook tidak menumpuk komisi).
+//   • Respons sukses  : HTTP 200 { success: true, received: true }
+//                       (Mayar berhenti mengulang).
 //
 // Konfigurasi di dashboard Mayar → Pengaturan → Webhook:
 //   URL    : https://<domain>/api/webhooks/mayar
@@ -18,6 +22,8 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { sanitizeAffiliateRef } from "@/lib/affiliate";
+import { recordAffiliateCommissionIfNew } from "@/lib/affiliate-commission";
 import { applyPaidLicense } from "@/lib/billing/license";
 
 export const runtime = "nodejs";
@@ -83,12 +89,33 @@ function isSuccessEvent(event: string): boolean {
   );
 }
 
+/** Metadata invoice — objek, atau string JSON (beberapa varian payload Mayar) */
+function pickMetadata(...sources: unknown[]): Loose {
+  for (const raw of sources) {
+    if (typeof raw === "string" && raw.trim()) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (isLoose(parsed)) return parsed;
+      } catch {
+        // bukan JSON valid — lewati
+      }
+    } else if (isLoose(raw)) {
+      return raw;
+    }
+  }
+  return {};
+}
+
 interface ExtractedPayment {
   email: string;
   name?: string;
   phone?: string;
   amount: number;
   transactionId: string;
+  /** order_id / payment_id — kunci idempotensi komisi (fallback transactionId) */
+  orderId: string;
+  /** Kode referral afiliasi dari metadata invoice — null bila bukan traffic afiliasi */
+  affiliateRef: string | null;
   eventType?: string;
   raw: unknown;
 }
@@ -136,6 +163,24 @@ function extractPayment(body: unknown): ExtractedPayment | null {
 
   if (!email || !transactionId) return null;
 
+  // order_id / payment_id transaksi — kunci idempotensi komisi afiliasi
+  const orderId =
+    pickString(data.order_id, data.orderId, root.order_id, root.orderId) ??
+    transactionId;
+
+  // metadata.affiliate_ref (Tahap 3) — kode referral yang diselipkan /api/checkout
+  // dari cookie `unitku_ref`; sebagian varian payload meletakkannya langsung
+  // di root/data. Divalidasi ulang dengan sanitizeAffiliateRef.
+  const metadata = pickMetadata(root.metadata, data.metadata);
+  const affiliateRef = sanitizeAffiliateRef(
+    pickString(
+      metadata.affiliate_ref,
+      metadata.affiliateRef,
+      data.affiliate_ref,
+      root.affiliate_ref,
+    ) ?? null,
+  );
+
   return {
     email,
     name: pickString(
@@ -168,6 +213,8 @@ function extractPayment(body: unknown): ExtractedPayment | null {
       root.price,
     ) ?? 0,
     transactionId,
+    orderId,
+    affiliateRef,
     eventType: pickString(
       root.event,
       data.event,
@@ -225,6 +272,7 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json({
       success: true,
+      received: true,
       ignored: true,
       event: payment.eventType,
     });
@@ -252,10 +300,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Komisi afiliasi (Tahap 3) — idempoten per orderId ────────────────────
+    // Bookkeeping komisi TIDAK PERNAH menggagalkan provisioning lisensi:
+    // recordAffiliateCommissionIfNew menangkap error internalnya sendiri.
+    const commission = await recordAffiliateCommissionIfNew({
+      refCode: payment.affiliateRef,
+      orderId: payment.orderId,
+      customerEmail: payment.email,
+    });
+    if (payment.affiliateRef && !commission.recorded && !commission.duplicate) {
+      console.log(
+        `[UnitKu Affiliate] Komisi order ${payment.orderId} dilewati (${commission.reason}).`,
+      );
+    }
+
     return NextResponse.json({
       success: true,
+      received: true,
       provisioned: result.created,
       ...(result.duplicate ? { duplicate: true } : {}),
+      ...(payment.affiliateRef
+        ? {
+            affiliate: commission.recorded
+              ? "commission_recorded"
+              : commission.duplicate
+                ? "commission_duplicate"
+                : `commission_skipped:${commission.reason}`,
+          }
+        : {}),
     });
   } catch (error) {
     console.error("[UnitKu Billing] Gagal memproses webhook Mayar:", error);

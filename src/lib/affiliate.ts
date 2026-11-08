@@ -24,6 +24,13 @@ export const AFFILIATE_REF_MAX_AGE = 60 * 60 * 24 * 30;
 export const AFFILIATE_QUERY_PARAM = "ref";
 
 /**
+ * Komisi afiliasi per penjualan lisensi seumur hidup (IDR).
+ * Dicatat webhook Mayar (payment.received) ke tabel affiliate_commissions
+ * dan ditambahkan ke affiliates.totalEarnings — lihat affiliate-commission.ts.
+ */
+export const AFFILIATE_COMMISSION_IDR = 150_000;
+
+/**
  * Validasi + normalisasi kode referral dari query param / cookie.
  *
  * Mengembalikan null bila kosong, lebih dari 64 karakter, atau memuat
