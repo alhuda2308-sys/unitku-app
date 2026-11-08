@@ -187,7 +187,10 @@ model AffiliateCommission {
   orderId          String  @unique // id transaksi/invoice Mayar
   customerEmail    String? // email pembeli dari webhook (bisa turunan WA)
   commissionAmount Int // IDR — konstanta AFFILIATE_COMMISSION_IDR
-  status           String  @default("approved") // approved | reversed
+  status           String  @default("approved") // approved | paid | reversed
+  // Timestamp komisi ditransfer admin ke rekening mitra — diisi aksi
+  // "Tandai Sudah Ditransfer" di panel /admin/affiliates (audit payout).
+  paidAt           DateTime?
   createdAt        DateTime @default(now())
 
   affiliate Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)

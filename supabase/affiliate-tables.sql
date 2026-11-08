@@ -102,7 +102,8 @@ create table if not exists public."affiliate_commissions" (
   "orderId"          text         not null,
   "customerEmail"    text,
   "commissionAmount" integer      not null,
-  "status"           text         not null default 'approved', -- approved | reversed
+  "status"           text         not null default 'approved', -- approved | paid | reversed
+  "paidAt"           timestamp(3), -- timestamp transfer admin ke mitra (audit)
   "createdAt"        timestamp(3) not null default current_timestamp,
   constraint "affiliate_commissions_pkey" primary key ("id"),
   constraint "affiliate_commissions_affiliateId_fkey"
@@ -116,6 +117,7 @@ alter table public."affiliate_commissions" add column if not exists "orderId"   
 alter table public."affiliate_commissions" add column if not exists "customerEmail"    text;
 alter table public."affiliate_commissions" add column if not exists "commissionAmount" integer not null default 0;
 alter table public."affiliate_commissions" add column if not exists "status"           text not null default 'approved';
+alter table public."affiliate_commissions" add column if not exists "paidAt"           timestamp(3);
 alter table public."affiliate_commissions" add column if not exists "createdAt"        timestamp(3) not null default current_timestamp;
 
 -- Primary key — tabel buatan manual bisa tanpa PK (idempoten)

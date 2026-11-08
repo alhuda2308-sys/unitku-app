@@ -23,6 +23,7 @@ import {
   Check,
   Copy,
   Dices,
+  Gift,
   KeyRound,
   Loader2,
   Lock,
@@ -804,6 +805,17 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              className="h-8 gap-1.5 px-3 text-[12.5px]"
+            >
+              <Link href="/admin/affiliates">
+                <Gift className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+                Kelola Afiliasi
+              </Link>
+            </Button>
             <Button
               variant="outline"
               size="sm"

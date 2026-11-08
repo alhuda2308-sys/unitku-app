@@ -161,6 +161,7 @@ const AFFILIATE_SCHEMA_STEPS: Array<{
            "customerEmail"    TEXT,
            "commissionAmount" INTEGER      NOT NULL,
            "status"           TEXT         NOT NULL DEFAULT 'approved',
+           "paidAt"           TIMESTAMP(3),
            "createdAt"        TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
            CONSTRAINT "affiliate_commissions_pkey" PRIMARY KEY ("id")
          )`,
@@ -184,6 +185,10 @@ const AFFILIATE_SCHEMA_STEPS: Array<{
   {
     label: "affiliate_commissions.status",
     sql: `ALTER TABLE "affiliate_commissions" ADD COLUMN IF NOT EXISTS "status" TEXT NOT NULL DEFAULT 'approved'`,
+  },
+  {
+    label: "affiliate_commissions.paidAt",
+    sql: `ALTER TABLE "affiliate_commissions" ADD COLUMN IF NOT EXISTS "paidAt" TIMESTAMP(3)`,
   },
   {
     label: "affiliate_commissions.createdAt",
