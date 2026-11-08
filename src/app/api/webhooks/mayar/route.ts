@@ -172,14 +172,24 @@ function extractPayment(body: unknown): ExtractedPayment | null {
     pickString(data.order_id, data.orderId, root.order_id, root.orderId) ??
     transactionId;
 
-  // metadata.affiliate_ref (Tahap 3) — kode referral yang diselipkan /api/checkout
-  // dari cookie `unitku_ref`; sebagian varian payload meletakkannya langsung
-  // di root/data. Divalidasi ulang dengan sanitizeAffiliateRef.
-  const metadata = pickMetadata(root.metadata, data.metadata);
+  // extraData (API V2) / metadata (API V1) — kode referral affiliate_ref
+  // yang diselipkan /api/checkout dari cookie `unitku_ref`; sebagian varian
+  // payload meletakkannya langsung di root/data. Semua sumber digabung —
+  // sumber pertama yang punya kunci menang. Divalidasi ulang dengan
+  // sanitizeAffiliateRef.
+  const customData: Loose = {};
+  for (const source of [
+    pickMetadata(root.extraData),
+    pickMetadata(data.extraData),
+    pickMetadata(root.metadata),
+    pickMetadata(data.metadata),
+  ]) {
+    Object.assign(customData, source);
+  }
   const affiliateRef = sanitizeAffiliateRef(
     pickString(
-      metadata.affiliate_ref,
-      metadata.affiliateRef,
+      customData.affiliate_ref,
+      customData.affiliateRef,
       data.affiliate_ref,
       root.affiliate_ref,
     ) ?? null,
@@ -284,7 +294,7 @@ export async function POST(request: NextRequest) {
   // setelah provisioning lisensi sukses (log hasilnya di bawah).
   if (payment.affiliateRef) {
     console.log(
-      `[UnitKu Affiliate] metadata.affiliate_ref terdeteksi: "${payment.affiliateRef}" (order ${payment.orderId}, pembeli ${payment.email}).`,
+      `[UnitKu Affiliate] extraData/metadata.affiliate_ref terdeteksi: "${payment.affiliateRef}" (order ${payment.orderId}, pembeli ${payment.email}).`,
     );
   }
 
