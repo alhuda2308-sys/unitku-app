@@ -213,6 +213,125 @@ const AFFILIATE_SCHEMA_STEPS: Array<{
     label: "index affiliate_commissions.affiliateId",
     sql: `CREATE INDEX IF NOT EXISTS "affiliate_commissions_affiliateId_idx" ON "affiliate_commissions"("affiliateId")`,
   },
+  // ── g. Perbaikan bentuk tabel LEGACY (hasil reproduksi bug "Gagal
+  //       mendaftarkan mitra"): bootstrap lama hanya MENAMBAH kolom hilang,
+  //       tetapi tidak memperbaiki deviasi bentuk tabel buatan manual yang
+  //       membuat INSERT Prisma gagal (SELECT tetap normal):
+  //         • id bertipe uuid/serial → Prisma mengirim cuid TEXT → P2023/22P02
+  //         • kolom ekstra NOT NULL tanpa default yang tidak dikenal model →
+  //           Prisma tidak mengirimnya → P2011 (null violates not-null)
+  //       Semua langkah best-effort & idempoten — data lama TIDAK diubah. ────
+  {
+    label: "repair affiliates.id type (uuid/serial → text)",
+    bestEffort: true,
+    sql: `DO $$
+           DECLARE t text;
+           BEGIN
+             SELECT data_type INTO t FROM information_schema.columns
+              WHERE table_name = 'affiliates' AND column_name = 'id';
+             IF t IS NOT NULL AND t <> 'text'
+                AND t NOT IN ('character varying','character') THEN
+               BEGIN
+                 ALTER TABLE "affiliate_commissions"
+                   DROP CONSTRAINT IF EXISTS "affiliate_commissions_affiliateId_fkey";
+               EXCEPTION WHEN OTHERS THEN NULL; END;
+               BEGIN
+                 ALTER TABLE "affiliates" ALTER COLUMN "id" DROP DEFAULT;
+                 ALTER TABLE "affiliates" ALTER COLUMN "id" TYPE TEXT USING "id"::text;
+               EXCEPTION WHEN OTHERS THEN NULL; END;
+             END IF;
+           EXCEPTION WHEN OTHERS THEN NULL;
+           END $$`,
+  },
+  {
+    label: "repair affiliate_commissions.id type (uuid/serial → text)",
+    bestEffort: true,
+    sql: `DO $$
+           DECLARE t text;
+           BEGIN
+             SELECT data_type INTO t FROM information_schema.columns
+              WHERE table_name = 'affiliate_commissions' AND column_name = 'id';
+             IF t IS NOT NULL AND t <> 'text'
+                AND t NOT IN ('character varying','character') THEN
+               BEGIN
+                 ALTER TABLE "affiliate_commissions" ALTER COLUMN "id" DROP DEFAULT;
+                 ALTER TABLE "affiliate_commissions" ALTER COLUMN "id" TYPE TEXT USING "id"::text;
+               EXCEPTION WHEN OTHERS THEN NULL; END;
+             END IF;
+           EXCEPTION WHEN OTHERS THEN NULL;
+           END $$`,
+  },
+  {
+    label: "repair affiliate_commissions.affiliateId type (uuid/serial → text)",
+    bestEffort: true,
+    sql: `DO $$
+           DECLARE t text;
+           BEGIN
+             SELECT data_type INTO t FROM information_schema.columns
+              WHERE table_name = 'affiliate_commissions' AND column_name = 'affiliateId';
+             IF t IS NOT NULL AND t <> 'text'
+                AND t NOT IN ('character varying','character') THEN
+               BEGIN
+                 ALTER TABLE "affiliate_commissions"
+                   DROP CONSTRAINT IF EXISTS "affiliate_commissions_affiliateId_fkey";
+               EXCEPTION WHEN OTHERS THEN NULL; END;
+               BEGIN
+                 ALTER TABLE "affiliate_commissions" ALTER COLUMN "affiliateId" DROP DEFAULT;
+                 ALTER TABLE "affiliate_commissions" ALTER COLUMN "affiliateId" TYPE TEXT USING "affiliateId"::text;
+               EXCEPTION WHEN OTHERS THEN NULL; END;
+             END IF;
+           EXCEPTION WHEN OTHERS THEN NULL;
+           END $$`,
+  },
+  {
+    label: "repair affiliates extra NOT NULL columns (→ nullable)",
+    bestEffort: true,
+    sql: `DO $$
+           DECLARE r record;
+           BEGIN
+             FOR r IN
+               SELECT c.column_name
+                 FROM information_schema.columns c
+                WHERE c.table_name = 'affiliates'
+                  AND c.table_schema = current_schema()
+                  AND c.is_nullable = 'NO'
+                  AND c.column_default IS NULL
+                  AND c.column_name NOT IN ('id','userId','name','email','phone',
+                      'refCode','totalEarnings','isActive','bankName',
+                      'bankAccountNo','bankAccountName','createdAt','updatedAt')
+             LOOP
+               BEGIN
+                 EXECUTE format('ALTER TABLE "affiliates" ALTER COLUMN %I DROP NOT NULL', r.column_name);
+               EXCEPTION WHEN OTHERS THEN NULL;
+               END;
+             END LOOP;
+           EXCEPTION WHEN OTHERS THEN NULL;
+           END $$`,
+  },
+  {
+    label: "repair affiliate_commissions extra NOT NULL columns (→ nullable)",
+    bestEffort: true,
+    sql: `DO $$
+           DECLARE r record;
+           BEGIN
+             FOR r IN
+               SELECT c.column_name
+                 FROM information_schema.columns c
+                WHERE c.table_name = 'affiliate_commissions'
+                  AND c.table_schema = current_schema()
+                  AND c.is_nullable = 'NO'
+                  AND c.column_default IS NULL
+                  AND c.column_name NOT IN ('id','affiliateId','orderId',
+                      'customerEmail','commissionAmount','status','paidAt','createdAt')
+             LOOP
+               BEGIN
+                 EXECUTE format('ALTER TABLE "affiliate_commissions" ALTER COLUMN %I DROP NOT NULL', r.column_name);
+               EXCEPTION WHEN OTHERS THEN NULL;
+               END;
+             END LOOP;
+           EXCEPTION WHEN OTHERS THEN NULL;
+           END $$`,
+  },
   // ── f. Foreign key + RLS (best effort — tergantung hak role & data legacy) ─
   {
     label: "foreign key affiliate_commissions.affiliateId",

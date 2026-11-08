@@ -268,9 +268,36 @@ export type CreateAffiliateResult =
       /** Baris mitra yang baru dibuat — untuk update state panel tanpa refetch */
       partner: AdminPartnerRow;
     }
-  | { ok: false; reason: "invalid-input" | "ref-code-taken" | "email-taken" | "error" };
+  | {
+      ok: false;
+      reason:
+        | "invalid-input"
+        | "ref-code-taken"
+        | "email-taken"
+        | "user-linked"
+        | "error";
+      /**
+       * Kode + pesan error mentah (bila reason "error") — ditampilkan ke Super
+       * Admin supaya penyebab DB yang sesungguhnya terbaca tanpa harus buka
+       * server logs (mis. "Kode P2022 — column … does not exist").
+       */
+      detail?: string;
+    };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Ringkasan error Prisma/postgres — satu baris pendek untuk ditampilkan */
+function describePrismaError(error: unknown): string | undefined {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    const firstLine = (error.message.split("\n")[0] ?? "").trim();
+    const short = firstLine.replace(/^\s*(Invalid|Error)[^:]*:\s*/i, "").slice(0, 160);
+    return `Kode ${error.code}${short && !short.includes(error.code) ? ` — ${short}` : ""}`;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message.split("\n")[0]?.slice(0, 160);
+  }
+  return undefined;
+}
 
 /**
  * Daftarkan mitra baru tanpa SQL manual. userId di-resolve dari Supabase Auth
@@ -350,14 +377,27 @@ export async function createAffiliate(
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === "P2002"
       ) {
-        // P2002 pada refCode (UNIQUE) — userId juga UNIQUE tapi dinilai null
-        // di jalur ini sehingga bentrok realistis hanya di refCode.
+        // P2002 — bentrok UNIQUE. Bedakan constraint yang dilanggar dari
+        // meta.target agar pesan ke admin akurat (bukan selalu refCode):
+        //   • affiliates_userId_key → email sudah jadi pemilik mitra lain
+        //     (satu akun user = satu affiliator — lihat schema Affiliate)
+        //   • selain itu → refCode sudah dipakai mitra lain
+        const target = error.meta?.target;
+        const targetText = Array.isArray(target)
+          ? target.join(",")
+          : typeof target === "string"
+            ? target
+            : "";
+        if (/userid/i.test(targetText)) {
+          return { ok: false, reason: "user-linked" };
+        }
         return { ok: false, reason: "ref-code-taken" };
       }
       throw error;
     }
   } catch (error) {
     console.error("[UnitKu Affiliate Admin] Gagal mendaftarkan mitra:", error);
-    return { ok: false, reason: "error" };
+    const detail = describePrismaError(error);
+    return { ok: false, reason: "error", ...(detail ? { detail } : {}) };
   }
 }

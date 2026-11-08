@@ -67,10 +67,20 @@ export async function POST(request: NextRequest) {
         "Kode referral sudah dipakai mitra lain — gunakan kode berbeda.",
       "email-taken":
         "Email tersebut sudah terdaftar sebagai mitra affiliator.",
+      "user-linked":
+        "Email ini sudah terhubung ke mitra affiliator lain — satu akun user hanya boleh satu mitra.",
       error: "Gagal mendaftarkan mitra — coba lagi sebentar.",
     };
     return NextResponse.json(
-      { success: false, error: message[result.reason] ?? "Gagal." },
+      {
+        success: false,
+        error: message[result.reason] ?? "Gagal.",
+        // Detail error DB (kode Prisma + pesan pendek) — Super Admin langsung
+        // melihat penyebab sesungguhnya tanpa membuka server logs.
+        ...(result.reason === "error" && result.detail
+          ? { detail: result.detail }
+          : {}),
+      },
       { status },
     );
   }

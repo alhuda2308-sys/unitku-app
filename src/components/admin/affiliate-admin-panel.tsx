@@ -246,11 +246,18 @@ export function AffiliateAdminPanel({
       const json = (await res.json().catch(() => null)) as {
         success?: boolean;
         error?: string;
+        detail?: string;
         linkedUser?: boolean;
         partner?: AdminPartnerRow;
       } | null;
       if (!res.ok || !json?.success || !json.partner) {
-        setFormError(json?.error ?? "Gagal mendaftarkan mitra.");
+        // Tampilkan juga detail error DB bila ada — Super Admin langsung
+        // melihat penyebab teknis tanpa membuka server logs.
+        setFormError(
+          json?.detail && json?.error
+            ? `${json.error} (${json.detail})`
+            : (json?.error ?? "Gagal mendaftarkan mitra."),
+        );
         return;
       }
       setData((prev) => ({
