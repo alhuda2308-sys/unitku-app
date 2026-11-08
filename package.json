@@ -97,7 +97,6 @@
     "typescript": "^5"
   },
   "trustedDependencies": [
-    "@embedded-postgres/linux-x64",
     "@parcel/watcher",
     "@swc/core",
     "es5-ext",
