@@ -10,16 +10,16 @@
 //      Nama Lengkap + Nomor WhatsApp. Validasi SHARED yang sama dengan modal
 //      checkout (src/lib/checkout-validation.ts, cermin validasi server).
 //   3. Dua aksi seimbang:
-//      - Primary  : "Bayar Otomatis (QRIS / VA / E-Wallet)" → ANCHOR LANGSUNG
-//                   membuka URL checkout Mayar resmi (MAYAR_CHECKOUT_URL →
-//                   MAYAR_CHECKOUT_URL_FALLBACK) di TAB BARU — anchor native,
-//                   imun pop-up blocker. Klik dgn form valid menyimpan lead
-//                   dulu via POST /api/leads (fire-and-forget, sumber
-//                   BAYAR_OTOMATIS) agar Admin tetap punya kontak walau
-//                   pembayaran tidak diselesaikan; form TIDAK memblokir
-//                   navigasi — data invoice diisi pembeli di halaman Mayar.
-//                   (Jalur lama POST /api/checkout invoice per-pembeli tidak
-//                   lagi dipakai UI; endpoint tetap tersedia server-side.)
+//      - Primary  : "Bayar Otomatis (QRIS / VA / E-Wallet)" → POST /api/checkout
+//                   (Route Handler internal — SUMBER TUNGGAL invoice Mayar):
+//                   server menyimpan lead dulu, membuat invoice per-pembeli
+//                   via Mayar API dgn metadata.affiliate_ref dari cookie
+//                   `unitku_ref` (atribusi afiliasi), lalu client redirect ke
+//                   {paymentUrl}. Fallback bila /api/checkout belum aktif
+//                   (503): buka link statis Mayar (MAYAR_CHECKOUT_URL →
+//                   MAYAR_CHECKOUT_URL_FALLBACK) yang DITEMPELI query param
+//                   referral (?ref=…&affiliate_ref=…) via
+//                   appendAffiliateRefToUrl() — atribusi tetap terbawa.
 //      - Sekunder : "Pesan Manual via WhatsApp Admin" → VALIDASI form →
 //                   POST /api/leads (simpan kontak — fire-and-forget) → wa.me
 //                   Admin dengan pesan draft pembelian terisi Nama/No. WA
@@ -29,10 +29,9 @@
 // DOCTRINE META PIXEL (akurat, tidak bias — identik dgn modal checkout):
 //   - Pixel menembakkan 'PageView' saja saat halaman dibuka (facebook-pixel).
 //   - fbq('track','InitiateCheckout') ditembakkan TEPAT SEKALI per klik
-//     tombol bayar dan HANYA pada dua momen sah: (a) tombol "Bayar Otomatis"
-//     diklik — pembeli memasuki checkout Mayar (form opsional, tidak
-//     memblokir); ATAU (b) tombol "Pesan Manual via WhatsApp Admin" diklik
-//     dgn form valid.
+//     tombol bayar dan HANYA pada dua momen sah: (a) invoice /api/checkout
+//     sukses dibuat — pembeli memasuki checkout Mayar; ATAU (b) tombol
+//     "Pesan Manual via WhatsApp Admin" diklik dgn form valid.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
@@ -45,6 +44,7 @@ import {
   BadgeCheck,
   CheckCircle2,
   CreditCard,
+  Loader2,
   LockKeyhole,
   MessageCircle,
 } from "lucide-react";
@@ -52,6 +52,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { appendAffiliateRefToUrl } from "@/lib/affiliate";
 import {
   EMPTY_CHECKOUT_FORM,
   buildManualOrderWaLink,
@@ -82,6 +83,7 @@ const BENEFITS = [
 export function CheckoutClient() {
   const [form, setForm] = useState<CheckoutFormState>(EMPTY_CHECKOUT_FORM);
   const [fieldErrors, setFieldErrors] = useState<CheckoutFieldErrors>({});
+  const [submitting, setSubmitting] = useState(false);
 
   /** Guard anti-dobel: InitiateCheckout TEPAT SEKALI per submit form.
    *  Ref di-reset di awal tiap percobaan submit baru, lalu event hanya
@@ -113,10 +115,9 @@ export function CheckoutClient() {
     });
   };
 
-  // URL checkout Mayar resmi — env client dulu, lalu slot hard-coded config.
-  // Sumber tunggal tombol "Bayar Otomatis" halaman ini (identik dgn tombol
-  // gerbang lisensi) — ganti link cukup di landing-config.ts / env, tanpa
-  // menyentuh UI.
+  // URL checkout Mayar statis — HANYA fallback bila /api/checkout belum aktif
+  // (503). Selalu ditempeli query param referral dari cookie `unitku_ref`
+  // (appendAffiliateRefToUrl) agar atribusi afiliasi tetap terbawa.
   const mayarCheckoutUrl =
     MAYAR_CHECKOUT_URL.trim() || MAYAR_CHECKOUT_URL_FALLBACK.trim();
 
@@ -173,33 +174,69 @@ export function CheckoutClient() {
       });
   };
 
-  /** Klik "Bayar Otomatis" — buka halaman checkout Mayar resmi (TAB BARU,
-   *  anchor native imun pop-up blocker). InitiateCheckout ditembakkan sekali
-   *  per klik (momen sah: pembeli memasuki checkout Mayar — form TIDAK
-   *  memblokir navigasi, data invoice diisi pembeli di halaman Mayar). Bila
-   *  form sudah valid, kontak disimpan dulu via POST /api/leads
-   *  (fire-and-forget — navigasi terjadi di tab baru sehingga fetch tetap
-   *  selesai) agar Admin tetap mendapat data walau pembayaran batal. */
-  const handleAutoPay = () => {
-    // Percobaan klik baru → reset guard, lalu tembak InitiateCheckout sekali
+  /** Klik "Bayar Otomatis" — buat invoice Mayar per-pembeli via Route Handler
+   *  internal POST /api/checkout (lead tersimpan di server SEBELUM redirect;
+   *  metadata.affiliate_ref dari cookie `unitku_ref` dikirim ke Mayar untuk
+   *  atribusi komisi afiliasi via webhook). Form wajib valid (invoice butuh
+   *  Nama + No. WhatsApp). Momen sah (a) InitiateCheckout: invoice sukses
+   *  dibuat — event ditembakkan tepat sekali sebelum redirect. Fallback 503
+   *  (checkout otomatis belum aktif): buka link statis Mayar dgn query param
+   *  referral tetap menyertai. */
+  const handleAutoPay = async () => {
+    if (submitting) return;
+    // Percobaan submit baru → reset guard
     initiateCheckoutFiredRef.current = false;
-    fireInitiateCheckoutOnce();
 
-    if (Object.keys(validateCheckoutBuyer(form)).length > 0) return;
+    const errors = validateCheckoutBuyer(form);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      toast.error("Isi dulu nama dan nomor WhatsApp Anda ya.");
+      return;
+    }
 
-    void fetch("/api/leads", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: form.name.trim(),
-        phone: form.phone,
-        source: "BAYAR_OTOMATIS",
-      }),
-    }).catch(() => {
-      // Navigasi ke Mayar adalah aksi utama — kegagalan lead tidak perlu
-      // mengganggu pembeli (Admin tetap melihat transaksi di dasbor Mayar).
-    });
-    toast.success("Membuka halaman pembayaran Mayar…");
+    setSubmitting(true);
+    try {
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          phone: form.phone,
+        }),
+      });
+      const data: { paymentUrl?: string; error?: string; field?: string } =
+        await response.json().catch(() => ({}));
+
+      if (response.ok && typeof data.paymentUrl === "string") {
+        fireInitiateCheckoutOnce();
+        toast.success("Invoice dibuat — membuka halaman pembayaran…");
+        // Redirect tab yang sama: Mayar → kembali ke /payment/success
+        window.location.assign(data.paymentUrl);
+        return;
+      }
+
+      // Checkout otomatis belum aktif (MAYAR_API_KEY kosong) → fallback link
+      // statis Mayar DENGAN kode referral dari cookie `unitku_ref`.
+      if (response.status === 503 && mayarCheckoutUrl) {
+        fireInitiateCheckoutOnce();
+        toast.info("Membuka halaman pembayaran Mayar…");
+        window.location.assign(appendAffiliateRefToUrl(mayarCheckoutUrl));
+        return;
+      }
+
+      const message =
+        data.error ?? "Gagal memproses checkout — silakan coba lagi.";
+      toast.error(message);
+      if (typeof data.field === "string" && data.field) {
+        setFieldErrors({ [data.field]: message } as CheckoutFieldErrors);
+      }
+    } catch {
+      toast.error(
+        "Tidak dapat menghubungi server. Periksa koneksi lalu coba lagi.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -374,40 +411,32 @@ export function CheckoutClient() {
 
               {/* Dua aksi seimbang: checkout otomatis & manual via WA */}
               <div className="grid grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2">
-                {mayarCheckoutUrl ? (
-                  <Button
-                    asChild
-                    className="h-auto min-h-12 whitespace-normal px-3 py-2.5 text-[13px] font-bold leading-snug"
-                  >
-                    <a
-                      href={mayarCheckoutUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={handleAutoPay}
-                      aria-label="Bayar otomatis via Mayar — QRIS, Virtual Account, atau E-Wallet (tab baru)"
-                    >
+                <Button
+                  type="button"
+                  onClick={() => void handleAutoPay()}
+                  disabled={submitting}
+                  className="h-auto min-h-12 whitespace-normal px-3 py-2.5 text-[13px] font-bold leading-snug"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2
+                        className="size-4 shrink-0 animate-spin"
+                        strokeWidth={1.75}
+                        aria-hidden="true"
+                      />
+                      Memproses…
+                    </>
+                  ) : (
+                    <>
                       <CreditCard
                         className="size-4 shrink-0"
                         strokeWidth={1.75}
                         aria-hidden="true"
                       />
                       Bayar Otomatis (QRIS / VA / E-Wallet)
-                    </a>
-                  </Button>
-                ) : (
-                  <Button
-                    disabled
-                    title="URL checkout Mayar belum dikonfigurasi — gunakan tombol WhatsApp di sebelah."
-                    className="h-auto min-h-12 whitespace-normal px-3 py-2.5 text-[13px] font-bold leading-snug"
-                  >
-                    <CreditCard
-                      className="size-4 shrink-0"
-                      strokeWidth={1.75}
-                      aria-hidden="true"
-                    />
-                    Bayar Otomatis (QRIS / VA / E-Wallet)
-                  </Button>
-                )}
+                    </>
+                  )}
+                </Button>
                 <Button
                   asChild
                   variant="outline"

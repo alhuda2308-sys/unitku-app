@@ -82,9 +82,11 @@ function pickNumber(...values: unknown[]): number | undefined {
   return undefined;
 }
 
-/** Event sukses pembayaran — sisanya (expired, refund, dsb.) diabaikan */
+/** Event sukses pembayaran — sisanya (expired, refund, dsb.) diabaikan.
+ *  Mencakup varian resmi Mayar (payment.received) maupun varian umum
+ *  payment/invoice/transaction/order paid|success|settled|completed. */
 function isSuccessEvent(event: string): boolean {
-  return /payment[_.-]?(received|success|paid|settlem|complet)|^(paid|success|settlement|completed?)$/i.test(
+  return /(?:payment|invoice|transaction|order)[_.-]?(received|success|paid|settled?|settlement|completed?)|^(paid|success|settlement|completed?)$/i.test(
     event,
   );
 }
@@ -117,6 +119,8 @@ interface ExtractedPayment {
   /** Kode referral afiliasi dari metadata invoice — null bila bukan traffic afiliasi */
   affiliateRef: string | null;
   eventType?: string;
+  /** Field status mentah (root.status / data.status) — sinyal sukses tambahan */
+  statusValue?: string;
   raw: unknown;
 }
 
@@ -215,14 +219,8 @@ function extractPayment(body: unknown): ExtractedPayment | null {
     transactionId,
     orderId,
     affiliateRef,
-    eventType: pickString(
-      root.event,
-      data.event,
-      root.type,
-      data.type,
-      root.status,
-      data.status,
-    ),
+    eventType: pickString(root.event, data.event, root.type, data.type),
+    statusValue: pickString(root.status, data.status),
     raw: body,
   };
 }
@@ -252,6 +250,24 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => null);
+
+  // Log event mentah — verifikasi alur atribusi afiliasi langsung di Vercel
+  // Logs (payload Mayar bisa flat maupun bersarang data{}).
+  if (isLoose(body)) {
+    console.log(
+      "[Mayar Webhook Event]:",
+      pickString(body.event, body.type) ?? "(tanpa event)",
+      "Data:",
+      JSON.stringify(body.data ?? body),
+    );
+  } else {
+    console.log(
+      "[Mayar Webhook Event]: (payload non-objek)",
+      "Data:",
+      JSON.stringify(body),
+    );
+  }
+
   const payment = extractPayment(body);
   if (!payment) {
     return NextResponse.json(
@@ -264,9 +280,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Referral afiliasi terdeteksi pada payload — atribusi komisi akan diproses
+  // setelah provisioning lisensi sukses (log hasilnya di bawah).
+  if (payment.affiliateRef) {
+    console.log(
+      `[UnitKu Affiliate] metadata.affiliate_ref terdeteksi: "${payment.affiliateRef}" (order ${payment.orderId}, pembeli ${payment.email}).`,
+    );
+  }
+
   // Hanya event pembayaran sukses yang memicu provisioning — event lain
-  // tetap dijawab 200 agar Mayar berhenti mencoba ulang.
-  if (payment.eventType && !isSuccessEvent(payment.eventType)) {
+  // tetap dijawab 200 agar Mayar berhenti mencoba ulang. Sinyal sukses diuji
+  // pada NAMA event (mis. payment.received) DAN field status (mis. "paid")
+  // bila keduanya ada — payload dgn event tidak dikenal tapi status "paid"
+  // tetap diproses, bukan diabaikan.
+  const hasSuccessSignal =
+    Boolean(payment.eventType && isSuccessEvent(payment.eventType)) ||
+    Boolean(payment.statusValue && isSuccessEvent(payment.statusValue));
+  if (payment.eventType && !hasSuccessSignal) {
     console.log(
       `[UnitKu Billing] Event diabaikan: ${payment.eventType} (${payment.transactionId})`,
     );

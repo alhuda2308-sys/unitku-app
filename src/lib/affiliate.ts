@@ -49,6 +49,31 @@ export function sanitizeAffiliateRef(
 }
 
 /**
+ * Tempel kode referral dari cookie `unitku_ref` sebagai query param pada URL
+ * checkout Mayar STATIS (payment link) — dipakai tombol pembayaran yang TIDAK
+ * melalui POST /api/checkout (fallback halaman /checkout & gerbang lisensi)
+ * agar data referral tetap terbawa: …?ref=<kode>&affiliate_ref=<kode>.
+ *
+ * Tanpa ref (cookie kosong) → URL dikembalikan apa adanya. URL tidak valid /
+ * relatif → dikembalikan apa adanya (helper TIDAK pernah melempar).
+ */
+export function appendAffiliateRefToUrl(
+  url: string,
+  ref?: string | null,
+): string {
+  const code = sanitizeAffiliateRef(ref === undefined ? getAffiliateRef() : ref);
+  if (!code || !url) return url;
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set(AFFILIATE_QUERY_PARAM, code);
+    parsed.searchParams.set("affiliate_ref", code);
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Baca kode referral afiliasi dari cookie — sisi CLIENT (browser).
  *
  * Cookie sengaja dibuat httpOnly:false oleh middleware agar form checkout

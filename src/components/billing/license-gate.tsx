@@ -11,7 +11,10 @@
 //      konfirmasi WA sudah ada di bawah). URL: API gerbang (server) →
 //      NEXT_PUBLIC_MAYAR_CHECKOUT_URL → slot hard-coded
 //      MAYAR_CHECKOUT_URL_FALLBACK; semua kosong → tombol disembunyikan
-//      TANPA pesan error mentah yang membingungkan.
+//      TANPA pesan error mentah yang membingungkan. Link statis selalu
+//      ditempeli query param referral (?ref=…&affiliate_ref=…) dari cookie
+//      `unitku_ref` (appendAffiliateRefToUrl) agar atribusi afiliasi tetap
+//      terbawa pada jalur pembayaran ini.
 //   2. Transfer manual BCA — box rekening + tombol "Salin No Rekening"
 //      (ikon berubah jadi centang + toast "Tersalin").
 //   3. Konfirmasi / hubungi admin via WhatsApp — pesan otomatis berisi
@@ -36,6 +39,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { appendAffiliateRefToUrl } from "@/lib/affiliate";
 import { signOut } from "@/lib/auth/client";
 import { toast } from "@/lib/toast";
 import {
@@ -67,10 +71,13 @@ export function LicenseGate({ email, checkoutUrl }: LicenseGateProps) {
   // MAYAR_CHECKOUT_URL_FALLBACK. TIDAK ADA fallback WhatsApp di sini
   // (konfirmasi WA admin sudah tersedia sebagai tombol terpisah di bawah);
   // semua kosong → tombol Mayar disembunyikan (bukan tautan mati).
-  const autoCheckoutUrl =
+  // Link statis selalu ditempeli query param referral dari cookie
+  // `unitku_ref` — atribusi afiliasi ikut terbawa (?ref=…&affiliate_ref=…).
+  const autoCheckoutUrl = appendAffiliateRefToUrl(
     (checkoutUrl ?? "").trim() ||
-    MAYAR_CHECKOUT_URL.trim() ||
-    MAYAR_CHECKOUT_URL_FALLBACK.trim();
+      MAYAR_CHECKOUT_URL.trim() ||
+      MAYAR_CHECKOUT_URL_FALLBACK.trim(),
+  );
 
   const handleCheckAgain = () => {
     setBusy("check");

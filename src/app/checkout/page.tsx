@@ -11,11 +11,14 @@
 //     menyusul HANYA saat tombol bayar diklik (lihat checkout-client.tsx).
 //
 // Alur pembelian (lihat checkout-client.tsx):
-//   Tombol "Bayar Otomatis" → ANCHOR LANGSUNG ke URL checkout Mayar resmi
-//   (landing-config: MAYAR_CHECKOUT_URL → MAYAR_CHECKOUT_URL_FALLBACK) di tab
-//   baru; lead tersimpan via POST /api/leads bila form valid. Tombol "Pesan
-//   Manual via WhatsApp Admin" → POST /api/leads → wa.me Admin.
-//   Pembayaran sukses → webhook /api/webhooks/mayar → lisensi aktif otomatis.
+//   Tombol "Bayar Otomatis" → POST /api/checkout (Route Handler internal):
+//   server menyimpan lead, membuat invoice Mayar per-pembeli dgn
+//   metadata.affiliate_ref dari cookie `unitku_ref` (atribusi afiliasi),
+//   lalu redirect ke URL pembayaran Mayar. Fallback 503: link statis Mayar
+//   dgn query param referral. Tombol "Pesan Manual via WhatsApp Admin" →
+//   POST /api/leads → wa.me Admin.
+//   Pembayaran sukses → webhook /api/webhooks/mayar → lisensi aktif otomatis
+//   + komisi afiliasi Rp150.000 tercatat.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Metadata } from "next";

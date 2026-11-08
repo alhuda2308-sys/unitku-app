@@ -137,6 +137,28 @@ export async function POST(request: NextRequest) {
   const mayarEmail = email || `${phone}@wa.unitku.my.id`;
 
   try {
+    // Payload invoice Mayar — metadata.affiliate_ref membawa kode referral
+    // (cookie `unitku_ref`) agar webhook payment.received dapat mengatribusi
+    // komisi Rp150.000 ke affiliator yang tepat.
+    const mayarPayload = {
+      name,
+      email: mayarEmail,
+      mobile: phone,
+      amount: LICENSE_AMOUNT_IDR,
+      description: MAYAR_DESCRIPTION,
+      redirectUrl,
+      metadata: {
+        affiliate_ref: affiliateRef || null,
+      },
+    };
+
+    // Log payload request ke API Mayar — verifikasi atribusi afiliasi langsung
+    // di Vercel Logs (payload saja, tanpa header Authorization).
+    console.log(
+      "[Mayar Checkout Request Payload]:",
+      JSON.stringify(mayarPayload),
+    );
+
     const response = await fetch(`${apiBase}/payment/create`, {
       method: "POST",
       headers: {
@@ -144,19 +166,7 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({
-        name,
-        email: mayarEmail,
-        mobile: phone,
-        amount: LICENSE_AMOUNT_IDR,
-        description: MAYAR_DESCRIPTION,
-        redirectUrl,
-        // Metadata afiliasi — Mayar mengembalikannya di webhook payment.received
-        // sehingga komisi Rp150.000 tercatat otomatis utk affiliator terkait.
-        metadata: {
-          affiliate_ref: affiliateRef || null,
-        },
-      }),
+      body: JSON.stringify(mayarPayload),
       cache: "no-store",
       signal: AbortSignal.timeout(20_000),
     });
