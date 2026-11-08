@@ -6,6 +6,9 @@
 //   diarahkan ke /login?next=… ; yang sudah masuk tidak melihat /login|/register.
 // - Halaman publik: "/", /login, /register, /legal/*, /portal (penyewa),
 //   /staff (staf), /payment (sukses bayar), /auth/callback (OAuth), aset & PWA.
+// - Link referral (?ref=kode, Tahap 2 affiliate) ditangkap di sini: disimpan
+//   ke cookie `unitku_ref` (30 hari, httpOnly:false, last-click) TANPA
+//   mengubah proteksi sesi — lihat src/lib/affiliate.ts.
 // - /api/* DILEWATKAN middleware — isolasi data ditegakkan di level route
 //   handler (401 JSON) karena beberapa endpoint publik bercabang token
 //   (portal penyewa / verifikasi staf) yang tidak boleh terblokir di sini.
@@ -17,6 +20,12 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import {
+  AFFILIATE_QUERY_PARAM,
+  AFFILIATE_REF_COOKIE,
+  AFFILIATE_REF_MAX_AGE,
+  sanitizeAffiliateRef,
+} from "@/lib/affiliate";
 import {
   isSupabaseConfigured,
   PUBLIC_PAGE_PREFIXES,
@@ -108,7 +117,7 @@ function createSupabaseMiddlewareClient(request: NextRequest) {
   return { client, getResponse: () => response };
 }
 
-export async function middleware(request: NextRequest) {
+async function handleRouteProtection(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
   // API ditegakkan di route handler (401 JSON, bukan redirect halaman)
@@ -160,10 +169,54 @@ export async function middleware(request: NextRequest) {
       url.search = "";
       return NextResponse.redirect(url);
     }
-    return NextResponse.next();
+    // { request }: teruskan cookie yang mungkin baru disuntikkan middleware
+    // induk (unitku_ref) agar Server Component render ini langsung membacanya.
+    return NextResponse.next({ request });
   }
   if (!hasSession) return redirectToLogin(request);
-  return NextResponse.next();
+  return NextResponse.next({ request });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tahap 2 sistem affiliate — Referral Tracking (src/lib/affiliate.ts)
+//
+// Link referral seperti https://unitku.my.id/?ref=budi123 → cookie
+// `unitku_ref` (path "/", umur 30 hari, httpOnly:false agar terbaca
+// client-side saat checkout, sameSite "lax"; atribusi LAST-CLICK: ref baru
+// yang valid menimpa cookie lama). Ref divalidasi ketat — kosong/tidak valid
+// diabaikan tanpa menghapus cookie yang sudah ada.
+//
+// Request TETAP berlanjut normal: proteksi sesi & rute lain tidak berubah dan
+// cookie lain tidak disentuh. Set-Cookie dipasang SETELAH proteksi route
+// selesai agar menempel pada response FINAL (objek response bisa digantikan
+// proses refresh token Supabase di tengah jalan — lihat getResponse()).
+// ─────────────────────────────────────────────────────────────────────────────
+export async function middleware(request: NextRequest) {
+  const ref = sanitizeAffiliateRef(
+    request.nextUrl.searchParams.get(AFFILIATE_QUERY_PARAM),
+  );
+
+  // Suntikkan dulu ke request supaya Server Component pada render INI juga
+  // bisa membaca ref (getAffiliateRefServer) — bukan hanya request berikutnya.
+  if (ref) request.cookies.set(AFFILIATE_REF_COOKIE, ref);
+
+  const response = await handleRouteProtection(request);
+
+  // Cookie hanya untuk halaman — link affiliate menuju halaman, bukan /api/*.
+  if (ref && !request.nextUrl.pathname.startsWith("/api")) {
+    response.cookies.set({
+      name: AFFILIATE_REF_COOKIE,
+      value: ref,
+      path: "/",
+      maxAge: AFFILIATE_REF_MAX_AGE,
+      httpOnly: false,
+      sameSite: "lax",
+      // https://unitku.my.id di produksi → secure; dev http lokal → longgar.
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
+
+  return response;
 }
 
 export const config = {
