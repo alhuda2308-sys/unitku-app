@@ -190,10 +190,36 @@ export async function insertGeneratedArticles(
     is_published: true,
   }));
 
-  const { data, error } = await admin
+  let { data, error } = await admin
     .from("articles")
     .upsert(rows, { onConflict: "slug", ignoreDuplicates: true })
     .select("slug");
+
+  // ── Fallback tahan migrasi ────────────────────────────────────────────────
+  // Bila kolom image_url BELUM ada di Supabase (migrasi ALTER TABLE dari
+  // Task 157 belum dijalankan), insert gagal total padahal konten valid.
+  // Jangan biarkan artikel hilang hanya karena kolom cover: ulangi insert
+  // TANPA kolom image_url — artikel tetap terbit, UI memakai cover default.
+  if (error && /image_url/i.test(error.message)) {
+    console.warn(
+      "[UnitKu Blog] Kolom image_url belum tersedia — ulangi insert tanpa " +
+        "kolom tersebut (jalankan ALTER TABLE add column image_url agar " +
+        "cover Unsplash ikut tersimpan). Detail: " + error.message,
+    );
+    const rowsTanpaCover = articles.map((a) => ({
+      title: a.title,
+      slug: a.slug,
+      meta_description: a.meta_description,
+      content: a.content,
+      is_published: true,
+    }));
+    const retry = await admin
+      .from("articles")
+      .upsert(rowsTanpaCover, { onConflict: "slug", ignoreDuplicates: true })
+      .select("slug");
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     return { inserted: 0, slugs: [], error: error.message };
