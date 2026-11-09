@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 
 import { PayoutSettingsForm } from "@/components/affiliate/payout-settings-form";
+import { PromoBotCard } from "@/components/affiliate/promo-bot-card";
 import { ReferralLinkCard } from "@/components/affiliate/referral-link-card";
 import { MetricCard } from "@/components/kost/metric-card";
 import { Badge } from "@/components/ui/badge";
@@ -324,6 +325,9 @@ function AffiliateDashboardView({
               <div className="mt-6 space-y-4 sm:space-y-5">
                 {/* Link referral */}
                 <ReferralLinkCard refCode={affiliate.refCode} />
+
+                {/* Asisten materi promosi via Telegram bot (@unitku_mitra_bot) */}
+                <PromoBotCard />
 
                 {/* Metrik */}
                 <section aria-label="Ringkasan komisi" className="grid grid-cols-1 gap-3 sm:grid-cols-3">

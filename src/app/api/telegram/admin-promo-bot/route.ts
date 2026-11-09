@@ -2,12 +2,15 @@
 // UnitKu — Telegram Webhook Admin: Generator Stok Konten Iklan Kemitraan
 //
 // POST /api/telegram/admin-promo-bot
-//   Bot Telegram internal ADMIN ONLY untuk generate bahan promosi program
-//   afiliasi secara instan (acak modular: hook + konteks + value + CTA).
+//   Bot Telegram internal ADMIN ONLY untuk generate bahan perekrutan mitra
+//   program afiliasi secara instan (acak modular: hook + konteks + value +
+//   CTA — 100 × 100 × 100 × 100 = 100 juta variasi status medsos).
 //
 //   Menu inline keyboard:
-//     🎲 Acak Status FB / Threads   → gabungan HOOKS × CONTEXTS × VALUES × CTAS
-//     📩 Template Balasan Inbox/DM  → salah satu DM_TEMPLATES siap copy-paste
+//     🎲 Acak Status FB / Threads   → gabungan ADMIN_HOOKS × ADMIN_CONTEXTS ×
+//                                     ADMIN_VALUES × ADMIN_CTAS
+//     📩 Template Balasan Inbox/DM  → salah satu ADMIN_DM_TEMPLATES siap
+//                                     copy-paste (10 variasi)
 //     🔄 Acak Teks Baru             → generate ulang materi yang sama
 //     🔙 Menu Utama                 → kembali ke pilihan jenis materi
 //
@@ -23,10 +26,19 @@
 //         https://unitku.my.id/api/telegram/admin-promo-bot
 //
 // Catatan: /api/* dilewati middleware (lihat src/middleware.ts) — whitelist
-// chat di handler inilah satu-satunya gerbang akses bot ini.
+// chat di handler inilah satu-satunya gerbang bot ini. Bank materi dipisah ke
+// src/data/adminPromoData.ts agar route ringan dan mudah dirawat.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from "next/server";
+
+import {
+  ADMIN_CONTEXTS,
+  ADMIN_CTAS,
+  ADMIN_DM_TEMPLATES,
+  ADMIN_HOOKS,
+  ADMIN_VALUES,
+} from "@/data/adminPromoData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,54 +46,12 @@ export const dynamic = "force-dynamic";
 const BOT_TOKEN = process.env.TELEGRAM_ADMIN_BOT_TOKEN || "9293776042:AAHjcDNIdzkvi0Hl5In7iKk9uiH9W1YgWWU";
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
 
-const HOOKS = [
-  "Punya kenalan atau tetangga juragan kost/kontrakan? Jangan dianggurin.",
-  "Cari tambahan cuan modal jempol doang sambil rebahan di rumah?",
-  "Jualan barang fisik ribet mikir packing & ongkir? Mending lirik yang ini.",
-  "Lagi nemu peluang sampingan gurih yang pasarnya gede banget tapi jarang digarap.",
-  "Daripada scroll medsos seharian nggak dapet apa-apa, mending sebar link produk digital ini.",
-  "Sebuah cara dapet Rp150.000 berkali-kali cuma dari orang-orang di sekitar kita.",
-  "Kalau di sekitarmu banyak rumah kost atau kontrakan, ini ladang cuan empuk."
-];
-
-const CONTEXTS = [
-  "Ada software manajemen kost lokal yang bayarnya cuma sekali seumur hidup (bebas biaya bulanan).",
-  "Produk digital manajemen kosan & tagihan WhatsApp otomatis yang lagi banyak dicari pemilik kontrakan.",
-  "Sistem pencatatan kamar dan kuitansi otomatis buat juragan kost biar hidup mereka tenang.",
-  "Aplikasi pengelola kost tanpa potongan kamar atau tagihan langganan yang bikin pusing.",
-  "Solusi simpel buat rekap sewa kost yang gampang banget diterima sama pemilik properti sekitar.",
-  "Platform manajemen kosan praktis yang sekali beli langsung aktif selamanya."
-];
-
-const VALUES = [
-  "💰 Komisinya flat Rp150.000 per closing langsung cair ke rekening/e-wallet.",
-  "💰 Sekali ada 1 kenalan yang ambil lewat linkmu, Rp150.000 langsung masuk kantong.",
-  "💰 100% GRATIS tanpa modal. Laku 1 dapet 150rb, tembus 10 dapet 1,5 juta lumayan banget.",
-  "💰 Komisi bersih Rp150.000 per transaksi, ada dashboard mandiri buat pantau klik & komisi.",
-  "💰 Nggak perlu repot handle teknis atau CS, sistem yang urus semuanya dari A sampai Z.",
-  "💰 Cuma modal share link referral pribadimu, komisi flat Rp150.000 per lisensi."
-];
-
-const CTAS = [
-  "Yang mau link daftarnya, komen 'MAU' di bawah ya, nanti saya kirim infonya via inbox.",
-  "Mumpung pendaftarannya masih gratis, yang minat langsung komen 'MAU' di bawah!",
-  "Mau ikutan coba? Komen 'MINAT' nanti saya bisikin link dan detailnya langsung.",
-  "Slot mitranya masih terbuka gratis. Komen 'MAU' sekarang biar langsung saya DM.",
-  "Yang mau coba ambil peluang ini, tinggalkan komen di bawah ya!"
-];
-
-const DM_TEMPLATES = [
-  `Halo kak! Makasih udah respon postingan soal kemitraan produk digital tadi ya.\n\nSingkatnya: Ini software manajemen kost (tagihan WA otomatis, no biaya bulanan). Komisi kakak Rp150.000 bersih per closing. Pendaftaran 100% gratis tanpa modal.\n\nAmbil link referral & akses dashboard di sini ya kak:\n👉 https://unitku.my.id/affiliate`,
-  `Siap kak! Info detail kemitraan yang tadi:\nProduknya aplikasi kelola kosan sekali bayar seumur hidup. Cukup bagikan link rekomendasi kakak ke kenalan pemilik kost. Tiap ada closing dapat Rp150.000 langsung.\n\nDaftar gratis & ambil link-nya di:\n👉 https://unitku.my.id/affiliate`,
-  `Halo kak, untuk program partnernya simpel banget ya.\nNggak perlu jualan barang fisik atau packing barang. Cukup rekomendasikan sistem kost UnitKu, komisi flat Rp150.000 per lisensi.\n\nSilakan aktivasi akun mitra gratis di sini:\n👉 https://unitku.my.id/affiliate`
-];
-
 function getRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function generatePromo(): string {
-  return `${getRandom(HOOKS)}\n\n${getRandom(CONTEXTS)}\n\n${getRandom(VALUES)}\n\n${getRandom(CTAS)}`;
+  return `${getRandom(ADMIN_HOOKS)}\n\n${getRandom(ADMIN_CONTEXTS)}\n\n${getRandom(ADMIN_VALUES)}\n\n${getRandom(ADMIN_CTAS)}`;
 }
 
 async function sendTelegram(method: string, payload: any) {
@@ -159,7 +129,7 @@ export async function POST(req: NextRequest) {
         content = generatePromo();
         repeatAction = "gen_promo";
       } else if (data === "gen_dm") {
-        content = getRandom(DM_TEMPLATES);
+        content = getRandom(ADMIN_DM_TEMPLATES);
         repeatAction = "gen_dm";
       }
 
