@@ -351,3 +351,89 @@ export async function sendAdminAffiliateJoinAlert(
     );
   }
 }
+
+// ── Alert PENDAFTARAN PENGGUNA BARU (sign-up akun owner) ────────────────────
+
+export interface UserSignupAlertPayload {
+  /** Nama lengkap pengguna dari form registrasi */
+  userName: string;
+  /** Email akun (bisa email sintetis dari WA: 62xxx@user.unitku.my.id) */
+  email: string;
+  /** No. WhatsApp ternormalisasi 62… — kosong → baris tautan WA dihilangkan */
+  phone?: string | null;
+  /** Waktu pendaftaran (default: sekarang) */
+  occurredAt?: Date | string | number;
+}
+
+/** Pesan Telegram pengguna baru — parse_mode HTML (template sesuai spesifikasi) */
+function buildTelegramUserSignupMessage(
+  payload: UserSignupAlertPayload,
+): string {
+  const userName = escapeHtml(payload.userName.trim() || "Pengguna Baru");
+  const userEmail = escapeHtml(payload.email.trim() || "-");
+  const cleanPhone = payload.phone?.trim()
+    ? normalizeWaPhone(payload.phone)
+    : "";
+  const time = formatSaleTime(payload.occurredAt);
+
+  const lines = [
+    "👤 <b>PENDAFTARAN PENGGUNA BARU UNITKU!</b> 🎉",
+    "",
+    "<b>Detail Akun Pengguna:</b>",
+    `• Nama: <b>${userName}</b>`,
+    `• Email: ${userEmail}`,
+    `• No. WhatsApp: ${cleanPhone || "-"}`,
+    `• Tanggal: ${time}`,
+  ];
+  // Tautan WA hanya bila nomor tersedia — tanpa nomor pesan tetap rapi
+  if (cleanPhone) {
+    // encodeURIComponent menyisakan `'` telanjang → amankan utk atribut HTML;
+    // tidak pernah menghasilkan `"` sehingga href dgn kutip ganda 100% aman
+    const encodedChatWA = encodeURIComponent(
+      `Halo Kak ${payload.userName.trim() || "Kak"}, selamat datang di UnitKu!`,
+    ).replace(/'/g, "%27");
+    lines.push(
+      "",
+      `👉 <a href="https://wa.me/${cleanPhone}?text=${encodedChatWA}">Sapa Pengguna via WhatsApp</a>`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Kirim alert pengguna baru ke Telegram Admin — FAIL-SAFE (pola alert lain):
+ * fetch gagal → hanya log, TIDAK PERNAH melempar error ke pemanggil
+ * (registrasi user tetap sukses). DI-AWAIT LANGSUNG oleh route registrasi
+ * sebelum respons dikirim — menjamin fetch tuntas di runtime serverless
+ * (pelajaran bug after()-void: eksekusi Vercel bisa dibekukan lebih dulu).
+ */
+export async function sendAdminUserSignupAlert(
+  payload: UserSignupAlertPayload,
+): Promise<void> {
+  if (!isSaleAlertConfigured()) {
+    console.error(
+      "[admin-user-signup-alert] Dilewati — kredensial Telegram tidak tersedia.",
+    );
+    return;
+  }
+  console.log(
+    `[Telegram User Signup Alert] Dipanggil — pengguna "${payload.userName}" ` +
+      `(email ${payload.email}, WA ${payload.phone || "-"}). ` +
+      `Kredensial: ${telegramCredentialLogInfo()}.`,
+  );
+  try {
+    await sendTelegramHtmlMessage(
+      buildTelegramUserSignupMessage(payload),
+      "User Signup Alert",
+    );
+    console.log(
+      `[admin-user-signup-alert] Notifikasi pengguna baru terkirim via Telegram ` +
+        `(${payload.userName}, ${payload.email}).`,
+    );
+  } catch (error) {
+    console.error(
+      "[admin-user-signup-alert] Gagal kirim Telegram (registrasi tidak terpengaruh):",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}

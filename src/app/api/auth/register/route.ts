@@ -13,6 +13,8 @@
 // Mode lokal   : akun disimpan di owner_accounts (scrypt) + sesi langsung.
 // Kontak       : tersimpan sebagai lead license_leads (source REGISTER) agar
 //                Panel Super Admin selalu punya data kontak akun.
+// Notifikasi   : Telegram Admin "PENDAFTARAN PENGGUNA BARU" — await langsung
+//                sebelum respons (fail-safe, hanya saat user benar-benar baru).
 // Validasi     : nama ≥2, format WA 62…, password minimal 6.
 // Email lama (body.email) tetap diterima untuk kompatibilitas klien lama.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,6 +28,7 @@ import { createSessionToken, hashPassword, sessionCookieOptions } from "@/lib/au
 import { isPhoneEmail, phoneToEmail } from "@/lib/auth/phone-email";
 import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
 import { notifyAdminLeadAlert } from "@/lib/notifications/admin-lead-alert";
+import { sendAdminUserSignupAlert } from "@/lib/notifications/admin-sale-alert";
 
 export const dynamic = "force-dynamic";
 
@@ -118,6 +121,23 @@ export async function POST(request: NextRequest) {
       return failed;
     }
     await saveLead().then(queueLeadAlert);
+    // ── Notifikasi Telegram Admin — PENGGUNA BARU (await langsung) ─────────
+    // signUp sukses tanpa error = user baru tercatat di Supabase Auth (error
+    // "already registered" sudah tersaring di atas). Guard identities:
+    // Supabase mengembalikan identities KOSONG utk email yang SUDAH terdaftar
+    // saat verifikasi email aktif → tidak ada user baru dibuat → jangan spam
+    // notifikasi utk percobaan ulang. Await penuh agar fetch Telegram tuntas
+    // sebelum respons (runtime serverless tidak memotong proses); fungsi
+    // fail-safe — gagal kirim tidak pernah membatalkan registrasi.
+    const isNewUser = (data.user?.identities?.length ?? 1) > 0;
+    if (isNewUser) {
+      await sendAdminUserSignupAlert({
+        userName: name,
+        email,
+        phone,
+        occurredAt: new Date(),
+      });
+    }
     const response = NextResponse.json({
       ok: true,
       needsEmailConfirmation: !data.session,
@@ -144,6 +164,15 @@ export async function POST(request: NextRequest) {
       data: { email, passwordHash: hashPassword(password) },
     });
     await saveLead().then(queueLeadAlert);
+    // Akun lokal baru BENAR-BENAR dibuat (email existing sudah tersaring di
+    // atas) → notifikasi Telegram Admin dgn await langsung — fail-safe,
+    // gagal kirim tidak pernah membatalkan registrasi (lihat mode Supabase).
+    await sendAdminUserSignupAlert({
+      userName: name,
+      email,
+      phone,
+      occurredAt: new Date(),
+    });
     const response = NextResponse.json({
       ok: true,
       needsEmailConfirmation: false,
