@@ -40,12 +40,17 @@
 //   referral (?ref=…&affiliate_ref=…) — client langsung me-redirect pembeli
 //   ke sana sehingga TIDAK PERNAH terhenti di error.
 //
-//   Affiliate (Tahap 3): kode referral dari cookie `unitku_ref` (30 hari,
-//          di-set middleware dari ?ref=… — lihat src/lib/affiliate.ts) diselipkan
-//          ke extraData invoice → ikut kembali pada webhook payment.received
-//          sebagai extraData/metadata.affiliate_ref untuk atribusi komisi.
+//   Affiliate (Tahap 3): kode referral dari body.ref (diteruskan form checkout
+//          dari ?ref= URL mitra — PRIORITAS UTAMA) lalu cookie `unitku_ref`
+//          (30 hari, di-set middleware dari ?ref=… — lihat src/lib/affiliate.ts)
+//          divalidasi ke tabel affiliates (mitra AKTIF, case-insensitive).
+//          Kode kanonik diselipkan ke extraData invoice → ikut kembali pada
+//          webhook payment.received sebagai extraData.affiliate_ref untuk
+//          atribusi komisi; source lead menjadi "Referral: <kode>" (bukan
+//          BAYAR_OTOMATIS) agar kolom Sumber Panel Admin menunjukkan mitra.
 //
 //   Logging Vercel (verifikasi atribusi & debugging penolakan Mayar):
+//          [Checkout Source Deteksi]: { bodyRef, cookieRef, finalSource }
 //          [Mayar Checkout Request Payload]: <json payload>
 //          [Mayar Error {status} Raw Body]: <body mentah penolakan>
 //          [UnitKu Checkout] Invoice Mayar V2 dibuat: <json response>
@@ -58,8 +63,9 @@
 
 import { NextResponse, after, type NextRequest } from "next/server";
 
-import { upsertLicenseLead } from "@/lib/billing/license";
-import { appendAffiliateRefToUrl, sanitizeAffiliateRef } from "@/lib/affiliate";
+import { upsertLicenseLead, type LicenseLeadSource } from "@/lib/billing/license";
+import { appendAffiliateRefToUrl } from "@/lib/affiliate";
+import { resolveActiveAffiliate } from "@/lib/affiliate-resolve";
 import { getAffiliateRefServer } from "@/lib/affiliate-server";
 import { parseBuyerInput } from "@/lib/checkout-validation";
 import {
@@ -130,7 +136,8 @@ function tryParseMayarBody(rawBody: string): unknown {
 }
 
 export async function POST(request: NextRequest) {
-  const parsed = parseBuyerInput(await request.json().catch(() => null));
+  const rawBody = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const parsed = parseBuyerInput(rawBody);
   if (!parsed.ok) {
     return NextResponse.json(
       { success: false, error: parsed.error, field: parsed.field },
@@ -139,13 +146,34 @@ export async function POST(request: NextRequest) {
   }
   const { name, email, phone } = parsed.data;
 
-  // ── Kode referral afiliasi (Tahap 3) — dari cookie `unitku_ref` ──────────
-  // Cookie sudah disaring middleware, disaring ulang di sini sebagai pertahanan
-  // tambahan (defense-in-depth) sebelum dikirim ke API pihak ketiga.
-  const affiliateRef = sanitizeAffiliateRef(await getAffiliateRefServer());
-  if (affiliateRef) {
+  // ── Kode referral afiliasi (Tahap 3) — PRIORITAS body.ref dari form ──────
+  // Form checkout meneruskan ?ref= URL mitra secara eksplisit di body JSON
+  // (atribusi tidak bergantung pada cookie); bila kosong, fallback cookie
+  // `unitku_ref` (last-click 30 hari dari middleware). Kode divalidasi ke
+  // tabel affiliates — hanya mitra AKTIF, pencocokan case-insensitive,
+  // refCode yang dipakai = versi kanonik DB. Fail-safe: DB gagal / kode tak
+  // terdaftar / mitra nonaktif → organik, checkout TIDAK pernah terblokir.
+  const bodyRef = typeof rawBody.ref === "string" ? rawBody.ref.trim() : "";
+  const bodyRefCode = typeof rawBody.refCode === "string" ? rawBody.refCode.trim() : "";
+  const cookieRef = (await getAffiliateRefServer()) ?? "";
+  const affiliate = await resolveActiveAffiliate(bodyRef || bodyRefCode || cookieRef);
+  const affiliateRef = affiliate?.refCode ?? null;
+  // Source lead mencerminkan atribusi mitra — kolom Sumber Panel Admin
+  // menampilkan badge "Referral (kode)" tanpa menunggu pembayaran selesai.
+  const leadSource: LicenseLeadSource = affiliate
+    ? `Referral: ${affiliate.refCode}`
+    : "BAYAR_OTOMATIS";
+
+  // Jejak audit deteksi sumber — verifikasi atribusi langsung di Vercel Logs.
+  console.log("[Checkout Source Deteksi]:", {
+    bodyRef: bodyRef || null,
+    bodyRefCode: bodyRefCode || null,
+    cookieRef: cookieRef || null,
+    finalSource: leadSource,
+  });
+  if (affiliate) {
     console.log(
-      `[UnitKu Checkout] Traffic referral afiliasi: "${affiliateRef}" (pembeli ${phone})`,
+      `[UnitKu Checkout] Traffic referral afiliasi: "${affiliate.refCode}" (mitra ${affiliate.name}, pembeli ${phone})`,
     );
   }
 
@@ -164,7 +192,7 @@ export async function POST(request: NextRequest) {
   // Kegagalan penyimpanan TIDAK memblokir checkout (cukup dicatat di log).
   // Payload tanpa email (hanya nama + WA) WAJIB tetap tersimpan (email null).
   try {
-    const leadResult = await upsertLicenseLead({ name, email, phone, source: "BAYAR_OTOMATIS" });
+    const leadResult = await upsertLicenseLead({ name, email, phone, source: leadSource });
     // Lead benar-benar baru → notifikasi instan ke HP Admin via after()
     // (respons checkout tetap kilat; kontak lama tidak memicu alert ulang)
     if (leadResult.created) {
@@ -173,7 +201,7 @@ export async function POST(request: NextRequest) {
           name,
           phone,
           email,
-          source: "BAYAR_OTOMATIS",
+          source: leadSource,
           registeredAt: new Date(),
         }),
       );
@@ -222,8 +250,8 @@ export async function POST(request: NextRequest) {
   try {
     // Payload invoice Mayar API V2 (POST /payments/create) — `amount` satu-
     // satunya field wajib; sisanya opsional. Custom data V2 = `extraData`
-    // (pengganti `metadata` V1) berisi kode referral cookie `unitku_ref`
-    // agar webhook payment.received dapat mengatribusi komisi Rp150.000 ke
+    // (pengganti `metadata` V1) berisi kode referral KANONIK mitra agar
+    // webhook payment.received dapat mengatribusi komisi Rp150.000 ke
     // affiliator yang tepat. Tidak ada ID transaksi/produk — Mayar yang
     // men-generate.
     const mayarPayload: Record<string, unknown> = {

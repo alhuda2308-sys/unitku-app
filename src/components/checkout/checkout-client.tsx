@@ -9,12 +9,12 @@
 //   2. Form ZERO FRICTION — HANYA 2 input (email dihapus sepenuhnya):
 //      Nama Lengkap + Nomor WhatsApp. Validasi SHARED yang sama dengan modal
 //      checkout (src/lib/checkout-validation.ts, cermin validasi server).
-//   3. Dua aksi seimbang:
+//   3. Dua aksi seimbang (ORGANIK) / SATU aksi penuh (REFERRAL MITRA):
 //      - Primary  : "Bayar Otomatis (QRIS / VA / E-Wallet)" → POST /api/checkout
 //                   (Route Handler internal — SUMBER TUNGGAL invoice Mayar):
 //                   server menyimpan lead dulu, membuat invoice per-pembeli
-//                   via Mayar API dgn metadata.affiliate_ref dari cookie
-//                   `unitku_ref` (atribusi afiliasi), lalu client redirect ke
+//                   via Mayar API dgn extraData.affiliate_ref (kode referral
+//                   divalidasi ke tabel affiliates), lalu client redirect ke
 //                   {paymentUrl}. FALLBACK MULUS: bila invoice gagal dibuat
 //                   (Mayar 409/timeout/503 — apapun), server mengembalikan
 //                   `fallbackUrl` = payment link statis UnitKu dgn query
@@ -23,8 +23,15 @@
 //                   terhenti di layar error.
 //      - Sekunder : "Pesan Manual via WhatsApp Admin" → VALIDASI form →
 //                   POST /api/leads (simpan kontak — fire-and-forget) → wa.me
-//                   Admin dengan pesan draft pembelian terisi Nama/No. WA
-//                   (anchor native, imun pop-up blocker).
+//                   Admin (anchor native, imun pop-up blocker).
+//                   ⚠ HANYA tampil bila TANPA referral: halaman dibuka dgn
+//                   ?ref= (link mitra) / cookie `unitku_ref` → tombol manual
+//                   DISEMBUNYIKAN dan "Bayar Otomatis" tampil penuh (w-full)
+//                   — mencegah kebocoran komisi mitra ke chat manual:
+//                   transaksi referral WAJIB melewati payment gateway Mayar
+//                   agar extraData.affiliate_ref terkirim (komisi tercatat).
+//                   Kode referral diteruskan EKSPLISIT di body checkout
+//                   (prioritas server di atas cookie).
 //   4. Catatan jaminan di bawah tombol.
 //
 // DOCTRINE META PIXEL (akurat, tidak bias — identik dgn modal checkout):
@@ -32,10 +39,12 @@
 //   - fbq('track','InitiateCheckout') ditembakkan TEPAT SEKALI per klik
 //     tombol bayar dan HANYA pada dua momen sah: (a) invoice /api/checkout
 //     sukses dibuat — pembeli memasuki checkout Mayar; ATAU (b) tombol
-//     "Pesan Manual via WhatsApp Admin" diklik dgn form valid.
+//     "Pesan Manual via WhatsApp Admin" diklik dgn form valid (organik saja —
+//     tombol disembunyikan pada traffic referral).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
+  useEffect,
   useRef,
   useState,
   type MouseEvent,
@@ -60,6 +69,7 @@ import {
   type CheckoutFieldErrors,
   type CheckoutFormState,
 } from "@/lib/checkout-validation";
+import { getAffiliateRef, sanitizeAffiliateRef } from "@/lib/affiliate";
 import { LICENSE_AMOUNT_IDR, SUPPORT_WA_PURCHASE_LINK } from "@/lib/landing-config";
 import { toast } from "@/lib/toast";
 
@@ -75,10 +85,34 @@ const BENEFITS = [
   "Tanpa biaya bulanan / biaya per kamar selamanya",
 ] as const;
 
-export function CheckoutClient() {
+export function CheckoutClient({
+  initialRef,
+}: {
+  /** Kode referral dari ?ref=/ref_code= URL — dibaca Server Component page */
+  initialRef?: string | null;
+}) {
   const [form, setForm] = useState<CheckoutFormState>(EMPTY_CHECKOUT_FORM);
   const [fieldErrors, setFieldErrors] = useState<CheckoutFieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
+
+  /** Kode referral mitra — null = organik.
+   *  SSR : dari ?ref= URL (initialRef — tanpa layout shift saat render awal).
+   *  Client: fallback cookie `unitku_ref` (last-click 30 hari dari middleware)
+   *  dibaca sekali setelah mount — menutup kasus masuk via landing /?ref= lalu
+   *  navigasi client-side ke /checkout tanpa query param. */
+  const [referral, setReferral] = useState<string | null>(() =>
+    sanitizeAffiliateRef(initialRef),
+  );
+
+  useEffect(() => {
+    setReferral((current) => current ?? getAffiliateRef());
+  }, []);
+
+  /** true = traffic referral mitra → SEMBUNYIKAN tombol "Pesan Manual via
+   *  WhatsApp Admin" (komisi mitra tidak boleh bocor ke chat manual) dan
+   *  tampilkan "Bayar Otomatis" penuh — transaksi wajib via Mayar agar
+   *  extraData.affiliate_ref terkirim ke webhook komisi. */
+  const hasReferral = referral !== null;
 
   /** Guard anti-dobel: InitiateCheckout TEPAT SEKALI per submit form.
    *  Ref di-reset di awal tiap percobaan submit baru, lalu event hanya
@@ -192,6 +226,9 @@ export function CheckoutClient() {
         body: JSON.stringify({
           name: form.name.trim(),
           phone: form.phone,
+          // Kode referral diteruskan EKSPLISIT di body — server memprioritaskan
+          // body.ref di atas cookie (atribusi 100% meski cookie tidak terbawa).
+          ...(referral ? { ref: referral } : {}),
         }),
       });
       const data: {
@@ -406,13 +443,20 @@ export function CheckoutClient() {
                 )}
               </div>
 
-              {/* Dua aksi seimbang: checkout otomatis & manual via WA */}
-              <div className="grid grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2">
+              {/* Aksi: referral → Bayar Otomatis penuh (1 kolom); organik →
+                  dua aksi seimbang (checkout otomatis & manual via WA) */}
+              <div
+                className={
+                  hasReferral
+                    ? "grid grid-cols-1 gap-2.5 pt-1"
+                    : "grid grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2"
+                }
+              >
                 <Button
                   type="button"
                   onClick={() => void handleAutoPay()}
                   disabled={submitting}
-                  className="h-auto min-h-12 whitespace-normal px-3 py-2.5 text-[13px] font-bold leading-snug"
+                  className="h-auto min-h-12 w-full whitespace-normal px-3 py-2.5 text-[13px] font-bold leading-snug"
                 >
                   {submitting ? (
                     <>
@@ -434,25 +478,27 @@ export function CheckoutClient() {
                     </>
                   )}
                 </Button>
-                <Button
-                  asChild
-                  variant="outline"
-                  className="h-auto min-h-12 whitespace-normal border-green-600 px-3 py-2.5 text-[13px] font-bold leading-snug text-green-700 hover:bg-green-50 hover:text-green-800"
-                >
-                  <a
-                    href={manualWaHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={handleManualOrder}
+                {!hasReferral && (
+                  <Button
+                    asChild
+                    variant="outline"
+                    className="h-auto min-h-12 whitespace-normal border-green-600 px-3 py-2.5 text-[13px] font-bold leading-snug text-green-700 hover:bg-green-50 hover:text-green-800"
                   >
-                    <MessageCircle
-                      className="size-4 shrink-0"
-                      strokeWidth={1.75}
-                      aria-hidden="true"
-                    />
-                    Pesan Manual via WhatsApp Admin
-                  </a>
-                </Button>
+                    <a
+                      href={manualWaHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={handleManualOrder}
+                    >
+                      <MessageCircle
+                        className="size-4 shrink-0"
+                        strokeWidth={1.75}
+                        aria-hidden="true"
+                      />
+                      Pesan Manual via WhatsApp Admin
+                    </a>
+                  </Button>
+                )}
               </div>
 
               {/* Jaminan & keamanan */}

@@ -56,6 +56,7 @@ import {
   type CheckoutFieldErrors,
   type CheckoutFormState,
 } from "@/lib/checkout-validation";
+import { getAffiliateRef } from "@/lib/affiliate";
 import {
   LICENSE_AMOUNT_IDR,
   LICENSE_PRICE_LABEL,
@@ -187,13 +188,17 @@ export function BuyCta({
     // Submit baru → izinkan InitiateCheckout ditembakkan sekali utk percobaan ini
     initiateCheckoutFiredRef.current = false;
     try {
-      // Zero friction — hanya nama + No. WhatsApp (email tidak dikumpulkan)
+      // Zero friction — hanya nama + No. WhatsApp (email tidak dikumpulkan).
+      // Kode referral dari cookie `unitku_ref` diteruskan eksplisit di body —
+      // server memprioritaskan body.ref di atas cookie (atribusi mitra 100%).
+      const refCode = getAffiliateRef();
       const response = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: form.name.trim(),
           phone: form.phone,
+          ...(refCode ? { ref: refCode } : {}),
         }),
       });
       const data: { paymentUrl?: string; error?: string; field?: string } =

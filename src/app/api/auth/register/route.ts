@@ -36,12 +36,11 @@ import {
   AFFILIATE_QUERY_PARAM,
   AFFILIATE_REF_COOKIE,
   AFFILIATE_REF_COOKIE_LEGACY,
-  sanitizeAffiliateRef,
 } from "@/lib/affiliate";
+import { resolveActiveAffiliate } from "@/lib/affiliate-resolve";
 import { notifyAdminLeadAlert } from "@/lib/notifications/admin-lead-alert";
 import {
   sendAdminUserSignupAlert,
-  type UserSignupReferralSource,
 } from "@/lib/notifications/admin-sale-alert";
 
 export const dynamic = "force-dynamic";
@@ -121,61 +120,12 @@ export async function POST(request: NextRequest) {
   const cookieLegacyRef = request.cookies.get(AFFILIATE_REF_COOKIE_LEGACY)?.value ?? "";
   const rawRef = bodyRef || bodyRefCode || queryRef || cookieUnitkuRef || cookieLegacyRef;
 
-  /**
-   * Deteksi sumber referral pendaftaran — fail-safe (lookup gagal / kode
-   * tak terdaftar / mitra nonaktif = organik, TIDAK pernah memblokir daftar).
-   * Pencocokan CASE-INSENSITIVE: link disebar lowercase tapi refCode di DB
-   * bisa campuran ("budi2026" tetap cocok dgn "Budi2026") — pola ini
-   * menutup kebocoran atribusi kode input admin lama. refCode yang
-   * disimpan = versi kanonik di DB. Hanya mitra AKTIF dihitung.
-   */
-  const resolveReferralSource = async (): Promise<UserSignupReferralSource | null> => {
-    const code = sanitizeAffiliateRef(rawRef);
-    if (!code) return null;
-    try {
-      // Postgres `mode: "insensitive"` — satu query menangkap semua varian
-      // case; ambil varian AKTIF bila ada duplikat case di data lama.
-      const matches = await db.affiliate.findMany({
-        where: { refCode: { equals: code, mode: "insensitive" } },
-        select: { name: true, refCode: true, isActive: true },
-      });
-      const active = matches.find((m) => m.isActive);
-      if (active) return { name: active.name, refCode: active.refCode };
-      if (matches.length > 0) return null; // hanya varian nonaktif → organik
-    } catch (error) {
-      // Fallback provider DB tanpa mode "insensitive": exact → lowercase
-      // (maks. 2 query findUnique — perilaku lama yang sudah terbukti).
-      console.error(
-        "[api/auth/register] Lookup insensitive gagal, fallback exact/lowercase:",
-        error instanceof Error ? error.message : error,
-      );
-      const candidates = [...new Set([code, code.toLowerCase()])];
-      for (const candidate of candidates) {
-        try {
-          const mitra = await db.affiliate.findUnique({
-            where: { refCode: candidate },
-            select: { name: true, refCode: true, isActive: true },
-          });
-          if (mitra && mitra.isActive) {
-            return { name: mitra.name, refCode: mitra.refCode };
-          }
-          if (mitra && !mitra.isActive) return null; // mitra nonaktif → organik
-        } catch {
-          return null; // DB tidak terjangkau → organik (fail-safe)
-        }
-      }
-    }
-    console.log(
-      `[api/auth/register] Kode referral "${code}" tidak terdaftar — pendaftaran dihitung organik.`,
-    );
-    return null;
-  };
-
   // ── Sumber pendaftaran (dihitung SEKALI, dipakai bersama) ─────────────────
-  // Field `source` lead = "Referral: <kode>" bila daftar lewat link mitra,
+  // Field `source` lead = "Referral: <kode>" bila daftar lewat link mitra
+  // (mitra AKTIF, pencocokan case-insensitive — lihat resolveActiveAffiliate),
   // "Organik (Web)" bila mandiri → kolom Sumber Panel Super Admin selalu
   // terisi informatif. Fail-safe: lookup gagal/kode tak terdaftar = organik.
-  const referralSource = await resolveReferralSource();
+  const referralSource = await resolveActiveAffiliate(rawRef);
   const leadSource: LicenseLeadSource = referralSource
     ? `Referral: ${referralSource.refCode}`
     : "Organik (Web)";
