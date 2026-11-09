@@ -37,6 +37,9 @@ import {
 
 function isPublicPage(pathname: string): boolean {
   if (pathname === "/") return true; // landing komersial publik (Mayar KYC)
+  // Landing program afiliasi (/affiliate) publik — gerbang promosi mitra.
+  // EXACT MATCH saja: /affiliate/dashboard TETAP terproteksi sesi/token.
+  if (pathname === "/affiliate") return true;
   return PUBLIC_PAGE_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
