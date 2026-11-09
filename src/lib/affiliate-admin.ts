@@ -400,6 +400,10 @@ export interface CreateAffiliateInput {
   refCode: string;
   /** No. WhatsApp mitra — dinormalisasi ke 62xxxxxxxxxx (kunci identitas) */
   phone: string;
+  /** Opsional — rekening pencairan awal (bisa dilengkapi mitra di dashboard) */
+  bankName?: string | null;
+  bankAccountNo?: string | null;
+  bankAccountName?: string | null;
 }
 
 export type CreateAffiliateResult =
@@ -581,6 +585,9 @@ export async function createAffiliate(
             userId,
             accessToken,
             isActive: true,
+            bankName: input.bankName?.trim().slice(0, 80) || null,
+            bankAccountNo: input.bankAccountNo?.trim().slice(0, 60) || null,
+            bankAccountName: input.bankAccountName?.trim().slice(0, 80) || null,
           },
         });
         const partner: AdminPartnerRow = {

@@ -1,8 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// UnitKu — Notifikasi instan PENJUALAN BARU ke Telegram Admin (server-only)
+// UnitKu — Notifikasi instan ke Telegram Admin (server-only)
 //
-// Dipicu webhook Mayar PERSIS SETELAH pembayaran berhasil diverifikasi &
-// transaksi tercatat ke database (license_purchases + komisi afiliasi).
+// Dua jenis alert, SATU handler Telegram yang sama (fail-safe):
+//   1. PENJUALAN BARU — dipicu webhook Mayar persis setelah pembayaran
+//      berhasil diverifikasi & transaksi tercatat (VIA AFILIASI / ORGANIK).
+//   2. MITRA BARU BERGABUNG — dipicu POST /api/affiliate/join saat calon
+//      mitra berhasil mendaftar lewat form publik /affiliate/join.
 // Deteksi otomatis:
 //   • VIA AFILIASI — kode referral valid & komisi Rp150.000 masuk antrean
 //     (pesan berisi data mitra + tombol WA "Kabari Kak {nama_mitra}")
@@ -223,6 +226,84 @@ export function notifyAdminSaleAlert(payload: SaleAlertPayload): void {
   void sendAdminSaleAlert(payload).catch((error: unknown) => {
     console.error(
       "[admin-sale-alert] Notifikasi penjualan gagal terkirim:",
+      error instanceof Error ? error.message : error,
+    );
+  });
+}
+
+// ── Alert MITRA AFILIASI BARU BERGABUNG (form publik /affiliate/join) ───────
+
+export interface AffiliateJoinAlertPayload {
+  /** Nama mitra — ditampilkan dgn sapaan "Kak {nama}" */
+  partnerName: string;
+  /** No. WhatsApp mitra ternormalisasi 62xxxxxxxxxx */
+  phone: string;
+  /** Kode referral yang baru diklaim */
+  refCode: string;
+}
+
+/** Pesan Telegram mitra baru — parse_mode HTML (template sesuai spesifikasi) */
+function buildTelegramAffiliateJoinMessage(
+  payload: AffiliateJoinAlertPayload,
+): string {
+  const mitra = escapeHtml(payload.partnerName);
+  const refCode = escapeHtml(payload.refCode);
+  const chatWa = encodeURIComponent(
+    `Halo Kak ${payload.partnerName}, selamat bergabung di afiliasi UnitKu!`,
+  ).replace(/'/g, "%27");
+  return [
+    "🤝 <b>MITRA AFILIASI BARU BERGABUNG!</b>",
+    `• Nama: <b>Kak ${mitra}</b>`,
+    `• WhatsApp: ${payload.phone}`,
+    `• Kode Ref: <code>${refCode}</code>`,
+    "",
+    `👉 <a href="https://wa.me/${payload.phone}?text=${chatWa}">Sapa via WhatsApp</a>`,
+  ].join("\n");
+}
+
+/**
+ * Kirim alert mitra baru ke Telegram Admin — FAIL-SAFE (pola sendAdminSale
+ * Alert): env tidak diset → skip diam-diam; fetch gagal → hanya log.
+ * TIDAK PERNAH melempar error ke pemanggil (registrasi tetap sukses).
+ */
+export async function sendAdminAffiliateJoinAlert(
+  payload: AffiliateJoinAlertPayload,
+): Promise<void> {
+  if (!isSaleAlertConfigured()) return; // env belum diset — lewati tanpa error
+  try {
+    const token = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
+    const chatId = getSaleAlertTelegramChatId();
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: buildTelegramAffiliateJoinMessage(payload),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`Telegram HTTP ${res.status}`);
+    console.log(
+      `[admin-affiliate-alert] Notifikasi mitra baru terkirim via Telegram ` +
+        `(Kak ${payload.partnerName}, WA ${payload.phone}, ref ${payload.refCode}).`,
+    );
+  } catch (error) {
+    console.error(
+      "[admin-affiliate-alert] Gagal kirim Telegram (registrasi tidak terpengaruh):",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+/** Fire-and-forget — dipanggil route via after(): respons API tidak menunggu */
+export function notifyAdminAffiliateJoinAlert(
+  payload: AffiliateJoinAlertPayload,
+): void {
+  void sendAdminAffiliateJoinAlert(payload).catch((error: unknown) => {
+    console.error(
+      "[admin-affiliate-alert] Notifikasi mitra baru gagal terkirim:",
       error instanceof Error ? error.message : error,
     );
   });
