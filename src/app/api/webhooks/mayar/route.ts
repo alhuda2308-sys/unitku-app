@@ -28,7 +28,7 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { sanitizeAffiliateRef } from "@/lib/affiliate";
 import { recordAffiliateCommissionIfNew } from "@/lib/affiliate-commission";
 import { applyPaidLicense } from "@/lib/billing/license";
-import { notifyAdminSaleAlert } from "@/lib/notifications/admin-sale-alert";
+import { sendAdminSaleAlert } from "@/lib/notifications/admin-sale-alert";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -389,9 +389,12 @@ export async function POST(request: NextRequest) {
     // ── Notifikasi instan Telegram Admin — PENJUALAN BARU ──────────────────
     // Persis setelah pembayaran terverifikasi & transaksi tercatat ke DB.
     // Hanya transaksi BARU (retry webhook / duplikat tidak di-notifikasi
-    // ulang). Via after(): respons 200 ke Mayar TIDAK menunggu Telegram;
-    // notifyAdminSaleAlert fail-safe total (env kosong = skip, fetch error
-    // = hanya log).
+    // ulang). Via after() DENGAN callback async yang await penuh: respons
+    // 200 ke Mayar tetap tidak menunggu, TETAPI after() kini melacak
+    // Promise-nya sehingga runtime serverless TIDAK membekukan eksekusi
+    // sebelum fetch Telegram tuntas (bug lama: callback void → notifikasi
+    // hilang diam-diam di Vercel). sendAdminSaleAlert fail-safe total
+    // (fetch error = hanya log, respons webhook tidak pernah berubah).
     if (!result.duplicate) {
       const salePayload = {
         buyerName: payment.name ?? payment.email,
@@ -412,7 +415,9 @@ export async function POST(request: NextRequest) {
               }
             : null,
       };
-      after(() => notifyAdminSaleAlert(salePayload));
+      after(async () => {
+        await sendAdminSaleAlert(salePayload);
+      });
     }
 
     return NextResponse.json({

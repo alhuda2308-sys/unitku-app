@@ -268,12 +268,17 @@ export async function sendAdminLeadAlert(payload: LeadAlertPayload): Promise<voi
 }
 
 /**
- * Fire-and-forget — DIPANGGIL dari route handler via after() (next/server):
- * respons API tidak menunggu pengiriman notifikasi (registrasi tetap kilat),
- * error hanya masuk log server, tidak pernah melempar.
+ * Dipanggil dari route handler via after() (next/server) — MENGEMBALIKAN
+ * Promise (bukan void) agar after() benar-benar MELACAK dan MENUNGGU
+ * pengiriman sampai tuntas: bug lama callback void membuat runtime
+ * serverless (Vercel) membekukan eksekusi sebelum fetch selesai →
+ * notifikasi hilang diam-diam. Respons API tetap tidak menunggu (after()
+ * berjalan setelah respons), error hanya masuk log, tidak pernah melempar.
  */
-export function notifyAdminLeadAlert(payload: LeadAlertPayload): void {
-  void sendAdminLeadAlert(payload).catch((error: unknown) => {
+export function notifyAdminLeadAlert(
+  payload: LeadAlertPayload,
+): Promise<void> {
+  return sendAdminLeadAlert(payload).catch((error: unknown) => {
     console.error(
       "[admin-lead-alert] Notifikasi gagal terkirim:",
       error instanceof Error ? error.message : error,

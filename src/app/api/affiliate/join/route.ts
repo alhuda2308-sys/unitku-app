@@ -12,17 +12,18 @@
 //       - accessToken magic-link dibuat → dashboard mitra tanpa login.
 //       - Rekening bank/e-wallet opsional langsung tersimpan (boleh kosong —
 //         dilengkapi mitra sendiri di dashboardnya).
-//   • Sukses → notifikasi Telegram Admin (fail-safe, via after()).
+//   • Sukses → notifikasi Telegram Admin dikirim dgn AWAIT LANGSUNG sebelum
+//     respons (bukan after() — lihat catatan di blok notifikasi di bawah).
 //
 // Anti-spam ringan: rate limit memori per IP (5 daftar / 10 menit) — tanpa
 // middleware tambahan. Gagal limit → 429, form menampilkan pesan ramah.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { NextResponse, after, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 import { createAffiliate } from "@/lib/affiliate-admin";
 import { normalizeWaPhone } from "@/lib/checkout-validation";
-import { notifyAdminAffiliateJoinAlert } from "@/lib/notifications/admin-sale-alert";
+import { sendAdminAffiliateJoinAlert } from "@/lib/notifications/admin-sale-alert";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -188,15 +189,20 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── Notifikasi Telegram Admin — fail-safe, via after() ─────────────────────
+  // ── Notifikasi Telegram Admin — AWAIT LANGSUNG (bukan after()) ─────────────
+  // Bug produksi terverifikasi: after(() => notify...()) dgn callback VOID
+  // membuat after() tidak melacak Promise-nya — runtime serverless Vercel
+  // membekukan eksekusi segera setelah respons, fetch Telegram terpotong,
+  // notifikasi hilang diam-diam. await langsung menjamin fetch TUNTAS
+  // SEBELUM respons dikirim (100% deterministik di serverless mana pun).
+  // sendAdminAffiliateJoinAlert fail-safe: tidak pernah melempar, timeout
+  // 10 dtk → worst case respons client menunggu maksimal ~10 detik.
   const partner = result.partner;
-  after(() =>
-    notifyAdminAffiliateJoinAlert({
-      partnerName: partner.name,
-      phone: result.phone,
-      refCode: partner.refCode,
-    }),
-  );
+  await sendAdminAffiliateJoinAlert({
+    partnerName: partner.name,
+    phone: result.phone,
+    refCode: partner.refCode,
+  });
 
   console.log(
     `[UnitKu Affiliate Join] Mitra baru dari form publik: "${partner.refCode}" ` +

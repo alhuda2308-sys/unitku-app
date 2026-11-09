@@ -11,18 +11,25 @@
 //     (pesan berisi data mitra + tombol WA "Kabari Kak {nama_mitra}")
 //   • ORGANIK — penjualan langsung tanpa referral
 //
-// Env (SEMUA OPSIONAL — kosong = notifikasi dilewati, TANPA error):
-//   TELEGRAM_BOT_TOKEN       token dari @BotFather
+// Env (OPSIONAL — kosong/undefined → dipakai FALLBACK kredensial produksi di
+// bawah, jadi notifikasi TETAP terkirim walau env lupa diisi di Vercel):
+//   TELEGRAM_BOT_TOKEN       token dari @BotFather (fallback: hardcode produksi)
 //   TELEGRAM_ADMIN_CHAT_ID   chat id admin tujuan notifikasi penjualan
-//                            (fallback: TELEGRAM_CHAT_ID milik alert lead —
-//                            kompatibel dgn konfigurasi yang sudah ada)
+//                            (fallback: TELEGRAM_CHAT_ID → hardcode produksi)
 //   ADMIN_ALERT_TZ           zona waktu pesan (default Asia/Jakarta)
 //
 // Fail-safe total (wajib — webhook Mayar tidak boleh terganggu):
-//   • env tidak diset   → langsung skip, tidak ada fetch
 //   • fetch dibungkus try...catch + timeout 10 detik
 //   • kegagalan Telegram HANYA masuk log server — respons 200 webhook Mayar
-//     tidak pernah berubah
+//     dan respons registrasi mitra tidak pernah berubah
+//
+// ⚠️ PENTING (bug produksi 2026 — notifikasi hilang di Vercel):
+//   FUNGSI alert ini TIDAK BOLEH dibungkus wrapper fire-and-forget (void)
+//   di dalam after(). Callback after() HARUS mengembalikan Promise yang
+//   di-await penuh, kalau tidak runtime serverless membekukan eksekusi
+//   sebelum fetch Telegram selesai → pesan hilang diam-diam.
+//   • Route /api/affiliate/join → await sendAdminAffiliateJoinAlert() langsung
+//   • Webhook Mayar            → after(async () => { await sendAdminSaleAlert() })
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { AFFILIATE_COMMISSION_IDR } from "@/lib/affiliate";
@@ -159,56 +166,116 @@ function buildTelegramSaleMessage(payload: SaleAlertPayload): string {
   ].join("\n");
 }
 
-// ── Kanal Telegram (env-gated) ───────────────────────────────────────────────
+// ── Kanal Telegram (env utama + fallback hardcode kredensial produksi) ──────
 
-/** Chat id tujuan — TELEGRAM_ADMIN_CHAT_ID utama, fallback TELEGRAM_CHAT_ID */
-export function getSaleAlertTelegramChatId(): string {
+/**
+ * Fallback kredensial produksi — dipakai PERSIS bila env tidak diset/undefined
+ * di Vercel (permintaan owner: notifikasi admin wajib tetap terkirim, tidak
+ * boleh hilang hanya karena env lupa diisi). Urutan resolusi: env → fallback.
+ */
+const TELEGRAM_BOT_TOKEN_FALLBACK =
+  "9170134733:AAEnAu7OEWVq9My0nA3aIoW_1dJ_mbtrXWU";
+const TELEGRAM_ADMIN_CHAT_ID_FALLBACK = "5375383532";
+
+/** Token bot — env TELEGRAM_BOT_TOKEN, kosong/undefined → fallback produksi */
+function resolveTelegramBotToken(): string {
   return (
-    (process.env.TELEGRAM_ADMIN_CHAT_ID ?? "").trim() ||
-    (process.env.TELEGRAM_CHAT_ID ?? "").trim()
+    (process.env.TELEGRAM_BOT_TOKEN ?? "").trim() || TELEGRAM_BOT_TOKEN_FALLBACK
   );
 }
 
-/** true bila kredensial Telegram lengkap — notifikasi penjualan aktif */
+/** Chat id tujuan — TELEGRAM_ADMIN_CHAT_ID → TELEGRAM_CHAT_ID → fallback */
+export function getSaleAlertTelegramChatId(): string {
+  return (
+    (process.env.TELEGRAM_ADMIN_CHAT_ID ?? "").trim() ||
+    (process.env.TELEGRAM_CHAT_ID ?? "").trim() ||
+    TELEGRAM_ADMIN_CHAT_ID_FALLBACK
+  );
+}
+
+/** true bila kredensial terisi — dgn fallback produksi selalu terisi (guard) */
 export function isSaleAlertConfigured(): boolean {
   return (
-    (process.env.TELEGRAM_BOT_TOKEN ?? "").trim().length > 0 &&
+    resolveTelegramBotToken().length > 0 &&
     getSaleAlertTelegramChatId().length > 0
   );
 }
 
-async function sendTelegramSaleAlert(payload: SaleAlertPayload): Promise<void> {
-  const token = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
+/** Ringkasan kredensial utk log diagnosa (token di-mask, chat id penuh) */
+function telegramCredentialLogInfo(): string {
+  const token = resolveTelegramBotToken();
+  const envToken = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
+  return (
+    `env.TELEGRAM_BOT_TOKEN terbaca=${Boolean(envToken)}` +
+    `(sumber=${envToken ? "env" : "FALLBACK"}, ` +
+    `token terpakai: ${token.slice(0, 12)}…, len ${token.length}), ` +
+    `env.TELEGRAM_ADMIN_CHAT_ID="${
+      (process.env.TELEGRAM_ADMIN_CHAT_ID ?? "").trim()
+    }", ` +
+    `env.TELEGRAM_CHAT_ID="${(process.env.TELEGRAM_CHAT_ID ?? "").trim()}", ` +
+    `chat_id_final=${getSaleAlertTelegramChatId()}`
+  );
+}
+
+/**
+ * Kirim pesan HTML ke chat admin via sendMessage — MELEMPAR bila gagal.
+ * Status HTTP + body respons Telegram SELALU dicetak ke log (diagnosa owner),
+ * termasuk menangkap error parse_mode HTML (mis. tag rusak → HTTP 400,
+ * description "can't parse entities").
+ */
+async function sendTelegramHtmlMessage(
+  text: string,
+  logLabel: string,
+): Promise<void> {
+  const token = resolveTelegramBotToken();
   const chatId = getSaleAlertTelegramChatId();
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      chat_id: chatId,
-      text: buildTelegramSaleMessage(payload),
+      chat_id: chatId, // string angka valid ("5375383532") — format resmi API
+      text,
       parse_mode: "HTML",
       disable_web_page_preview: true,
     }),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`Telegram HTTP ${res.status}`);
+  const resData: unknown = await res.json().catch(() => null);
+  console.log(
+    `[Telegram ${logLabel} Response]: HTTP ${res.status} — ${
+      JSON.stringify(resData) ?? "(body tidak bisa di-parse)"
+    }`,
+  );
+  if (!res.ok || (resData as { ok?: boolean } | null)?.ok === false) {
+    throw new Error(
+      `Telegram HTTP ${res.status}: ${
+        JSON.stringify(resData) ?? "tanpa body respons"
+      }`,
+    );
+  }
 }
 
 /**
  * Kirim notifikasi penjualan baru ke Telegram Admin — FAIL-SAFE:
- * env tidak diset → skip diam-diam; kegagalan fetch → hanya log server.
- * TIDAK PERNAH melempar error ke pemanggil (webhook Mayar tetap 200).
+ * fetch gagal → hanya log server, TIDAK PERNAH melempar error ke pemanggil
+ * (webhook Mayar tetap 200). SELALU di-await penuh oleh pemanggil (route
+ * webhook memakai after(async () => { await ... })).
  */
 export async function sendAdminSaleAlert(
   payload: SaleAlertPayload,
 ): Promise<void> {
-  if (!isSaleAlertConfigured()) return; // env belum diset — lewati tanpa error
+  if (!isSaleAlertConfigured()) return; // guard defensif (fallback selalu isi)
+  const target =
+    payload.affiliate ? `afiliasi ${payload.affiliate.refCode}` : "organik";
+  console.log(
+    `[Telegram Sale Alert] Dipanggil — order ${payload.orderId ?? "-"}, ` +
+      `${target}. Kredensial: ${telegramCredentialLogInfo()}.`,
+  );
   try {
-    await sendTelegramSaleAlert(payload);
+    await sendTelegramHtmlMessage(buildTelegramSaleMessage(payload), "Sale Alert");
     console.log(
       `[admin-sale-alert] Notifikasi penjualan terkirim via Telegram ` +
-        `(order ${payload.orderId ?? "-"}, ` +
-        `${payload.affiliate ? `afiliasi ${payload.affiliate.refCode}` : "organik"}).`,
+        `(order ${payload.orderId ?? "-"}, ${target}).`,
     );
   } catch (error) {
     console.error(
@@ -216,19 +283,6 @@ export async function sendAdminSaleAlert(
       error instanceof Error ? error.message : error,
     );
   }
-}
-
-/**
- * Fire-and-forget — dipanggil dari webhook via after() (next/server):
- * respons 200 ke Mayar TIDAK menunggu Telegram, error hanya masuk log.
- */
-export function notifyAdminSaleAlert(payload: SaleAlertPayload): void {
-  void sendAdminSaleAlert(payload).catch((error: unknown) => {
-    console.error(
-      "[admin-sale-alert] Notifikasi penjualan gagal terkirim:",
-      error instanceof Error ? error.message : error,
-    );
-  });
 }
 
 // ── Alert MITRA AFILIASI BARU BERGABUNG (form publik /affiliate/join) ───────
@@ -263,28 +317,29 @@ function buildTelegramAffiliateJoinMessage(
 
 /**
  * Kirim alert mitra baru ke Telegram Admin — FAIL-SAFE (pola sendAdminSale
- * Alert): env tidak diset → skip diam-diam; fetch gagal → hanya log.
- * TIDAK PERNAH melempar error ke pemanggil (registrasi tetap sukses).
+ * Alert): fetch gagal → hanya log, TIDAK PERNAH melempar error ke pemanggil
+ * (registrasi tetap sukses). DI-AWAIT LANGSUNG oleh route /api/affiliate/join
+ * sebelum respons dikirim — menjamin fetch tuntas di runtime serverless.
  */
 export async function sendAdminAffiliateJoinAlert(
   payload: AffiliateJoinAlertPayload,
 ): Promise<void> {
-  if (!isSaleAlertConfigured()) return; // env belum diset — lewati tanpa error
+  if (!isSaleAlertConfigured()) {
+    console.error(
+      "[admin-affiliate-alert] Dilewati — kredensial Telegram tidak tersedia.",
+    );
+    return;
+  }
+  console.log(
+    `[Telegram Join Alert] Dipanggil — mitra "Kak ${payload.partnerName}" ` +
+      `(WA ${payload.phone}, ref ${payload.refCode}). ` +
+      `Kredensial: ${telegramCredentialLogInfo()}.`,
+  );
   try {
-    const token = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
-    const chatId = getSaleAlertTelegramChatId();
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: buildTelegramAffiliateJoinMessage(payload),
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-      }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) throw new Error(`Telegram HTTP ${res.status}`);
+    await sendTelegramHtmlMessage(
+      buildTelegramAffiliateJoinMessage(payload),
+      "Join Alert",
+    );
     console.log(
       `[admin-affiliate-alert] Notifikasi mitra baru terkirim via Telegram ` +
         `(Kak ${payload.partnerName}, WA ${payload.phone}, ref ${payload.refCode}).`,
@@ -295,16 +350,4 @@ export async function sendAdminAffiliateJoinAlert(
       error instanceof Error ? error.message : error,
     );
   }
-}
-
-/** Fire-and-forget — dipanggil route via after(): respons API tidak menunggu */
-export function notifyAdminAffiliateJoinAlert(
-  payload: AffiliateJoinAlertPayload,
-): void {
-  void sendAdminAffiliateJoinAlert(payload).catch((error: unknown) => {
-    console.error(
-      "[admin-affiliate-alert] Notifikasi mitra baru gagal terkirim:",
-      error instanceof Error ? error.message : error,
-    );
-  });
 }
