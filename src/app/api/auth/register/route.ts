@@ -15,6 +15,9 @@
 //                Panel Super Admin selalu punya data kontak akun.
 // Notifikasi   : Telegram Admin "PENDAFTARAN PENGGUNA BARU" — await langsung
 //                sebelum respons (fail-safe, hanya saat user benar-benar baru).
+//                Sumber referral terdeteksi otomatis: body ref/refCode → query
+//                ?ref → cookie `unitku_ref` (30 hari, last-click) → lookup
+//                mitra aktif di DB → varian pesan "Sumber Referral" / Organik.
 // Validasi     : nama ≥2, format WA 62…, password minimal 6.
 // Email lama (body.email) tetap diterima untuk kompatibilitas klien lama.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,8 +30,16 @@ import { getAuthMode, SESSION_COOKIE } from "@/lib/auth/config";
 import { createSessionToken, hashPassword, sessionCookieOptions } from "@/lib/auth/local";
 import { isPhoneEmail, phoneToEmail } from "@/lib/auth/phone-email";
 import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
+import {
+  AFFILIATE_QUERY_PARAM,
+  AFFILIATE_REF_COOKIE,
+  sanitizeAffiliateRef,
+} from "@/lib/affiliate";
 import { notifyAdminLeadAlert } from "@/lib/notifications/admin-lead-alert";
-import { sendAdminUserSignupAlert } from "@/lib/notifications/admin-sale-alert";
+import {
+  sendAdminUserSignupAlert,
+  type UserSignupReferralSource,
+} from "@/lib/notifications/admin-sale-alert";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +104,49 @@ export async function POST(request: NextRequest) {
     );
   };
 
+  /**
+   * Deteksi sumber referral pendaftaran — fail-safe (lookup gagal / kode
+   * tak terdaftar / mitra nonaktif = organik, TIDAK pernah memblokir daftar).
+   * Urutan sumber: body.ref / body.refCode (eksplisit dari klien) → query
+   * ?ref → cookie `unitku_ref` (atribusi last-click 30 hari dari middleware).
+   * Kode dicocokkan ke tabel affiliates — hanya mitra AKTIF dihitung.
+   */
+  const resolveReferralSource = async (): Promise<UserSignupReferralSource | null> => {
+    const raw =
+      (typeof body.ref === "string" && body.ref.trim()) ||
+      (typeof body.refCode === "string" && body.refCode.trim()) ||
+      request.nextUrl.searchParams.get(AFFILIATE_QUERY_PARAM) ||
+      request.cookies.get(AFFILIATE_REF_COOKIE)?.value ||
+      "";
+    const code = sanitizeAffiliateRef(raw);
+    if (!code) return null;
+    // Kode di DB bisa lowercase (form join) atau campuran (input admin lama) —
+    // coba persis dulu, lalu lowercase (maks. 2 query, hanya saat ada ref).
+    const candidates = [...new Set([code, code.toLowerCase()])];
+    for (const candidate of candidates) {
+      try {
+        const mitra = await db.affiliate.findUnique({
+          where: { refCode: candidate },
+          select: { name: true, isActive: true },
+        });
+        if (mitra && mitra.isActive) {
+          return { name: mitra.name, refCode: candidate };
+        }
+        if (mitra && !mitra.isActive) return null; // mitra nonaktif → organik
+      } catch (error) {
+        console.error(
+          "[api/auth/register] Lookup mitra referral gagal (dianggap organik):",
+          error instanceof Error ? error.message : error,
+        );
+        return null;
+      }
+    }
+    console.log(
+      `[api/auth/register] Kode referral "${code}" tidak terdaftar — pendaftaran dihitung organik.`,
+    );
+    return null;
+  };
+
   if (getAuthMode() === "supabase") {
     // Pola kolektor (lihat /api/auth/login) — sesi dari signUp (bila verifikasi
     // email nonaktif) tidak boleh terbuang saat response final dibangun.
@@ -135,6 +189,7 @@ export async function POST(request: NextRequest) {
         userName: name,
         email,
         phone,
+        referral: await resolveReferralSource(),
         occurredAt: new Date(),
       });
     }
@@ -171,6 +226,7 @@ export async function POST(request: NextRequest) {
       userName: name,
       email,
       phone,
+      referral: await resolveReferralSource(),
       occurredAt: new Date(),
     });
     const response = NextResponse.json({

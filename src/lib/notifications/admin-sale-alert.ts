@@ -354,6 +354,14 @@ export async function sendAdminAffiliateJoinAlert(
 
 // ── Alert PENDAFTARAN PENGGUNA BARU (sign-up akun owner) ────────────────────
 
+/** Mitra pemilik kode referral saat pendaftaran lewat link mitra */
+export interface UserSignupReferralSource {
+  /** Nama mitra (dari DB tabel affiliates) */
+  name: string;
+  /** Kode referral terdeteksi (sudah ternormalisasi) */
+  refCode: string;
+}
+
 export interface UserSignupAlertPayload {
   /** Nama lengkap pengguna dari form registrasi */
   userName: string;
@@ -361,11 +369,17 @@ export interface UserSignupAlertPayload {
   email: string;
   /** No. WhatsApp ternormalisasi 62… — kosong → baris tautan WA dihilangkan */
   phone?: string | null;
+  /** Terisi = daftar lewat link mitra; null/kosong = Organik (Langsung) */
+  referral?: UserSignupReferralSource | null;
   /** Waktu pendaftaran (default: sekarang) */
   occurredAt?: Date | string | number;
 }
 
-/** Pesan Telegram pengguna baru — parse_mode HTML (template sesuai spesifikasi) */
+/**
+ * Pesan Telegram pengguna baru — parse_mode HTML (template sesuai spesifikasi).
+ * Dua varian: lewat link mitra (blok "Sumber Referral" dgn nama + kode) atau
+ * organik (baris "Sumber: Organik (Langsung)").
+ */
 function buildTelegramUserSignupMessage(
   payload: UserSignupAlertPayload,
 ): string {
@@ -375,16 +389,34 @@ function buildTelegramUserSignupMessage(
     ? normalizeWaPhone(payload.phone)
     : "";
   const time = formatSaleTime(payload.occurredAt);
+  const referral =
+    payload.referral && payload.referral.name.trim() && payload.referral.refCode.trim()
+      ? payload.referral
+      : null;
 
   const lines = [
     "👤 <b>PENDAFTARAN PENGGUNA BARU UNITKU!</b> 🎉",
     "",
-    "<b>Detail Akun Pengguna:</b>",
+    "<b>Detail Pengguna:</b>",
     `• Nama: <b>${userName}</b>`,
     `• Email: ${userEmail}`,
     `• No. WhatsApp: ${cleanPhone || "-"}`,
-    `• Tanggal: ${time}`,
   ];
+  if (referral) {
+    // ── Daftar lewat link mitra — blok sumber referral terpisah ─────────────
+    lines.push(`• Tanggal: ${time}`);
+    lines.push("");
+    lines.push("<b>Sumber Referral:</b>");
+    lines.push(
+      `• Mitra: <b>Kak ${escapeHtml(referral.name)}</b> (<code>${escapeHtml(
+        referral.refCode,
+      )}</code>)`,
+    );
+  } else {
+    // ── Pendaftaran langsung / organik ──────────────────────────────────────
+    lines.push("• Sumber: <b>Organik (Langsung)</b>");
+    lines.push(`• Tanggal: ${time}`);
+  }
   // Tautan WA hanya bila nomor tersedia — tanpa nomor pesan tetap rapi
   if (cleanPhone) {
     // encodeURIComponent menyisakan `'` telanjang → amankan utk atribut HTML;
@@ -418,7 +450,8 @@ export async function sendAdminUserSignupAlert(
   }
   console.log(
     `[Telegram User Signup Alert] Dipanggil — pengguna "${payload.userName}" ` +
-      `(email ${payload.email}, WA ${payload.phone || "-"}). ` +
+      `(email ${payload.email}, WA ${payload.phone || "-"}, sumber ` +
+      `${payload.referral ? `mitra ${payload.referral.refCode}` : "organik"}). ` +
       `Kredensial: ${telegramCredentialLogInfo()}.`,
   );
   try {
