@@ -10,7 +10,7 @@
 //     🎲 Acak Status FB / Threads   → gabungan ADMIN_HOOKS × ADMIN_CONTEXTS ×
 //                                     ADMIN_VALUES × ADMIN_CTAS
 //     📩 Template Balasan Inbox/DM  → salah satu ADMIN_DM_TEMPLATES siap
-//                                     copy-paste (10 variasi)
+//                                     copy-paste (5 variasi)
 //     🔄 Acak Teks Baru             → generate ulang materi yang sama
 //     🔙 Menu Utama                 → kembali ke pilihan jenis materi
 //
@@ -48,6 +48,16 @@ const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
 
 function getRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// Escape karakter HTML agar isi materi aman dikirim dengan parse_mode HTML di
+// dalam <pre><code> — hasil render (dan teks yang tersalin 1x tap) tetap sama
+// persis dengan bank materi, termasuk karakter &, <, >.
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function generatePromo(): string {
@@ -135,7 +145,7 @@ export async function POST(req: NextRequest) {
 
       if (content) {
         // Tag pre code membuat teks bisa di-copy cukup 1x tap di Telegram
-        const messageText = `Klik teks di bawah untuk langsung menyalin:\n\n<pre><code>${content}</code></pre>`;
+        const messageText = `Klik teks di bawah untuk langsung menyalin:\n\n<pre><code>${escapeHtml(content)}</code></pre>`;
 
         await sendTelegram("sendMessage", {
           chat_id: chatId,
