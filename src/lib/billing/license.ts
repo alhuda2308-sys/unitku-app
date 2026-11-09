@@ -286,8 +286,12 @@ async function ensureLicenseLeadTable(): Promise<void> {
  * pembayaran belum selesai. Email OPSIONAL: checkout zero-friction hanya
  * mengirim Nama + No. WhatsApp → email tersimpan NULL (tidak pernah gagal).
  * Email lama tidak ditimpa dengan kosong — hanya diperbarui bila dikirim.
- * Melempar error bila DB gagal — pemanggil (checkout/register/WA manual) yang
- * memutuskan apakah kegagalan ini memblokir alur utama (umumnya tidak).
+ * ATRIBUSI REFERRAL: source "Referral: <kode>" TIDAK pernah diturunkan oleh
+ * source generik (BAYAR_OTOMATIS/PESAN_MANUAL/REGISTER/"Organik (Web)") —
+ * checkout setelah registrasi tidak lagi menghapus atribusi mitra; referral
+ * baru selalu menimpa yang lama. Melempar error bila DB gagal — pemanggil
+ * (checkout/register/WA manual) yang memutuskan apakah kegagalan ini
+ * memblokir alur utama (umumnya tidak).
  */
 export async function upsertLicenseLead(input: {
   name: string;
@@ -303,8 +307,21 @@ export async function upsertLicenseLead(input: {
   // (WA/Telegram) agar HP tidak ke-spam tiap pengunjung lama submit ulang.
   const existing = await prisma.licenseLead.findUnique({
     where: { phone: input.phone },
-    select: { id: true },
+    select: { id: true, source: true },
   });
+  // Attribution guard — source "Referral: <kode>" adalah atribusi mitra yang
+  // lebih kuat daripada label aksi generik: checkout/pesan manual setelah
+  // registrasi TIDAK boleh menghapusnya (tanpa guard ini, kolom Sumber Panel
+  // Admin jatuh ke fallback "Organik (Web)" dan komisi mitra sulit diaudit).
+  const incomingReferral = input.source.startsWith("Referral:");
+  const existingReferralSource: LicenseLeadSource | null =
+    existing && existing.source.startsWith("Referral:")
+      ? // Rekonstruksi format kanonik "Referral: <kode>" — memastikan nilai
+        // memenuhi tipe template literal & rapi (kode di-trim).
+        (`Referral: ${existing.source.slice("Referral:".length).trim()}` as const)
+      : null;
+  const effectiveSource: LicenseLeadSource =
+    !incomingReferral && existingReferralSource ? existingReferralSource : input.source;
   if (!existing) {
     try {
       await prisma.licenseLead.create({
@@ -320,7 +337,7 @@ export async function upsertLicenseLead(input: {
     where: { phone: input.phone },
     data: {
       name: input.name,
-      source: input.source,
+      source: effectiveSource,
       ...(email ? { email } : {}),
     },
   });

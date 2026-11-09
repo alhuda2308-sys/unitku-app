@@ -17,6 +17,10 @@
 /** Nama cookie yang menyimpan kode referral afiliasi. */
 export const AFFILIATE_REF_COOKIE = "unitku_ref";
 
+/** Cookie referral warisan (pemasar lama/manual) — fallback pembacaan saja;
+ *  middleware TIDAK pernah menulis cookie ini. */
+export const AFFILIATE_REF_COOKIE_LEGACY = "ref_code";
+
 /** Masa aktif cookie referral: 30 hari (dalam detik). */
 export const AFFILIATE_REF_MAX_AGE = 60 * 60 * 24 * 30;
 

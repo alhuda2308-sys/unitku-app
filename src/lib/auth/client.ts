@@ -60,10 +60,14 @@ export async function signIn(identity: string, password: string): Promise<AuthRe
 }
 
 /** Profil wajib pendaftaran tanpa email — Nama Lengkap + No. WhatsApp
- *  (TERNORMALISASI 62xxxxxxxxxx via normalizeWaPhone) sebagai identitas */
+ *  (TERNORMALISASI 62xxxxxxxxxx via normalizeWaPhone) sebagai identitas.
+ *  ref opsional — kode referral mitra dari ?ref= URL / cookie unitku_ref,
+ *  diteruskan eksplisit di body agar atribusi tidak bergantung pada cookie
+ *  server round-trip (link /register?ref=… tetap tercatat 100%). */
 export interface SignUpProfile {
   name: string;
   phone: string;
+  ref?: string | null;
 }
 
 /** Daftar akun owner baru TANPA email — server membuat email sintetis dari
@@ -78,6 +82,9 @@ export async function signUp(profile: SignUpProfile, password: string): Promise<
       name: profile.name,
       phone: profile.phone,
       password,
+      // Kode referral diteruskan langsung di body (prioritas tertinggi di
+      // server) — kosong/undefined diabaikan agar tidak menimpa cookie.
+      ...(profile.ref ? { ref: profile.ref } : {}),
     });
     if (status !== 200) return { ok: false, error: errorOf(data, "Gagal mendaftarkan akun.") };
     return { ok: true, needsEmailConfirmation: data.needsEmailConfirmation === true };

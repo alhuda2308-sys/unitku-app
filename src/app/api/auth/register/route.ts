@@ -15,9 +15,11 @@
 //                Panel Super Admin selalu punya data kontak akun.
 // Notifikasi   : Telegram Admin "PENDAFTARAN PENGGUNA BARU" — await langsung
 //                sebelum respons (fail-safe, hanya saat user benar-benar baru).
-//                Sumber referral terdeteksi otomatis: body ref/refCode → query
-//                ?ref → cookie `unitku_ref` (30 hari, last-click) → lookup
-//                mitra aktif di DB → varian pesan "Sumber Referral" / Organik.
+//                Sumber referral terdeteksi otomatis dgn prioritas: body ref
+//                (diteruskan form dari ?ref= URL mitra) → query ?ref → cookie
+//                `unitku_ref` (30 hari, last-click) → cookie legacy `ref_code`
+//                → lookup mitra aktif CASE-INSENSITIVE → varian "Sumber
+//                Referral" / Organik.
 // Validasi     : nama ≥2, format WA 62…, password minimal 6.
 // Email lama (body.email) tetap diterima untuk kompatibilitas klien lama.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -33,6 +35,7 @@ import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
 import {
   AFFILIATE_QUERY_PARAM,
   AFFILIATE_REF_COOKIE,
+  AFFILIATE_REF_COOKIE_LEGACY,
   sanitizeAffiliateRef,
 } from "@/lib/affiliate";
 import { notifyAdminLeadAlert } from "@/lib/notifications/admin-lead-alert";
@@ -104,41 +107,62 @@ export async function POST(request: NextRequest) {
     );
   };
 
+  // ── Kandidat kode referral (dihitung SEKALI, dipakai deteksi + log) ──────
+  // Prioritas — sinyal eksplisit dulu, cookie belakangan:
+  //   1. body.ref          — diteruskan form register (dari ?ref= URL mitra)
+  //   2. body.refCode      — alias legacy field body.ref (klien lama)
+  //   3. query ?ref        — kode di URL POST itu sendiri
+  //   4. cookie unitku_ref — atribusi last-click 30 hari dari middleware
+  //   5. cookie ref_code   — cookie warisan (fallback terakhir)
+  const bodyRef = typeof body.ref === "string" ? body.ref.trim() : "";
+  const bodyRefCode = typeof body.refCode === "string" ? body.refCode.trim() : "";
+  const queryRef = request.nextUrl.searchParams.get(AFFILIATE_QUERY_PARAM) ?? "";
+  const cookieUnitkuRef = request.cookies.get(AFFILIATE_REF_COOKIE)?.value ?? "";
+  const cookieLegacyRef = request.cookies.get(AFFILIATE_REF_COOKIE_LEGACY)?.value ?? "";
+  const rawRef = bodyRef || bodyRefCode || queryRef || cookieUnitkuRef || cookieLegacyRef;
+
   /**
    * Deteksi sumber referral pendaftaran — fail-safe (lookup gagal / kode
    * tak terdaftar / mitra nonaktif = organik, TIDAK pernah memblokir daftar).
-   * Urutan sumber: body.ref / body.refCode (eksplisit dari klien) → query
-   * ?ref → cookie `unitku_ref` (atribusi last-click 30 hari dari middleware).
-   * Kode dicocokkan ke tabel affiliates — hanya mitra AKTIF dihitung.
+   * Pencocokan CASE-INSENSITIVE: link disebar lowercase tapi refCode di DB
+   * bisa campuran ("budi2026" tetap cocok dgn "Budi2026") — pola ini
+   * menutup kebocoran atribusi kode input admin lama. refCode yang
+   * disimpan = versi kanonik di DB. Hanya mitra AKTIF dihitung.
    */
   const resolveReferralSource = async (): Promise<UserSignupReferralSource | null> => {
-    const raw =
-      (typeof body.ref === "string" && body.ref.trim()) ||
-      (typeof body.refCode === "string" && body.refCode.trim()) ||
-      request.nextUrl.searchParams.get(AFFILIATE_QUERY_PARAM) ||
-      request.cookies.get(AFFILIATE_REF_COOKIE)?.value ||
-      "";
-    const code = sanitizeAffiliateRef(raw);
+    const code = sanitizeAffiliateRef(rawRef);
     if (!code) return null;
-    // Kode di DB bisa lowercase (form join) atau campuran (input admin lama) —
-    // coba persis dulu, lalu lowercase (maks. 2 query, hanya saat ada ref).
-    const candidates = [...new Set([code, code.toLowerCase()])];
-    for (const candidate of candidates) {
-      try {
-        const mitra = await db.affiliate.findUnique({
-          where: { refCode: candidate },
-          select: { name: true, isActive: true },
-        });
-        if (mitra && mitra.isActive) {
-          return { name: mitra.name, refCode: candidate };
+    try {
+      // Postgres `mode: "insensitive"` — satu query menangkap semua varian
+      // case; ambil varian AKTIF bila ada duplikat case di data lama.
+      const matches = await db.affiliate.findMany({
+        where: { refCode: { equals: code, mode: "insensitive" } },
+        select: { name: true, refCode: true, isActive: true },
+      });
+      const active = matches.find((m) => m.isActive);
+      if (active) return { name: active.name, refCode: active.refCode };
+      if (matches.length > 0) return null; // hanya varian nonaktif → organik
+    } catch (error) {
+      // Fallback provider DB tanpa mode "insensitive": exact → lowercase
+      // (maks. 2 query findUnique — perilaku lama yang sudah terbukti).
+      console.error(
+        "[api/auth/register] Lookup insensitive gagal, fallback exact/lowercase:",
+        error instanceof Error ? error.message : error,
+      );
+      const candidates = [...new Set([code, code.toLowerCase()])];
+      for (const candidate of candidates) {
+        try {
+          const mitra = await db.affiliate.findUnique({
+            where: { refCode: candidate },
+            select: { name: true, refCode: true, isActive: true },
+          });
+          if (mitra && mitra.isActive) {
+            return { name: mitra.name, refCode: mitra.refCode };
+          }
+          if (mitra && !mitra.isActive) return null; // mitra nonaktif → organik
+        } catch {
+          return null; // DB tidak terjangkau → organik (fail-safe)
         }
-        if (mitra && !mitra.isActive) return null; // mitra nonaktif → organik
-      } catch (error) {
-        console.error(
-          "[api/auth/register] Lookup mitra referral gagal (dianggap organik):",
-          error instanceof Error ? error.message : error,
-        );
-        return null;
       }
     }
     console.log(
@@ -155,6 +179,16 @@ export async function POST(request: NextRequest) {
   const leadSource: LicenseLeadSource = referralSource
     ? `Referral: ${referralSource.refCode}`
     : "Organik (Web)";
+
+  // Jejak audit deteksi sumber — mempermudah menelusuri alasan "Referral"
+  // vs "Organik" dari Vercel Runtime Logs saat ada laporan atribusi.
+  console.log("[Register Source Deteksi]:", {
+    bodyRef: bodyRef || null,
+    bodyRefCode: bodyRefCode || null,
+    queryRef: queryRef || null,
+    cookieRef: cookieUnitkuRef || cookieLegacyRef || null,
+    finalSource: leadSource,
+  });
 
   if (getAuthMode() === "supabase") {
     // Pola kolektor (lihat /api/auth/login) — sesi dari signUp (bila verifikasi
