@@ -12,6 +12,9 @@
 //   • Affiliate (Tahap 3): metadata.affiliate_ref pada payload → komisi
 //                       Rp150.000 otomatis utk affiliator terkait — IDEMPOTEN
 //                       per order_id (retry webhook tidak menumpuk komisi).
+//   • Notifikasi    : Telegram push instan "PENJUALAN BARU (VIA AFILIASI /
+//                       ORGANIK)" ke HP Admin — persis setelah transaksi
+//                       tercatat (fail-safe total; env kosong = dilewati).
 //   • Respons sukses  : HTTP 200 { success: true, received: true }
 //                       (Mayar berhenti mengulang).
 //
@@ -21,10 +24,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { sanitizeAffiliateRef } from "@/lib/affiliate";
 import { recordAffiliateCommissionIfNew } from "@/lib/affiliate-commission";
 import { applyPaidLicense } from "@/lib/billing/license";
+import { notifyAdminSaleAlert } from "@/lib/notifications/admin-sale-alert";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -118,10 +122,37 @@ interface ExtractedPayment {
   orderId: string;
   /** Kode referral afiliasi dari metadata invoice — null bila bukan traffic afiliasi */
   affiliateRef: string | null;
+  /** Nama produk/paket dari payload (product_name / items[]) — utk notifikasi */
+  productName?: string;
   eventType?: string;
   /** Field status mentah (root.status / data.status) — sinyal sukses tambahan */
   statusValue?: string;
   raw: unknown;
+}
+
+/** Nama produk dari payload Mayar (varian: product_name / product / items[]) */
+function pickProductName(...sources: Loose[]): string | undefined {
+  for (const source of sources) {
+    const direct = pickString(
+      source.product_name,
+      source.productName,
+      source.product,
+      source.item_name,
+      source.itemName,
+      source.description,
+    );
+    if (direct) return direct;
+    const items = source.items;
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        if (isLoose(item)) {
+          const name = pickString(item.name, item.product_name, item.title);
+          if (name) return name;
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 function extractPayment(body: unknown): ExtractedPayment | null {
@@ -218,6 +249,7 @@ function extractPayment(body: unknown): ExtractedPayment | null {
       details.mobile,
       details.phone,
     ),
+    productName: pickProductName(data, root),
     amount: pickNumber(
       data.amount,
       data.total,
@@ -352,6 +384,35 @@ export async function POST(request: NextRequest) {
       console.log(
         `[UnitKu Affiliate] Komisi order ${payment.orderId} dilewati (${commission.reason}).`,
       );
+    }
+
+    // ── Notifikasi instan Telegram Admin — PENJUALAN BARU ──────────────────
+    // Persis setelah pembayaran terverifikasi & transaksi tercatat ke DB.
+    // Hanya transaksi BARU (retry webhook / duplikat tidak di-notifikasi
+    // ulang). Via after(): respons 200 ke Mayar TIDAK menunggu Telegram;
+    // notifyAdminSaleAlert fail-safe total (env kosong = skip, fetch error
+    // = hanya log).
+    if (!result.duplicate) {
+      const salePayload = {
+        buyerName: payment.name ?? payment.email,
+        buyerPhone: payment.phone ?? null,
+        productName: payment.productName ?? null,
+        amount: payment.amount,
+        orderId: payment.orderId,
+        occurredAt: new Date(),
+        // Referral valid = komisi benar-benar masuk antrean → template
+        // "VIA AFILIASI" dgn data mitra. Ref invalid/mitra nonaktif →
+        // dihitung organik (komisi tidak tercatat, jangan info salah).
+        affiliate:
+          commission.recorded && commission.affiliate
+            ? {
+                name: commission.affiliate.name,
+                refCode: commission.affiliate.refCode,
+                phone: commission.affiliate.phone,
+              }
+            : null,
+      };
+      after(() => notifyAdminSaleAlert(salePayload));
     }
 
     return NextResponse.json({

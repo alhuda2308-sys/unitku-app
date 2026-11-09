@@ -498,6 +498,14 @@ export interface AffiliateCommissionResult {
     | "affiliator-not-found"
     | "affiliator-inactive"
     | "error";
+  /** Data mitra afiliasi — terisi bila kode referral valid & affiliator
+   *  ditemukan (komisi recorded/duplicate). Dipakai webhook utk notifikasi
+   *  Telegram admin (nama mitra + No. WA utk tombol "Kabari Kak {nama}"). */
+  affiliate?: {
+    name: string;
+    refCode: string;
+    phone: string | null;
+  };
 }
 
 /**
@@ -524,7 +532,7 @@ export async function recordAffiliateCommissionIfNew(
     // 1. Cari affiliator berdasarkan kode referral
     const affiliator = await prisma.affiliate.findUnique({
       where: { refCode },
-      select: { id: true, isActive: true },
+      select: { id: true, isActive: true, name: true, phone: true },
     });
     if (!affiliator) {
       console.error(
@@ -538,6 +546,13 @@ export async function recordAffiliateCommissionIfNew(
       );
       return { recorded: false, duplicate: false, reason: "affiliator-inactive" };
     }
+
+    // Data mitra utk notifikasi admin (nama + WA "Kabari Kak {nama}")
+    const affiliateInfo = {
+      name: affiliator.name,
+      refCode,
+      phone: affiliator.phone,
+    };
 
     // 2. Insert komisi — P2002 (orderId sudah ada) = retry webhook → duplikat
     const customerEmail = input.customerEmail?.trim().toLowerCase() || null;
@@ -559,7 +574,7 @@ export async function recordAffiliateCommissionIfNew(
         console.log(
           `[UnitKu Affiliate] Komisi order ${input.orderId} sudah pernah dicatat — duplikat diabaikan (idempoten).`,
         );
-        return { recorded: false, duplicate: true };
+        return { recorded: false, duplicate: true, affiliate: affiliateInfo };
       }
       throw error;
     }
@@ -574,7 +589,7 @@ export async function recordAffiliateCommissionIfNew(
       `[UnitKu Affiliate] Komisi Rp${AFFILIATE_COMMISSION_IDR.toLocaleString("id-ID")} ` +
         `→ affiliator "${refCode}" (order ${input.orderId}, pembeli ${customerEmail ?? "-"}).`,
     );
-    return { recorded: true, duplicate: false };
+    return { recorded: true, duplicate: false, affiliate: affiliateInfo };
   } catch (error) {
     // Jangan pernah gagalkan webhook lisensi karena bookkeeping komisi
     console.error("[UnitKu Affiliate] Gagal mencatat komisi:", error);
