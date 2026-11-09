@@ -132,10 +132,18 @@ function SendWaButton({ href }: { href: string }) {
   );
 }
 
-export function AffiliateJoinForm() {
+export function AffiliateJoinForm({
+  initialName = "",
+  initialPhone = "",
+}: {
+  /** Prefill dari query param ?name= (dibangun CTA dashboard) — opsional */
+  initialName?: string;
+  /** Prefill dari query param ?phone= (dibangun CTA dashboard) — opsional */
+  initialPhone?: string;
+}) {
   const [values, setValues] = useState<JoinFormValues>({
-    name: "",
-    phone: "",
+    name: initialName,
+    phone: initialPhone,
     refCode: "",
     bankName: "",
     bankAccountNo: "",
@@ -331,7 +339,9 @@ export function AffiliateJoinForm() {
             Form Pendaftaran Mitra
           </h2>
           <p className="text-xs text-zinc-500">
-            Gratis — akun aktif langsung setelah form dikirim.
+            {initialName || initialPhone
+              ? "Data akun Anda sudah terisi otomatis — tinggal lengkapi & kirim."
+              : "Gratis — akun aktif langsung setelah form dikirim."}
           </p>
         </div>
       </div>

@@ -163,6 +163,37 @@ export async function getAffiliatePortalDataByToken(
   }
 }
 
+/**
+ * Fallback kontak user (Nama + No. WhatsApp) dari tabel lead license_leads
+ * berdasarkan email — dipakai CTA "Aktifkan Program Afiliasi" di dashboard
+ * ketika user_metadata Supabase tidak memuat profil (akun lama/mode lokal).
+ * Kegagalan DB → null (CTA tetap tampil, hanya tanpa prefill).
+ */
+export async function getUserContactByEmail(
+  email: string | null | undefined,
+): Promise<{ name: string | null; phone: string | null } | null> {
+  const key = email?.trim().toLowerCase() ?? "";
+  if (!key) return null;
+  try {
+    const lead = await prisma.licenseLead.findFirst({
+      where: { email: key },
+      orderBy: { createdAt: "desc" },
+      select: { name: true, phone: true },
+    });
+    if (!lead) return null;
+    return {
+      name: lead.name?.trim() || null,
+      phone: lead.phone?.trim() || null,
+    };
+  } catch (error) {
+    console.error(
+      "[UnitKu Affiliate] Fallback kontak lead gagal (dilewati):",
+      error,
+    );
+    return null;
+  }
+}
+
 export type PayoutUpdateResult =
   | { ok: true }
   | { ok: false; reason: "not-found" | "error" };

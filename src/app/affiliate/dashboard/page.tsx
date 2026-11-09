@@ -19,10 +19,13 @@ import { redirect } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   BadgeCheck,
+  CheckCircle2,
   Gift,
+  HandCoins,
   Inbox,
-  ShieldOff,
+  MessageCircle,
 } from "lucide-react";
 
 import { PayoutSettingsForm } from "@/components/affiliate/payout-settings-form";
@@ -33,9 +36,11 @@ import { Button } from "@/components/ui/button";
 import {
   getAffiliatePortalData,
   getAffiliatePortalDataByToken,
+  getUserContactByEmail,
   type AffiliatePortalData,
 } from "@/lib/affiliate-portal";
 import { getAuthUser } from "@/lib/auth/server";
+import { SUPPORT_WA_LINK } from "@/lib/landing-config";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -106,6 +111,22 @@ function firstParam(
   return null;
 }
 
+/**
+ * URL CTA "Aktifkan Program Afiliasi Saya" → /affiliate/join dengan prefill
+ * Nama & No. WhatsApp dari akun yang sedang login (bila tersedia) agar mitra
+ * baru tidak mengetik ulang datanya di form pendaftaran.
+ */
+function buildAffiliateJoinHref(
+  name: string | null,
+  phone: string | null,
+): string {
+  const params = new URLSearchParams();
+  if (name) params.set("name", name);
+  if (phone) params.set("phone", phone);
+  const qs = params.toString();
+  return qs ? `/affiliate/join?${qs}` : "/affiliate/join";
+}
+
 export default async function AffiliateDashboardPage({
   searchParams,
 }: {
@@ -130,22 +151,42 @@ export default async function AffiliateDashboardPage({
 
   const data = await getAffiliatePortalData(user.id);
 
-  return <AffiliateDashboardView data={data} userEmail={user.email ?? null} />;
+  // ── Kontak utk prefill form join (CTA "belum terdaftar") ──────────────────
+  // Prioritas: user_metadata akun (diisi /register & webhook Mayar) →
+  // fallback lead license_leads by email (akun lama). Query fallback hanya
+  // dijalankan bila CTA memang akan tampil & data masih ada yang kosong.
+  let contactName = user.name ?? null;
+  let contactPhone = user.phone ?? null;
+  if (!data.error && !data.affiliate && (!contactName || !contactPhone)) {
+    const fallback = await getUserContactByEmail(user.email);
+    if (fallback) {
+      contactName = contactName ?? fallback.name;
+      contactPhone = contactPhone ?? fallback.phone;
+    }
+  }
+
+  return (
+    <AffiliateDashboardView
+      data={data}
+      joinHref={buildAffiliateJoinHref(contactName, contactPhone)}
+    />
+  );
 }
 
 /**
  * Seluruh isi portal — dipakai kedua jalur akses. `accessToken` hanya
  * terisi pada jalur magic-link (diteruskan ke form rekening agar mitra
- * tanpa akun login tetap bisa menyimpan rekeningnya).
+ * tanpa akun login tetap bisa menyimpan rekeningnya). `joinHref` = tujuan
+ * CTA aktivasi afiliasi (prefilled) — hanya dipakai jalur sesi login.
  */
 function AffiliateDashboardView({
   data,
   accessToken,
-  userEmail,
+  joinHref = "/affiliate/join",
 }: {
   data: AffiliatePortalData;
   accessToken?: string;
-  userEmail?: string | null;
+  joinHref?: string;
 }) {
 
   return (
@@ -192,30 +233,84 @@ function AffiliateDashboardView({
             </div>
           </section>
         ) : !data.affiliate ? (
-          /* Belum terdaftar sebagai affiliator */
-          <section className="mt-6 rounded-lg border border-border bg-white p-5 sm:p-6">
-            <div className="flex items-start gap-3">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-zinc-600">
-                <ShieldOff className="size-5" strokeWidth={1.75} aria-hidden="true" />
-              </span>
-              <div className="min-w-0">
-                <h2 className="text-base font-bold text-zinc-900">
-                  Akun Anda Belum Terdaftar sebagai Affiliator
+          /* Belum terdaftar sebagai affiliator — CTA mandiri (self-serve):
+             aktivasi langsung lewat /affiliate/join, data akun di-prefill */
+          <section className="mt-6 overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-b from-emerald-50 via-white to-white shadow-sm">
+            <div className="p-5 sm:p-7">
+              <div className="flex flex-col items-center text-center sm:items-start sm:text-left">
+                <span
+                  className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm"
+                  aria-hidden="true"
+                >
+                  <HandCoins className="size-6" strokeWidth={1.75} />
+                </span>
+                <h2 className="mt-4 text-lg font-black leading-snug tracking-tight text-zinc-900 sm:text-xl">
+                  Mulai Dapatkan Penghasilan Tambahan bersama UnitKu
                 </h2>
-                <p className="mt-1 text-[13px] leading-relaxed text-zinc-700">
-                  Program afiliasi UnitKu memberi komisi{" "}
-                  <span className="font-bold">Rp150.000</span> per penjualan
-                  lisensi dari link referral pribadi. Akun Anda belum terhubung
-                  dengan kode affiliator — hubungi Admin untuk pendaftaran dan
-                  cantumkan email akun Anda:
+                <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-zinc-700 sm:text-sm">
+                  Raih komisi flat{" "}
+                  <span className="font-bold text-emerald-700">Rp150.000</span>{" "}
+                  setiap kali rekan atau kenalan Anda membeli lisensi UnitKu
+                  menggunakan link rekomendasi Anda.
                 </p>
-                <p className="mt-2 inline-flex max-w-full items-center rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[13px] font-semibold text-zinc-800">
-                  <span className="truncate">{userEmail || "—"}</span>
+
+                {/* Poin keunggulan singkat */}
+                <ul className="mt-4 grid w-full gap-2 text-left sm:grid-cols-3">
+                  {[
+                    "Pendaftaran 100% Gratis",
+                    "Pencairan Transparan",
+                    "Komisi Langsung Masuk ke Rekening Anda",
+                  ].map((label) => (
+                    <li
+                      key={label}
+                      className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-white px-3 py-2.5"
+                    >
+                      <CheckCircle2
+                        className="mt-0.5 size-4 shrink-0 text-emerald-600"
+                        strokeWidth={2.25}
+                        aria-hidden="true"
+                      />
+                      <span className="text-[13px] font-semibold leading-snug text-zinc-800">
+                        {label}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                {/* CTA utama — prefill Nama & No. WA lewat query params */}
+                <Button
+                  asChild
+                  size="lg"
+                  className="mt-5 h-12 w-full gap-2 bg-emerald-600 text-[15px] font-bold text-white shadow-sm hover:bg-emerald-700 sm:w-auto sm:px-8"
+                >
+                  <a
+                    href={joinHref}
+                    aria-label="Aktifkan Program Afiliasi Saya"
+                  >
+                    <HandCoins className="size-4.5" strokeWidth={2} aria-hidden="true" />
+                    Aktifkan Program Afiliasi Saya
+                    <ArrowRight className="size-4.5" strokeWidth={2} aria-hidden="true" />
+                  </a>
+                </Button>
+                <p className="mt-2 text-xs leading-snug text-zinc-500">
+                  Gratis — akun mitra aktif seketika setelah form dikirim, tanpa
+                  menunggu persetujuan Admin.
                 </p>
-                <p className="mt-3 text-xs leading-snug text-zinc-500">
-                  Setelah diaktifkan Admin, halaman ini otomatis menampilkan
-                  link referral, metrik komisi, dan riwayat penjualan Anda.
-                </p>
+
+                {/* Kontak bantuan alternatif */}
+                <a
+                  href={SUPPORT_WA_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 underline-offset-2 transition-colors hover:text-emerald-700 hover:underline"
+                >
+                  <MessageCircle
+                    className="size-3.5"
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  />
+                  Butuh bantuan? Tanya Admin via WhatsApp
+                </a>
               </div>
             </div>
           </section>

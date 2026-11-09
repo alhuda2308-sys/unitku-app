@@ -32,6 +32,11 @@ export interface AuthUser {
   email: string;
   /** true = sesi demo mode lokal (tanpa akun) */
   demo: boolean;
+  /** Profil ringan dari raw_user_meta_data (diisi /register & webhook Mayar:
+   *  full_name + phone). Bisa null utk akun lama/demo — pemanggil WAJIB tahan
+   *  null. Dipakai portal affiliator agar form join tidak mengetik ulang. */
+  name?: string | null;
+  phone?: string | null;
 }
 
 export async function getAuthUser(): Promise<AuthUser | null> {
@@ -73,7 +78,11 @@ export async function getAuthUser(): Promise<AuthUser | null> {
     // seluruh route handler 500 — cukup dianggap "tidak ada sesi Supabase"
     // (fallback cookie demo tetap dievaluasi; isolasi data tetap ditegakkan
     // oleh verifikasi di langkah berikutnya).
-    let supabaseUser: { id: string; email?: string } | null = null;
+    let supabaseUser: {
+      id: string;
+      email?: string;
+      user_metadata?: Record<string, unknown>;
+    } | null = null;
     try {
       const { data } = await supabase.auth.getUser();
       supabaseUser = data.user ?? null;
@@ -81,7 +90,20 @@ export async function getAuthUser(): Promise<AuthUser | null> {
       supabaseUser = null;
     }
     if (supabaseUser) {
-      return { id: supabaseUser.id, email: supabaseUser.email ?? "", demo: false };
+      // Metadata profil ringan (full_name + phone) diisi saat /register &
+      // provisioning webhook Mayar — dipakai CTA portal affiliator.
+      const meta = supabaseUser.user_metadata as Record<string, unknown> | undefined;
+      const metaName =
+        typeof meta?.full_name === "string" ? meta.full_name.trim() : "";
+      const metaPhone =
+        typeof meta?.phone === "string" ? meta.phone.trim() : "";
+      return {
+        id: supabaseUser.id,
+        email: supabaseUser.email ?? "",
+        demo: false,
+        name: metaName || null,
+        phone: metaPhone || null,
+      };
     }
     // Tidak ada sesi Supabase → hormati cookie demo lokal (CTA /demo):
     // HANYA sesi demo yang boleh lewat jalur ini di produksi.
@@ -92,6 +114,8 @@ export async function getAuthUser(): Promise<AuthUser | null> {
         id: DEMO_OWNER_ID, // dipaksa — abaikan sub dari cookie (lihat catatan keamanan)
         email: demoPayload.email || "demo@unitku.id",
         demo: true,
+        name: null,
+        phone: null,
       };
     }
     return null;
@@ -101,5 +125,11 @@ export async function getAuthUser(): Promise<AuthUser | null> {
   if (!token) return null;
   const payload = verifySessionToken(token);
   if (!payload) return null;
-  return { id: payload.sub, email: payload.email, demo: payload.demo === true };
+  return {
+    id: payload.sub,
+    email: payload.email,
+    demo: payload.demo === true,
+    name: null, // sesi lokal tidak menyimpan profil — fallback di level halaman
+    phone: null,
+  };
 }

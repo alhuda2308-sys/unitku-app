@@ -6,6 +6,11 @@
 // logika validasi, pembuatan akun, magic-link dashboard, dan notifikasi
 // Telegram admin ada di POST /api/affiliate/join.
 //
+// Prefill CTA dashboard: query params ?name= & ?phone= (dibangun halaman
+// /affiliate/dashboard utk akun yang BELUM terdaftar) mengisi form otomatis
+// agar mitra tidak mengetik ulang Nama & No. WhatsApp. Param disanitasi
+// ketat di server (nama ≤80, telepon hanya digit ≤16) — tetap bisa diedit.
+//
 // Desain: mobile-first, tema emerald/zinc senada portal affiliator — header
 // komisi flat Rp150.000, tiga poin keunggulan, form minimalis (5 field,
 // rekening opsional), footer kontak WA admin (sticky ke dasar layar).
@@ -22,6 +27,18 @@ export const metadata: Metadata = {
   description:
     "Gabung gratis sebagai mitra afiliasi UnitKu. Dapatkan komisi flat Rp150.000 setiap kali ada yang membeli lisensi UnitKu lewat link rekomendasi Anda. Pencairan transparan, pendaftaran 2 menit.",
 };
+
+/** Sanitasi prefill nama dari query param — trim, rapikan spasi, maks 80 */
+function sanitizePrefillName(raw: string | string[] | undefined): string {
+  const value = (Array.isArray(raw) ? raw[0] : raw) ?? "";
+  return value.replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+/** Sanitasi prefill telepon dari query param — hanya digit, maks 16 */
+function sanitizePrefillPhone(raw: string | string[] | undefined): string {
+  const value = (Array.isArray(raw) ? raw[0] : raw) ?? "";
+  return value.replace(/\D/g, "").slice(0, 16);
+}
 
 /** Satu poin keunggulan — ikon + judul + keterangan singkat */
 function BenefitItem({
@@ -49,7 +66,15 @@ function BenefitItem({
   );
 }
 
-export default function AffiliateJoinPage() {
+export default async function AffiliateJoinPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const params = await searchParams;
+  const initialName = sanitizePrefillName(params.name);
+  const initialPhone = sanitizePrefillPhone(params.phone);
+
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-emerald-50 via-white to-white">
       <main className="mx-auto w-full max-w-xl flex-1 px-4 pb-10 pt-8 sm:pt-12">
@@ -93,7 +118,10 @@ export default function AffiliateJoinPage() {
 
         {/* ── Form pendaftaran / kartu selamat ────────────────────────────── */}
         <section aria-label="Form pendaftaran mitra" className="mt-6">
-          <AffiliateJoinForm />
+          <AffiliateJoinForm
+            initialName={initialName}
+            initialPhone={initialPhone}
+          />
         </section>
       </main>
 
