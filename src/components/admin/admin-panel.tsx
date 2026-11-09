@@ -24,12 +24,14 @@ import {
   Copy,
   Dices,
   Gift,
+  Globe,
   KeyRound,
   Loader2,
   Lock,
   MessageCircle,
   Plus,
   RefreshCw,
+  Share2,
   ShieldCheck,
   ShieldOff,
   Trash2,
@@ -97,7 +99,12 @@ interface AdminUserRow {
   properties: string[];
   licensed: boolean;
   licensedAt: string | null;
-  source: "mayar" | "manual" | null;
+  /** Sumber pengguna — referral = lewat link mitra (referralCode terisi),
+   *  organic = daftar mandiri web, mayar = beli via Mayar, manual = dibuat
+   *  Super Admin, null = tidak terketahui (fallback UI "Organik (Web)"). */
+  source: "mayar" | "manual" | "organic" | "referral" | null;
+  /** Kode referral mitra — hanya terisi bila source = "referral" */
+  referralCode: string | null;
   isSuperAdmin: boolean;
 }
 
@@ -117,9 +124,10 @@ interface Credentials {
   password: string;
 }
 
-const SOURCE_LABEL: Record<"mayar" | "manual", string> = {
+const SOURCE_LABEL: Record<"mayar" | "manual" | "organic", string> = {
   mayar: "Mayar Webhook",
   manual: "Manual Super Admin",
+  organic: "Organik (Web)",
 };
 
 /** Tampilan nomor rapi — "6281234567890" → "+62 812-3456-7890"
@@ -1006,10 +1014,28 @@ export function AdminPanel({ adminEmail }: { adminEmail: string }) {
                         )}
                       </TableCell>
                       <TableCell className="py-2.5">
-                        {row.source ? (
-                          <span className="text-[12.5px] text-zinc-600">{SOURCE_LABEL[row.source]}</span>
+                        {row.source === "referral" ? (
+                          /* Lewat link mitra — badge indigo + kode referral */
+                          <Badge
+                            className="border-transparent bg-indigo-100 text-[12.5px] font-medium text-indigo-800"
+                            title={`Mendaftar lewat link referral mitra (${row.referralCode ?? "-"})`}
+                          >
+                            <Share2 className="mr-1 size-3" strokeWidth={1.75} aria-hidden="true" />
+                            Referral ({row.referralCode ?? "-"})
+                          </Badge>
+                        ) : row.source === "organic" || !row.source ? (
+                          /* Mandiri via web — badge zinc netral. Baris lama tanpa
+                             data sumber (null) juga di-fallback ke sini agar
+                             kolom tidak pernah tampil kosong/strip. */
+                          <Badge
+                            className="border-transparent bg-zinc-100 text-[12.5px] font-medium text-zinc-700"
+                            title="Mendaftar mandiri melalui website"
+                          >
+                            <Globe className="mr-1 size-3" strokeWidth={1.75} aria-hidden="true" />
+                            {SOURCE_LABEL.organic}
+                          </Badge>
                         ) : (
-                          <span className="text-[12.5px] text-zinc-400">—</span>
+                          <span className="text-[12.5px] text-zinc-600">{SOURCE_LABEL[row.source]}</span>
                         )}
                       </TableCell>
                       <TableCell className="py-2.5 pr-4">

@@ -196,7 +196,14 @@ export async function getLicenseByEmail(email: string) {
 
 // ── Lead calon pembeli (license_leads) ───────────────────────────────────────
 
-export type LicenseLeadSource = "BAYAR_OTOMATIS" | "PESAN_MANUAL" | "REGISTER";
+export type LicenseLeadSource =
+  | "BAYAR_OTOMATIS"
+  | "PESAN_MANUAL"
+  | "REGISTER"
+  /** Registrasi mandiri via form register tanpa referral (Panel Super Admin) */
+  | "Organik (Web)"
+  /** Registrasi lewat link referral mitra — kode disimpan dalam nilainya */
+  | `Referral: ${string}`;
 
 let leadTableReady: Promise<void> | null = null;
 

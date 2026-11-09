@@ -68,8 +68,39 @@ interface AdminUserRow {
   properties: string[];
   licensed: boolean;
   licensedAt: string | null;
-  source: "mayar" | "manual" | null;
+  /** Sumber pengguna: manual = dibuat Super Admin, referral = lewat link
+   *  mitra (referralCode terisi), mayar = beli langsung via Mayar, organic =
+   *  daftar mandiri via web, null = tidak terketahui (UI fallback Organik). */
+  source: "mayar" | "manual" | "organic" | "referral" | null;
+  /** Kode referral mitra — hanya terisi bila source = "referral" */
+  referralCode: string | null;
   isSuperAdmin: boolean;
+}
+
+/**
+ * Derivasikan sumber tampilan kolom "Sumber" dari data mentah:
+ * prioritas Manual Super Admin (pembelian manual — baris dibuat admin) →
+ * Referral (lead "Referral: <kode>") → Mayar Webhook (pembelian online) →
+ * Organik (lead REGISTER / "Organik (Web)") → null (fallback UI).
+ */
+function deriveRowSource(
+  purchaseSource: "mayar" | "manual" | null,
+  leadSource: string | null,
+): { source: AdminUserRow["source"]; referralCode: string | null } {
+  if (purchaseSource === "manual") {
+    return { source: "manual", referralCode: null };
+  }
+  if (leadSource?.startsWith("Referral:")) {
+    const code = leadSource.slice("Referral:".length).trim();
+    if (code) return { source: "referral", referralCode: code };
+  }
+  if (purchaseSource === "mayar") {
+    return { source: "mayar", referralCode: null };
+  }
+  if (leadSource === "REGISTER" || leadSource === "Organik (Web)") {
+    return { source: "organic", referralCode: null };
+  }
+  return { source: null, referralCode: null };
 }
 
 /** Susun daftar pengguna dari semua sumber (auth + lisensi + lead).
@@ -159,10 +190,14 @@ async function buildAdminUserList(): Promise<{
   }
   // Lead TANPA email (zero-friction: hanya Nama + No. WhatsApp) tampil sebagai
   // baris sendiri dgn email null — panel merendernya "(Tanpa Email)".
+  // Sumber registrasi per email — dari field source lead (form register
+  // menyimpan "Referral: <kode>" / "Organik (Web)"; legacy "REGISTER").
+  const leadSourceByEmail = new Map<string, string>();
   const emaillessLeads: AdminUserRow[] = [];
   for (const lead of leads) {
     const email = (lead.email ?? "").trim().toLowerCase();
     if (!email) {
+      const rowSource = deriveRowSource(null, lead.source);
       emaillessLeads.push({
         key: `lead:${lead.id}`,
         id: null,
@@ -173,10 +208,14 @@ async function buildAdminUserList(): Promise<{
         properties: [],
         licensed: false,
         licensedAt: null,
-        source: null,
+        source: rowSource.source,
+        referralCode: rowSource.referralCode,
         isSuperAdmin: false,
       });
       continue;
+    }
+    if (!leadSourceByEmail.has(email)) {
+      leadSourceByEmail.set(email, lead.source); // yang terbaru menang
     }
     const existing = accounts.get(email);
     if (existing) {
@@ -225,6 +264,10 @@ async function buildAdminUserList(): Promise<{
   const users: AdminUserRow[] = [
     ...[...accounts.values()].map((a) => {
       const lic = licByEmail.get(a.email);
+      const rowSource = deriveRowSource(
+        sourceByEmail.get(a.email) ?? null,
+        leadSourceByEmail.get(a.email) ?? null,
+      );
       return {
         key: `email:${a.email}`,
         id: a.id,
@@ -235,7 +278,8 @@ async function buildAdminUserList(): Promise<{
         properties: a.id ? (propsByOwner.get(a.id) ?? []) : [],
         licensed: lic?.isLifetimeLicensed === true,
         licensedAt: lic?.licensedAt?.toISOString() ?? null,
-        source: sourceByEmail.get(a.email) ?? null,
+        source: rowSource.source,
+        referralCode: rowSource.referralCode,
         isSuperAdmin: isSuperAdminEmail(a.email),
       } satisfies AdminUserRow;
     }),

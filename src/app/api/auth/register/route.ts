@@ -24,7 +24,7 @@
 
 import { NextResponse, after, type NextRequest } from "next/server";
 import { db } from "@/lib/prisma";
-import { upsertLicenseLead } from "@/lib/billing/license";
+import { upsertLicenseLead, type LicenseLeadSource } from "@/lib/billing/license";
 import { normalizeWaPhone } from "@/lib/checkout-validation";
 import { getAuthMode, SESSION_COOKIE } from "@/lib/auth/config";
 import { createSessionToken, hashPassword, sessionCookieOptions } from "@/lib/auth/local";
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
    *  Return: true = lead BENAR-BENAR baru (insert), false = pembaruan kontak lama. */
   const saveLead = async (): Promise<boolean> => {
     try {
-      const result = await upsertLicenseLead({ name, email, phone, source: "REGISTER" });
+      const result = await upsertLicenseLead({ name, email, phone, source: leadSource });
       return result.created;
     } catch (leadError) {
       console.error(
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
   const queueLeadAlert = (leadCreated: boolean): void => {
     if (!leadCreated) return; // kontak lama submit ulang — jangan spam admin
     after(() =>
-      notifyAdminLeadAlert({ name, phone, email, source: "REGISTER", registeredAt: new Date() }),
+      notifyAdminLeadAlert({ name, phone, email, source: leadSource, registeredAt: new Date() }),
     );
   };
 
@@ -147,6 +147,15 @@ export async function POST(request: NextRequest) {
     return null;
   };
 
+  // ── Sumber pendaftaran (dihitung SEKALI, dipakai bersama) ─────────────────
+  // Field `source` lead = "Referral: <kode>" bila daftar lewat link mitra,
+  // "Organik (Web)" bila mandiri → kolom Sumber Panel Super Admin selalu
+  // terisi informatif. Fail-safe: lookup gagal/kode tak terdaftar = organik.
+  const referralSource = await resolveReferralSource();
+  const leadSource: LicenseLeadSource = referralSource
+    ? `Referral: ${referralSource.refCode}`
+    : "Organik (Web)";
+
   if (getAuthMode() === "supabase") {
     // Pola kolektor (lihat /api/auth/login) — sesi dari signUp (bila verifikasi
     // email nonaktif) tidak boleh terbuang saat response final dibangun.
@@ -189,7 +198,7 @@ export async function POST(request: NextRequest) {
         userName: name,
         email,
         phone,
-        referral: await resolveReferralSource(),
+        referral: referralSource,
         occurredAt: new Date(),
       });
     }
@@ -226,7 +235,7 @@ export async function POST(request: NextRequest) {
       userName: name,
       email,
       phone,
-      referral: await resolveReferralSource(),
+      referral: referralSource,
       occurredAt: new Date(),
     });
     const response = NextResponse.json({
