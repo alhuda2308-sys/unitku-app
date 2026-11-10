@@ -31,6 +31,7 @@ import {
 import { PayoutSettingsForm } from "@/components/affiliate/payout-settings-form";
 import { PromoBotCard } from "@/components/affiliate/promo-bot-card";
 import { ReferralLinkCard } from "@/components/affiliate/referral-link-card";
+import { TrialGeneratorCard } from "@/components/affiliate/trial-generator-card";
 import { MetricCard } from "@/components/kost/metric-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -328,6 +329,10 @@ function AffiliateDashboardView({
 
                 {/* Asisten materi promosi via Telegram bot (@unitku_mitra_bot) */}
                 <PromoBotCard />
+
+                {/* Generator Link Trial 3 Hari utk owner (komisi terjaga via
+                    paywall yang selalu mengarah ke checkout mitra ini) */}
+                <TrialGeneratorCard accessToken={accessToken} />
 
                 {/* Metrik */}
                 <section aria-label="Ringkasan komisi" className="grid grid-cols-1 gap-3 sm:grid-cols-3">

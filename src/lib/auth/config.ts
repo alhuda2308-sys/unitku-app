@@ -81,4 +81,5 @@ export const PUBLIC_PAGE_PREFIXES = [
   "/checkout", // halaman checkout khusus iklan Facebook Ads (publik, tanpa sesi)
   "/demo", // masuk dashboard demo tanpa registrasi (CTA landing "Coba Denah Kost Saya")
   "/affiliate/join", // pendaftaran mitra afiliasi publik (form terbuka; /affiliate/dashboard TETAP terlindungi sesi/token)
+  "/trial", // portal uji coba 3 hari pemilik kost (magic token dari link mitra — token diverifikasi di halaman)
 ];

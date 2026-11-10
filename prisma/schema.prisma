@@ -205,6 +205,36 @@ model AffiliateCommission {
   @@map("affiliate_commissions")
 }
 
+// ── Trial 3 hari untuk calon owner (dibuat mitra affiliate) ──────────────────
+// Mitra membuat link trial pribadi dari /affiliate/dashboard → mengirimkannya
+// ke pemilik kost/kontrakan via WhatsApp. `id` (cuid unik) menjadi TOKEN di
+// URL https://unitku.my.id/trial?token=<id>. Lifecycle:
+//   PENDING  — link belum pernah dibuka owner
+//   ACTIVE   — owner pertama kali membuka link → trialStartedAt dicatat,
+//              trialExpiresAt = +72 jam; akses portal trial penuh
+//   LOCKED   — lewat 72 jam (hari ke-4) → paywall, checkout ?ref= mitra
+// Penguncian LAZY: status LOCKED ditegakkan saat dibaca (tanpa cron). Atribusi
+// komisi Rp150.000 aman: paywall selalu mengarah ke checkout mitra pembuat.
+model OwnerTrial {
+  id String @id @default(cuid()) // trial_id sekaligus token URL /trial
+  // Mitra pembuat — affiliates.id (ownership dicatat server-side, bukan input
+  // client) — sumber refCode untuk link checkout di paywall.
+  partnerId      String
+  ownerName      String // Nama pemilik kost/kontrakan
+  ownerWhatsapp  String // ternormalisasi 62xxxxxxxxxx
+  propertyName   String? // opsional
+  status         String    @default("PENDING") // PENDING | ACTIVE | LOCKED
+  // Dicatat HANYA saat owner pertama kali membuka link (& login portal):
+  trialStartedAt DateTime?
+  // 3 hari / 72 jam setelah trialStartedAt — batas penguncian otomatis:
+  trialExpiresAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([partnerId])
+  @@map("owner_trials")
+}
+
 // ── Staf & Akses Mandiri (link undangan) ─────────────────────────────────────
 
 model StaffMember {
