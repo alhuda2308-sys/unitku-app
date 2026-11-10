@@ -12,18 +12,22 @@
 // native (aksesibel tanpa JS), tombol CTA anchor biasa.
 //
 // Struktur: Nav → Hero (+ kartu simulasi komisi) → Kalkulator Cuan (3 kartu
-// proyeksi) → Alasan Gampang Ditawarkan (3 value) → Cara Kerja (3 langkah)
-// → FAQ (accordion) → Bottom CTA (panel gelap) → Footer WA admin (sticky).
+// proyeksi) → Alasan Gampang Ditawarkan (4 value) → Cara Kerja (3 langkah)
+// → Fasilitas Mitra (bot generator iklan) → FAQ (accordion) → Bottom CTA
+// (panel gelap) → Footer WA admin (sticky).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Metadata } from "next";
 import {
   ArrowRight,
+  BadgePercent,
   BellRing,
+  Bot,
   CalendarX2,
   CheckCircle2,
   ChevronDown,
   Coffee,
+  Copy,
   Gem,
   Home,
   Infinity as InfinityIcon,
@@ -31,7 +35,6 @@ import {
   Megaphone,
   MessageCircle,
   PenLine,
-  ReceiptText,
   TrendingUp,
   Wallet,
 } from "lucide-react";
@@ -74,7 +77,13 @@ const VALUE_PROPS = [
     icon: CalendarX2,
     title: "Tanpa Langganan Bulanan",
     detail:
-      "Pemilik kost paling benci biaya bulanan. UnitKu cukup bayar sekali untuk selamanya — jadi kamu gak perlu jualan obat biakannya.",
+      "Pemilik kost paling benci biaya bulanan. UnitKu cukup bayar sekali untuk selamanya — kamu gak perlu repot membujuk mereka bayar berkali-kali, produknya jauh lebih gampang closing.",
+  },
+  {
+    icon: BadgePercent,
+    title: "Harga Super Terjangkau",
+    detail:
+      "Harganya sangat murah, bahkan lebih murah dari tarif sewa 1 kamar kost per bulan! Pemilik kontrakan gak perlu mikir panjang buat beli karena sekali bayar langsung lunas selamanya.",
   },
   {
     icon: Gem,
@@ -344,7 +353,7 @@ export default function AffiliateLandingPage() {
                 UnitKu Gampang Banget Ditawarkan
               </h2>
             </div>
-            <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {VALUE_PROPS.map((prop) => (
                 <article
                   key={prop.title}
@@ -426,8 +435,108 @@ export default function AffiliateLandingPage() {
           </div>
         </section>
 
-        {/* ── 5. FAQ ──────────────────────────────────────────────────────── */}
-        <section aria-labelledby="faq-title" className="border-b border-zinc-200">
+        {/* ── 5. Fasilitas Mitra: bot generator iklan ────────────────────── */}
+        <section aria-labelledby="fasilitas-title" className="border-b border-zinc-200">
+          <div className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
+            <div className="max-w-2xl">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-700">
+                Fasilitas Mitra
+              </p>
+              <h2
+                id="fasilitas-title"
+                className="mt-2 text-2xl font-black tracking-tight text-zinc-950 sm:text-3xl"
+              >
+                Bingung Mau Posting Apa Hari Ini?
+              </h2>
+            </div>
+
+            {/* Kartu lebar satu-grid: kiri copy, kanan mock tampilan bot */}
+            <div className="mt-8 grid grid-cols-1 items-center gap-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_16px_40px_-24px_rgba(10,10,10,0.3)] sm:p-8 lg:grid-cols-12">
+              <div className="lg:col-span-7">
+                <span
+                  className="flex size-11 items-center justify-center rounded-xl bg-emerald-600 text-white"
+                  aria-hidden="true"
+                >
+                  <Bot className="size-5.5" strokeWidth={1.75} />
+                </span>
+                <h3 className="mt-4 text-lg font-black tracking-tight text-zinc-950 sm:text-xl">
+                  Bot Generator Iklan Otomatis
+                </h3>
+                <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-zinc-600 sm:text-[15px]">
+                  Gak perlu pusing mikir kata-kata promosi. Setiap mitra dapat
+                  akses gratis bot Telegram pembuat materi iklan tanpa batas
+                  (jutaan variasi draf status medsos &amp; chat WA juragan
+                  kost) siap sebar cukup 1-tap copy.
+                </p>
+                <p className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11.5px] font-bold text-emerald-700">
+                  <CheckCircle2
+                    className="size-3.5"
+                    strokeWidth={2.25}
+                    aria-hidden="true"
+                  />
+                  Gratis untuk semua mitra aktif
+                </p>
+                <p className="mt-3 text-[12.5px] text-zinc-500">
+                  Akses instan dari Dashboard Mitra setelah aktivasi.
+                </p>
+              </div>
+
+              {/* Mock tampilan bot — mengikuti gaya kartu simulasi di hero */}
+              <div className="lg:col-span-5">
+                <div className="relative mx-auto w-full max-w-sm lg:ml-auto lg:mr-0">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="flex items-center gap-2.5 border-b border-zinc-200 pb-3">
+                      <span
+                        className="flex size-8 items-center justify-center rounded-lg bg-emerald-600 text-white"
+                        aria-hidden="true"
+                      >
+                        <Bot className="size-4" strokeWidth={2} />
+                      </span>
+                      <div>
+                        <p className="text-[12.5px] font-black text-zinc-950">
+                          UnitKu Mitra Bot
+                        </p>
+                        <p className="text-[10.5px] font-bold text-emerald-600">
+                          ● online — siap buat materi
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-2" aria-hidden="true">
+                      <p className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-[12.5px] font-bold text-zinc-800">
+                        🎲 Acak Status Medsos
+                      </p>
+                      <p className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-[12.5px] font-bold text-zinc-800">
+                        💬 Template Chat WA Pemilik Kost
+                      </p>
+                    </div>
+                    <div className="mt-3 rounded-xl bg-zinc-950 p-3">
+                      <p className="text-[11px] leading-relaxed text-zinc-300">
+                        &ldquo;Lagi nyari tambahan penghasilan modal jempol
+                        doang sambil rebahan di rumah? &hellip;&rdquo;
+                      </p>
+                      <p className="mt-2 inline-flex items-center gap-1 text-[10.5px] font-bold text-emerald-400">
+                        <Copy
+                          className="size-3"
+                          strokeWidth={2.25}
+                          aria-hidden="true"
+                        />
+                        Tap 1x → langsung tersalin
+                      </p>
+                    </div>
+                  </div>
+                  {/* Aksen Swiss-grid */}
+                  <div
+                    aria-hidden="true"
+                    className="absolute -right-2 -top-2 -z-10 h-full w-full rounded-2xl border-2 border-emerald-600/25"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── 6. FAQ ──────────────────────────────────────────────────────── */}
+        <section aria-labelledby="faq-title" className="border-b border-zinc-200 bg-zinc-50">
           <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-8 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-12">
             <div className="lg:col-span-4">
               <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-700">
@@ -476,7 +585,7 @@ export default function AffiliateLandingPage() {
           </div>
         </section>
 
-        {/* ── 6. Bottom CTA ───────────────────────────────────────────────── */}
+        {/* ── 7. Bottom CTA ───────────────────────────────────────────────── */}
         <section className="bg-zinc-950 text-white">
           <div className="mx-auto flex w-full max-w-6xl flex-col items-center px-4 py-14 text-center sm:px-6 sm:py-20">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-[11.5px] font-bold uppercase tracking-wide text-emerald-400">
@@ -488,9 +597,10 @@ export default function AffiliateLandingPage() {
               <span className="text-emerald-400">Sumber Cuan?</span>
             </h2>
             <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-zinc-400 sm:text-[15px]">
-              Semua orang butuh UnitKu — kamu cuma perlu jadi orang yang
-              menyampaikannya. Daftar sekarang, sebar link pertamamu hari ini
-              juga.
+              Setiap pemilik kost, kontrakan petak, hingga pengelola rusun
+              &amp; villa butuh sistem kelola properti praktis tanpa drama
+              tagihan. Kamu cuma perlu jadi orang yang menyampaikannya —
+              daftar sekarang, sebar link pertamamu hari ini juga.
             </p>
             <div className="mt-7 flex flex-col items-center gap-3.5">
               <Button
