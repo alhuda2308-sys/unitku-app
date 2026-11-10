@@ -9,22 +9,21 @@
 //      sesi login — ditentukan props.accessToken, pola PayoutSettingsForm).
 //   2. Hasil: link trial unik (/trial?token=<trial_id>) + tombol
 //      "Salin Pesan WA" berisi draf persuasi siap kirim ke owner.
-//   3. Riwayat trial mitra (badge PENDING/ACTIVE/LOCKED) — refresh otomatis
+//   3. Riwayat trial mitra — tabel status (Pending / Aktif / Terkunci /
+//      Expired) via TrialHistoryTable; baris LOCKED dilengkapi tombol
+//      "Follow-up WA" (wa.me + draf persuasi lisensi). Refresh otomatis
 //      setelah pembuatan; lazy-lock ditampilkan sesuai status efektif.
 // Komisi Rp150.000 aman: paywall portal trial selalu mengarah ke checkout
 // dengan refCode mitra pembuat (server-side, lihat src/lib/owner-trial.ts).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Check,
-  Copy,
   Gift,
-  Hourglass,
   Link2,
   Loader2,
   MessageCircle,
-  UserRound,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -32,129 +31,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  TRIAL_STATUS_META,
+  CopyButton,
+  TrialHistoryTable,
+  type TrialRow,
+} from "@/components/affiliate/trial-history-table";
+import {
   buildTrialWaMessage,
   normalizeTrialStatus,
-  type OwnerTrialStatus,
 } from "@/lib/trial-shared";
-import { cn } from "@/lib/utils";
 
-/** Baris trial dari API (ISO string) — mirror OwnerTrialRow di lib server */
-interface TrialRow {
-  id: string;
-  ownerName: string;
-  propertyName: string | null;
-  status: OwnerTrialStatus;
-  createdAt: string;
-  trialStartedAt: string | null;
-  trialExpiresAt: string | null;
-  trialUrl: string;
-}
-
+/** Hasil POST — baris trial + draf pesan WA undangan siap salin */
 interface CreatedTrial extends TrialRow {
   waMessage: string;
-}
-
-/** Salin teks ke clipboard — fallback utk browser/http non-secure lama */
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    // lanjut ke fallback
-  }
-  try {
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "");
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(textarea);
-    return ok;
-  } catch {
-    return false;
-  }
-}
-
-/** Tombol salin dengan feedback "Tersalin!" 2 detik (pola ReferralLinkCard) */
-function CopyButton({
-  value,
-  label,
-  className,
-}: {
-  value: string;
-  label: string;
-  className?: string;
-}) {
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, []);
-
-  const handleCopy = useCallback(async () => {
-    const ok = await copyToClipboard(value);
-    if (!ok) return;
-    setCopied(true);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), 2000);
-  }, [value]);
-
-  return (
-    <Button
-      type="button"
-      size="sm"
-      onClick={handleCopy}
-      className={cn(
-        "h-9 shrink-0 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700",
-        copied && "bg-emerald-700",
-        className,
-      )}
-      aria-label={`${label} — salin ke clipboard`}
-    >
-      {copied ? (
-        <Check className="size-4" strokeWidth={2.5} aria-hidden="true" />
-      ) : (
-        <Copy className="size-4" strokeWidth={2} aria-hidden="true" />
-      )}
-      {copied ? "Tersalin!" : label}
-    </Button>
-  );
-}
-
-/** Label tanggal-waktu singkat Indonesia — utk riwayat */
-function dateLabel(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("id-ID", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function StatusBadge({ status }: { status: OwnerTrialStatus }) {
-  const meta = TRIAL_STATUS_META[status] ?? TRIAL_STATUS_META.PENDING;
-  return (
-    <span
-      className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2.5 text-[11px] font-bold leading-none",
-        meta.className,
-      )}
-    >
-      <Hourglass className="size-3" strokeWidth={2.5} aria-hidden="true" />
-      {meta.label}
-    </span>
-  );
 }
 
 export function TrialGeneratorCard({ accessToken }: { accessToken?: string }) {
@@ -415,80 +303,13 @@ export function TrialGeneratorCard({ accessToken }: { accessToken?: string }) {
           </div>
         ) : null}
 
-        {/* Riwayat trial mitra */}
+        {/* Riwayat trial mitra — tabel status + tombol Follow-up WA (LOCKED) */}
         <div className="mt-6">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">
-              Riwayat Trial Anda
-            </h3>
-            {!listLoading && !listError ? (
-              <Badge
-                variant="outline"
-                className="shrink-0 border-zinc-200 text-zinc-600"
-              >
-                {trials.length} trial
-              </Badge>
-            ) : null}
-          </div>
-
-          {listLoading ? (
-            <p className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
-              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-              Memuat riwayat…
-            </p>
-          ) : listError ? (
-            <p className="mt-2 text-xs leading-snug text-amber-700">
-              Riwayat trial belum dapat dimuat — muat ulang halaman nanti.
-            </p>
-          ) : trials.length === 0 ? (
-            <p className="mt-2 flex items-start gap-1.5 text-xs leading-snug text-zinc-500">
-              <UserRound
-                className="mt-0.5 size-3.5 shrink-0"
-                aria-hidden="true"
-              />
-              Belum ada trial. Buat link pertama Anda di atas lalu kirim ke
-              pemilik kost lewat WhatsApp.
-            </p>
-          ) : (
-            <ul className="mt-2.5 max-h-64 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-              {trials.map((trial) => (
-                <li
-                  key={trial.id}
-                  className="flex flex-col gap-2 rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-bold text-zinc-900">
-                      {trial.ownerName}
-                      {trial.propertyName ? (
-                        <span className="font-medium text-zinc-500">
-                          {" "}
-                          — {trial.propertyName}
-                        </span>
-                      ) : null}
-                    </p>
-                    <p className="text-[11px] text-zinc-500">
-                      Dibuat {dateLabel(trial.createdAt)}
-                      {trial.status === "ACTIVE" && trial.trialExpiresAt
-                        ? ` · berakhir ${dateLabel(trial.trialExpiresAt)}`
-                        : ""}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2 sm:justify-end">
-                    <StatusBadge status={trial.status} />
-                    <CopyButton
-                      value={buildTrialWaMessage({
-                        ownerName: trial.ownerName,
-                        propertyName: trial.propertyName,
-                        trialUrl: trial.trialUrl,
-                      })}
-                      label="Pesan WA"
-                      className="h-8 px-2.5 text-xs"
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <TrialHistoryTable
+            loading={listLoading}
+            error={listError}
+            trials={trials}
+          />
         </div>
 
         <p className="mt-4 flex items-start gap-1.5 text-xs leading-snug text-zinc-500">
@@ -496,9 +317,17 @@ export function TrialGeneratorCard({ accessToken }: { accessToken?: string }) {
             className="mt-0.5 size-3.5 shrink-0 text-emerald-600"
             aria-hidden="true"
           />
-          Saat masa trial habis, portal owner otomatis terkunci dan tombol
-          &ldquo;Aktifkan Lisensi&rdquo; di sana langsung mengarah ke checkout
-          dengan link referral Anda — komisi tetap milik Anda.
+          <span>
+            Saat masa trial habis, portal owner otomatis terkunci dan tombol
+            &ldquo;Aktifkan Lisensi&rdquo; di sana langsung mengarah ke
+            checkout dengan link referral Anda — komisi tetap milik Anda.
+            Gunakan tombol{" "}
+            <span className="font-semibold text-emerald-700">
+              Follow-up WA
+            </span>{" "}
+            pada klien berstatus Terkunci / Expired untuk langsung mengirim
+            draf penawaran lisensi lewat chat WhatsApp.
+          </span>
         </p>
       </div>
     </section>

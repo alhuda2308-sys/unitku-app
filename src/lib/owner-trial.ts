@@ -103,8 +103,14 @@ export {
 export interface OwnerTrialRow {
   id: string; // token URL
   ownerName: string;
+  // Nomor WA pemilik (62…) — dipakai tombol "Follow-up WA" di riwayat saat
+  // status LOCKED: buka wa.me dgn draf persuasi aktivasi lisensi.
+  ownerWhatsapp: string;
   propertyName: string | null;
   status: OwnerTrialStatus;
+  // Kode referral mitra pembuat — tombol follow-up menyisipkan link checkout
+  // /checkout?ref=<refCode> agar komisi tetap tercatat atas nama mitra.
+  partnerRefCode: string;
   createdAt: string; // ISO
   trialStartedAt: string | null; // ISO
   trialExpiresAt: string | null; // ISO
@@ -152,6 +158,7 @@ const TRIAL_SELECT = {
   id: true,
   partnerId: true,
   ownerName: true,
+  ownerWhatsapp: true,
   propertyName: true,
   status: true,
   trialStartedAt: true,
@@ -163,6 +170,7 @@ type TrialDbRow = {
   id: string;
   partnerId: string;
   ownerName: string;
+  ownerWhatsapp: string;
   propertyName: string | null;
   status: string;
   trialStartedAt: Date | null;
@@ -170,12 +178,14 @@ type TrialDbRow = {
   createdAt: Date;
 };
 
-function toRow(trial: TrialDbRow): OwnerTrialRow {
+function toRow(trial: TrialDbRow, partnerRefCode: string): OwnerTrialRow {
   return {
     id: trial.id,
     ownerName: trial.ownerName,
+    ownerWhatsapp: trial.ownerWhatsapp,
     propertyName: trial.propertyName,
     status: normalizeTrialStatus(trial.status),
+    partnerRefCode,
     createdAt: trial.createdAt.toISOString(),
     trialStartedAt: trial.trialStartedAt?.toISOString() ?? null,
     trialExpiresAt: trial.trialExpiresAt?.toISOString() ?? null,
@@ -273,7 +283,10 @@ async function createOwnerTrialForPartner(
       },
       select: TRIAL_SELECT,
     });
-    return { ok: true, trial: toRow(trial) };
+    return {
+      ok: true,
+      trial: toRow(trial, await getPartnerRefCode(partnerId)),
+    };
   } catch (error) {
     console.error("[UnitKu Trial] Gagal membuat trial:", error);
     return { ok: false, reason: "error" };
@@ -328,10 +341,11 @@ async function listOwnerTrialsForPartner(
     // Status di-read-back lewat lazy-lock ringan (tanpa update per baris —
     // cukup hitung efektif di memori agar badge dashboard selalu benar).
     const now = Date.now();
+    const partnerRefCode = await getPartnerRefCode(partnerId);
     return {
       ok: true,
       trials: trials.map((t) => {
-        const row = toRow(t);
+        const row = toRow(t, partnerRefCode);
         if (
           row.status === "ACTIVE" &&
           row.trialExpiresAt &&
