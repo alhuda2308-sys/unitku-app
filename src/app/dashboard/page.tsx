@@ -122,7 +122,9 @@ import {
   type AnnouncementDraft,
 } from "@/lib/announcement-data";
 import { savePortalMirror } from "@/lib/portal-mirror";
+import { readTrialTokenClient } from "@/lib/trial-shared";
 import { PropertyBanner } from "@/components/kost/property-banner";
+import { TrialBanner } from "@/components/kost/trial-banner";
 import {
   KasSkeleton,
   MetricStripSkeleton,
@@ -304,6 +306,13 @@ export default function IndoKostPage() {
   } | null>(null);
 
   const [isDemoSession, setIsDemoSession] = useState(false);
+
+  // ── Sesi TRIAL (link /trial dari mitra) — cookie dipasang /api/trial/enter ──
+  // Baca sinkron sekali di mount (client): DemoBanner baru muncul setelah mount
+  // (isDemoSession di-set effect) sehingga tidak mungkin mismatch hydration.
+  // Trial pengguna melihat TrialBanner — banner demo biasa disembunyikan agar
+  // tidak dobel "Mode Demo Interaktif" + "Mode Uji Coba".
+  const [hasTrialCookie] = useState(() => readTrialTokenClient() !== null);
 
   // ── Properti aktif multi-cabang (dari tabel properties via /api/properties) ─
   const [dbProperties, setDbProperties] = useState<PropertySummary[]>([]);
@@ -3161,6 +3170,11 @@ export default function IndoKostPage() {
           refreshing={refreshingCloud}
         />
 
+        {/* Banner Mode Uji Coba (trial link mitra) — selalu di atas konten,
+            di bawah TopBar; self-contained: cek sesi demo + fetch status trial
+            server-side (LOCKED → paywall menutup dashboard otomatis). */}
+        <TrialBanner />
+
         <main
           className="flex-1 overflow-y-auto scrollbar-thin"
           aria-label="Konten utama"
@@ -3176,7 +3190,9 @@ export default function IndoKostPage() {
                 : "mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6"
             }
           >
-            {isDemoSession && <DemoBanner onReset={handleResetDemo} />}
+            {isDemoSession && !hasTrialCookie && (
+              <DemoBanner onReset={handleResetDemo} />
+            )}
             {dbState === "offline" && <OfflineBanner onRetry={handleRetrySync} />}
             {view === "tagihan" ? (
               isDataLoading ? (

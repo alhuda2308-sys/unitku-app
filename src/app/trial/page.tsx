@@ -1,29 +1,35 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// UnitKu — /trial : Portal Uji Coba 3 Hari untuk pemilik kost/kontrakan
+// UnitKu — /trial : Gerbang Uji Coba 3 Hari → LANGSUNG ke dashboard utama
 //
 // Gerbang publik (middleware PUBLIC_PAGE_PREFIXES) — diakses owner TANPA
 // login lewat link pribadi dari mitra: /trial?token=<OwnerTrial.id>.
 //
-// ALUR:
+// ALUR (direct-entry — tanpa halaman sambutan):
 //   1. Owner klik link dari WhatsApp → halaman ini memverifikasi token ke DB
 //      dan MENGAKTIFKAN trial pada klik PERTAMA (PENDING → ACTIVE,
 //      trialStartedAt = sekarang, trialExpiresAt = +72 jam). Idempoten:
 //      refresh berulang tidak pernah memperpanjang masa trial.
-//   2. Render portal (client) dengan hitung mundur live 3 hari.
-//   3. Lewat 72 jam → status LOCKED (lazy-lock ditegakkan server setiap
-//      pembacaan) → paywall penuh mengarah ke checkout mitra pembuat
+//   2. Token valid & aktif → redirect /api/trial/enter → sesi dashboard
+//      dipasang (pola /demo) → OWNER LANGSUNG DIHADAPKAN KE DASHBOARD UTAMA
+//      UnitKu (denah kamar, okupansi, menu kelola) dengan banner kecil
+//      "Mode Uji Coba — Sisa trial: X hari" di bagian atas (TrialBanner).
+//   3. Lewat 72 jam / token LOCKED (lazy-lock ditegakkan server setiap
+//      pembacaan) → HALAMAN PEMBERITAHUAN "Masa Uji Coba Telah Berakhir"
+//      dengan tombol menuju checkout lisensi milik MITRA pembuat
 //      (?ref=<refCode>) — komisi Rp150.000 tetap tercatat untuk mitra.
 //
 // Token salah/tidak ada → kartu panduan rapi (bukan error mentah).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Metadata } from "next";
-import { KeyRound, Lock, MessageCircle } from "lucide-react";
+import { redirect } from "next/navigation";
+import { KeyRound, Lock, MessageCircle, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { TrialPortal } from "@/components/trial/trial-portal";
+import { getAuthUser } from "@/lib/auth/server";
 import { SUPPORT_WA_LINK } from "@/lib/landing-config";
 import { activateOwnerTrial } from "@/lib/owner-trial";
+import { buildCheckoutUrl } from "@/lib/trial-shared";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +51,7 @@ function firstParam(
   return null;
 }
 
-/** Kartu status generik utk kegagalan/Token salah — konsisten gaya portal */
+/** Kartu status generik utk kegagalan/token salah — konsisten gaya gerbang */
 function TrialGateCard({
   icon,
   title,
@@ -101,11 +107,86 @@ function TrialGateCard({
   );
 }
 
+/**
+ * Halaman PEMBERITAHUAN masa trial berakhir (token LOCKED / expired > 3 hari)
+ * — sesuai alur: arahkan ke pemberitahuan + tombol menuju link pembelian
+ * afiliasi MITRA pembuat (?ref=<refCode>) agar komisi tetap tercatat.
+ */
+function TrialExpiredCard({
+  checkoutHref,
+}: {
+  checkoutHref: string;
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 py-10">
+      <div
+        role="alertdialog"
+        aria-labelledby="trial-expired-title"
+        aria-describedby="trial-expired-desc"
+        className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 p-6 text-center shadow-2xl sm:p-8"
+      >
+        <span
+          className="mx-auto flex size-14 items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-800 text-amber-400"
+          aria-hidden="true"
+        >
+          <Lock className="size-7" strokeWidth={1.75} />
+        </span>
+        <h1
+          id="trial-expired-title"
+          className="mt-4 text-xl font-black leading-snug tracking-tight text-white sm:text-2xl"
+        >
+          🔒 Masa Uji Coba 3 Hari Telah Berakhir
+        </h1>
+        <p
+          id="trial-expired-desc"
+          className="mt-3 text-[13.5px] leading-relaxed text-zinc-300 sm:text-sm"
+        >
+          Data properti Anda aman tersimpan. Ingin melanjutkan kelola kost
+          tanpa batas dan mengaktifkan sistem secara permanen? Silakan
+          aktifkan lisensi seumur hidup melalui mitra resmi kami.
+        </p>
+        <Button
+          asChild
+          size="lg"
+          className="mt-6 h-12 w-full gap-2 bg-emerald-500 text-[15px] font-bold text-zinc-950 hover:bg-emerald-400"
+        >
+          <a href={checkoutHref}>
+            <Wallet className="size-4.5" strokeWidth={2.25} aria-hidden="true" />
+            Aktifkan Lisensi Sekarang
+          </a>
+        </Button>
+        <p className="mt-3 text-[11.5px] leading-snug text-zinc-400">
+          Lisensi seumur hidup — sekali bayar, tanpa biaya bulanan. Pembayaran
+          memakai link resmi mitra yang membagikan trial ini.
+        </p>
+        <a
+          href={SUPPORT_WA_LINK}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-400 underline-offset-2 transition-colors hover:text-emerald-400 hover:underline"
+        >
+          <MessageCircle
+            className="size-3.5"
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+          Butuh bantuan? Chat Admin via WhatsApp
+        </a>
+      </div>
+    </main>
+  );
+}
+
 export default async function TrialPage({
   searchParams,
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
+  // ── Owner berlisensi yang sudah login tidak butuh trial → dashboard miliknya
+  // (mencegah trial yang tidak pernah dipakai ikut terbakar 72 jamnya).
+  const authUser = await getAuthUser();
+  if (authUser && !authUser.demo) redirect("/dashboard");
+
   const params = await searchParams;
   const token = firstParam(params.token);
 
@@ -142,11 +223,15 @@ export default async function TrialPage({
     );
   }
 
-  return (
-    <TrialPortal
-      state={result.state}
-      token={token}
-      serverNow={new Date().toISOString()}
-    />
-  );
+  // ── Trial habis (LOCKED) → halaman pemberitahuan + tombol checkout mitra ───
+  if (result.state.status === "LOCKED") {
+    return (
+      <TrialExpiredCard
+        checkoutHref={buildCheckoutUrl(result.state.partnerRefCode)}
+      />
+    );
+  }
+
+  // ── Trial aktif → LANGSUNG masuk dashboard utama (sesi dipasang API enter) ─
+  redirect(`/api/trial/enter?token=${encodeURIComponent(token)}`);
 }
