@@ -7,12 +7,13 @@
 //   siap pakai untuk menawarkan UnitKu ke pemilik kost/kontrakan.
 //
 //   Menu inline keyboard:
-//     🎲 Acak Status Medsos          → HOOKS × PROBLEMS × SOLUTIONS × CTAS
+//     🎲 Acak Status Medsos          → getRandomAffiliateCopy()
+//       (HOOKS × PAIN_STORIES × BENEFITS × CTAS — bank data affiliateCopies.ts)
 //     💬 Template Chat WhatsApp      → salah satu WA_TEMPLATES siap kirim
-//     🔄 Acak Teks Baru              → generate ulang kategori yang sama
+//     🎲 Acak Teks Baru              → generate ulang kategori yang sama
 //     🔙 Menu Utama                  → kembali ke pilihan kategori
 //
-//   Mitra tinggal tap kotak <pre><code> untuk menyalin, lalu mengganti
+//   Mitra tinggal tap kotak <code> untuk menyalin, lalu mengganti
 //   placeholder [MASUKKAN_LINK_REFERRAL_ANDA] dengan link referral sendiri.
 //
 //   Konfigurasi:
@@ -20,11 +21,13 @@
 //     - Set webhook: https://unitku.my.id/api/telegram/mitra-promo-bot
 //
 // Catatan: /api/* dilewati middleware (lihat src/middleware.ts). Data materi
-// dipisah ke src/data/mitraPromoData.ts agar route ringan dan mudah dirawat.
+// dipisah dari route: bank copywriting baru di src/data/affiliateCopies.ts,
+// template WA ke pemilik kost tetap di src/data/mitraPromoData.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from "next/server";
-import { HOOKS, PROBLEMS, SOLUTIONS, CTAS, WA_TEMPLATES } from "@/data/mitraPromoData";
+import { getRandomAffiliateCopy } from "@/data/affiliateCopies";
+import { WA_TEMPLATES } from "@/data/mitraPromoData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,10 +36,6 @@ const BOT_TOKEN = process.env.TELEGRAM_MITRA_BOT_TOKEN || "9169376869:AAEgyAQif7
 
 function getRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function generateMitraPromo(): string {
-  return `${getRandom(HOOKS)}\n\n${getRandom(PROBLEMS)}\n\n${getRandom(SOLUTIONS)}\n\n${getRandom(CTAS)}`;
 }
 
 async function sendTelegram(method: string, payload: any) {
@@ -107,7 +106,7 @@ export async function POST(req: NextRequest) {
       let repeatAction = "";
 
       if (data === "mitra_promo") {
-        content = generateMitraPromo();
+        content = getRandomAffiliateCopy();
         repeatAction = "mitra_promo";
       } else if (data === "mitra_wa") {
         content = getRandom(WA_TEMPLATES);
@@ -115,7 +114,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (content) {
-        const messageText = `💡 <i>Tap kotak di bawah untuk menyalin, lalu ganti [MASUKKAN_LINK_REFERRAL_ANDA] dengan link milik Anda:</i>\n\n<pre><code>${content}</code></pre>`;
+        const messageText = `💡 <b>Tap kotak di bawah untuk menyalin, lalu ganti [MASUKKAN_LINK_REFERRAL_ANDA] dengan link milik Anda:</b>\n\n<code>${content}</code>`;
 
         await sendTelegram("sendMessage", {
           chat_id: chatId,
@@ -123,7 +122,7 @@ export async function POST(req: NextRequest) {
           parse_mode: "HTML",
           reply_markup: {
             inline_keyboard: [
-              [{ text: "🔄 Acak Teks Baru", callback_data: repeatAction }],
+              [{ text: "🎲 Acak Teks Baru", callback_data: repeatAction }],
               [{ text: "🔙 Menu Utama", callback_data: "menu_main" }],
             ],
           },
