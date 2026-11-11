@@ -330,20 +330,32 @@ export async function setAffiliateActive(
   }
 }
 
-// ── Aksi: hapus akun mitra + seluruh komisinya ───────────────────────────────
+// ── Aksi: hapus akun mitra + seluruh data terkait (hard delete total) ────────
 
 export type DeleteAffiliateResult =
-  | { ok: true; deletedCommissions: number }
+  | { ok: true; deletedCommissions: number; deletedTrials: number }
   | { ok: false; reason: "not-found" | "error" };
 
 /**
- * Hapus PERMANEN satu mitra dari tabel affiliates BESERTA semua baris komisi
- * terkait di affiliate_commissions. Komisi dihapus dulu (deleteMany) dalam
- * satu transaksi — aman untuk tabel produksi yang FK-nya tidak membawa
- * ON DELETE CASCADE (self-heal menambah CASCADE bila FK dibuat ulang, tetapi
- * bentuk tabel buatan manual bisa berbeda). Kode referral yang dihapus otomatis
- * bebas dipakai mitra baru; cookie unitku_ref calon pembeli lama tidak lagi
- * menghasilkan komisi (affiliator-not-found di webhook).
+ * Hapus PERMANEN satu mitra BESERTA SELURUH data terikat padanya — hard delete
+ * total dalam SATU transaksi agar tidak ada masa transisi saat link masih
+ * hidup tanpa pemiliknya:
+ *   1. owner_trials (partnerId) — token trial/link uji coba mitra HANGUS
+ *      SEKETIKA: /trial?token=… → kartu "Link Trial Tidak Valid" (Token Not
+ *      Found), banner & paywall dashboard trial ikut hilang (state fetch 404).
+ *      Dihapus paling awal (anak dulu dari induk — aman walau DB produksi
+ *      ber-FK tanpa CASCADE; tabel self-heal memang tanpa FK).
+ *   2. affiliate_commissions (affiliateId) — riwayat/kutipan komisinya.
+ *   3. affiliates (id) — baris mitra itu sendiri.
+ *   4. Link referral lama (?ref=<refCode>) otomatis MATI tanpa langkah tambahan:
+ *      semua konsumen server memvalidasi kode via resolveActiveAffiliate
+ *      (checkout API, register, halaman /checkout) — baris hilang → organik;
+ *      webhook komisi pun mengabaikan kode yang tak terdaftar. Magic-link
+ *      portal mitra (accessToken) ikut hilang bersama barisnya.
+ *   5. Cache — tidak ada cache data mitra di proses (hanya cache bootstrap
+ *      skema yang bukan data mitra) → tidak ada yang perlu di-invalidate.
+ * Kode referral yang bebas kembali dipakai mitra baru; cookie unitku_ref
+ * calon pembeli lama tidak lagi menghasilkan komisi (affiliator-not-found).
  */
 export async function deleteAffiliate(
   affiliateId: string,
@@ -356,19 +368,28 @@ export async function deleteAffiliate(
     });
     if (!existing) return { ok: false, reason: "not-found" };
 
-    const deletedCommissions = await prisma.$transaction(async (tx) => {
-      const removed = await tx.affiliateCommission.deleteMany({
-        where: { affiliateId },
-      });
-      await tx.affiliate.delete({ where: { id: affiliateId } });
-      return removed.count;
-    });
+    const { deletedCommissions, deletedTrials } = await prisma.$transaction(
+      async (tx) => {
+        // 1. Token trial milik mitra — hard delete (link langsung mati)
+        const trials = await tx.ownerTrial.deleteMany({
+          where: { partnerId: affiliateId },
+        });
+        // 2. Komisi terkait (dihapus dulu — FK produksi tanpa CASCADE)
+        const commissions = await tx.affiliateCommission.deleteMany({
+          where: { affiliateId },
+        });
+        // 3. Baris mitra itu sendiri — referral & portal mati bersamaannya
+        await tx.affiliate.delete({ where: { id: affiliateId } });
+        return { deletedCommissions: commissions.count, deletedTrials: trials.count };
+      },
+    );
 
     console.log(
-      `[UnitKu Affiliate Admin] Mitra "${existing.refCode}" DIHAPUS beserta ` +
-        `${deletedCommissions} baris komisi terkait.`,
+      `[UnitKu Affiliate Admin] Mitra "${existing.refCode}" DIHAPUS TOTAL: ` +
+        `${deletedTrials} link trial + ${deletedCommissions} baris komisi ` +
+        `terhapus; referral & portal magic-link mati otomatis.`,
     );
-    return { ok: true, deletedCommissions };
+    return { ok: true, deletedCommissions, deletedTrials };
   } catch (error) {
     console.error("[UnitKu Affiliate Admin] Gagal menghapus mitra:", error);
     return { ok: false, reason: "error" };

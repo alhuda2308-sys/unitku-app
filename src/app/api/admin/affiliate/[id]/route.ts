@@ -1,11 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // /api/admin/affiliate/[id] — Hapus permanen satu mitra affiliator
 //
-//  DELETE  → menghapus baris affiliates.id = [id] BESERTA seluruh komisi
-//            terkait di affiliate_commissions (dihapus dulu dalam transaksi —
-//            aman utk FK produksi tanpa ON DELETE CASCADE).
-//            Respons: { success, deletedCommissions } — panel memperbarui
-//            tabel secara optimistis tanpa reload halaman penuh.
+//  DELETE  → HARD DELETE TOTAL dalam satu transaksi (lib affiliate-admin):
+//            1. owner_trials (partnerId) — seluruh link/token trial mitra
+//               terhapus → link lama langsung mati (halaman "Link Trial
+//               Tidak Valid"), tak bisa diakses lagi siapa pun.
+//            2. affiliate_commissions (affiliateId) — seluruh komisi terkait.
+//            3. affiliates (id) — baris mitra: referral ?ref= & magic-link
+//               portal mati otomatis (resolusi server selalu validasi DB).
+//            Respons: { success, deletedCommissions, deletedTrials } — panel
+//            memperbarui tabel secara optimistis tanpa reload halaman penuh.
 //
 // Wajib requireSuperAdminUser() — 401 belum masuk, 403 bukan super admin.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,5 +65,6 @@ export async function DELETE(
   return NextResponse.json({
     success: true,
     deletedCommissions: result.deletedCommissions,
+    deletedTrials: result.deletedTrials,
   });
 }

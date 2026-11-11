@@ -399,6 +399,7 @@ export function AffiliateAdminPanel({
         success?: boolean;
         error?: string;
         deletedCommissions?: number;
+        deletedTrials?: number;
       } | null;
       if (!res.ok || !json?.success) {
         toast.error(json?.error ?? "Gagal menghapus mitra.");
@@ -449,10 +450,22 @@ export function AffiliateAdminPanel({
         };
       });
       router.refresh();
+      // Ringkasan hard delete — data apa saja yang ikut terhapus bersama mitra
+      const deletedBits: string[] = [];
+      if (json.deletedTrials && json.deletedTrials > 0) {
+        deletedBits.push(
+          `${json.deletedTrials} link trial lama langsung mati (tidak bisa diakses lagi)`,
+        );
+      }
+      if (json.deletedCommissions && json.deletedCommissions > 0) {
+        deletedBits.push(
+          `${json.deletedCommissions} baris komisi terkait ikut terhapus`,
+        );
+      }
       toast.success(`Mitra ${partner.name} dihapus`, {
         description:
-          json.deletedCommissions && json.deletedCommissions > 0
-            ? `${json.deletedCommissions} baris komisi terkait ikut terhapus.`
+          deletedBits.length > 0
+            ? `${deletedBits.join(" · ")}.`
             : "Kode referral kini bebas dipakai mitra baru.",
       });
     } catch {

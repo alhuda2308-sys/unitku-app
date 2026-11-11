@@ -44,7 +44,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
-  useEffect,
   useRef,
   useState,
   type MouseEvent,
@@ -69,7 +68,7 @@ import {
   type CheckoutFieldErrors,
   type CheckoutFormState,
 } from "@/lib/checkout-validation";
-import { getAffiliateRef, sanitizeAffiliateRef } from "@/lib/affiliate";
+import { sanitizeAffiliateRef } from "@/lib/affiliate";
 import { LICENSE_AMOUNT_IDR, SUPPORT_WA_PURCHASE_LINK } from "@/lib/landing-config";
 import { toast } from "@/lib/toast";
 
@@ -96,17 +95,16 @@ export function CheckoutClient({
   const [submitting, setSubmitting] = useState(false);
 
   /** Kode referral mitra — null = organik.
-   *  SSR : dari ?ref= URL (initialRef — tanpa layout shift saat render awal).
-   *  Client: fallback cookie `unitku_ref` (last-click 30 hari dari middleware)
-   *  dibaca sekali setelah mount — menutup kasus masuk via landing /?ref= lalu
-   *  navigasi client-side ke /checkout tanpa query param. */
-  const [referral, setReferral] = useState<string | null>(() =>
+   *  Server Component page SUDAH memvalidasi kedua sumber ke DB (URL ?ref= /
+   *  ?ref_code= DAN cookie unitku_ref via resolveActiveAffiliate) lalu
+   *  meneruskan kode kanonik milik mitra AKTIF sebagai initialRef — render
+   *  pertama sudah tahu status referral (tanpa layout shift). TANPA fallback
+   *  cookie di client: kode milik mitra yang sudah dihapus tidak boleh
+   *  "hidup kembali" dari cookie basi — konsisten dengan validasi server
+   *  di POST /api/checkout (komisi aman di kedua lapisan). */
+  const [referral] = useState<string | null>(() =>
     sanitizeAffiliateRef(initialRef),
   );
-
-  useEffect(() => {
-    setReferral((current) => current ?? getAffiliateRef());
-  }, []);
 
   /** true = traffic referral mitra → SEMBUNYIKAN tombol "Pesan Manual via
    *  WhatsApp Admin" (komisi mitra tidak boleh bocor ke chat manual) dan
