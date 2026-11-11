@@ -10,9 +10,12 @@
 //      trialStartedAt = sekarang, trialExpiresAt = +72 jam). Idempoten:
 //      refresh berulang tidak pernah memperpanjang masa trial.
 //   2. Token valid & aktif → redirect /api/trial/enter → sesi dashboard
-//      dipasang (pola /demo) → OWNER LANGSUNG DIHADAPKAN KE DASHBOARD UTAMA
-//      UnitKu (denah kamar, okupansi, menu kelola) dengan banner kecil
-//      "Mode Uji Coba — Sisa trial: X hari" di bagian atas (TrialBanner).
+//      dipasang (pola /demo, email khusus trial) → OWNER LANGSUNG DIHADAPKAN
+//      KE DASHBOARD UTAMA UnitKu (denah kamar, okupansi, menu kelola) dalam
+//      kondisi FRESH STATE — tanpa dataset demo/kamar contoh, identitas
+//      bersih; owner memasukkan data kamar/kos mereka sendiri dari nol.
+//      Banner kecil "Mode Uji Coba — Sisa trial: X hari" tampil di bagian
+//      atas (TrialBanner).
 //   3. Lewat 72 jam / token LOCKED (lazy-lock ditegakkan server setiap
 //      pembacaan) → HALAMAN PEMBERITAHUAN "Masa Uji Coba Telah Berakhir"
 //      dengan tombol menuju checkout lisensi milik MITRA pembuat

@@ -7,10 +7,14 @@
 //   1. Verifikasi ulang token (defense in depth — API bisa diakses langsung).
 //   2. Owner berlisensi yang sudah login (sesi Supabase/owner riil) TIDAK
 //      dipakaikan mode trial — langsung dashboard miliknya.
-//   3. Trial aktif → set cookie sesi demo (pola GET /demo — akses /dashboard
-//      lolos middleware di semua mode auth) + cookie trial (banner countdown)
-//      → redirect /dashboard?demo=1&trial=1 (dataset simulasi instan, TANPA
-//      menunggu DB — UI utama langsung tampil < 1 detik).
+//   3. Trial aktif → set cookie sesi demo TRIAL (pola /demo — akses /dashboard
+//      lolos middleware di semua mode auth; email khusus "trial@unitku.id"
+//      agar dashboard memilahnya dari demo CTA) + cookie trial (banner
+//      countdown + kunci persistensi data) → redirect /dashboard?trial=1.
+//      Dashboard trial = FRESH STATE: tanpa dataset demo (12 kamar contoh
+//      "Kost Griya Pratama" dsb.), identitas bersih — owner memasukkan data
+//      kamar/kos mereka sendiri dari nol layaknya akun riil baru; data yang
+//      diketik tersimpan per-token di perangkat (trial-session-store).
 //   4. Trial LOCKED / token tak dikenal → cookie trial dibersihkan → kembali
 //      ke /trial?token=… yang menampilkan halaman pemberitahuan "Masa Uji
 //      Coba Telah Berakhir" + tombol checkout mitra pembuat.
@@ -33,7 +37,12 @@ import {
 } from "@/lib/auth/local";
 import { createSupabaseAuthCollector } from "@/lib/auth/supabase-route";
 import { activateOwnerTrial } from "@/lib/owner-trial";
-import { TRIAL_COOKIE, TRIAL_COOKIE_MAX_AGE } from "@/lib/trial-shared";
+import {
+  TRIAL_COOKIE,
+  TRIAL_COOKIE_MAX_AGE,
+  TRIAL_DASHBOARD_URL,
+  TRIAL_SESSION_EMAIL,
+} from "@/lib/trial-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -106,15 +115,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // ── Trial aktif → sesi demo + cookie trial → langsung dashboard utama ──────
+  // ── Trial aktif → sesi demo TRIAL + cookie trial → dashboard fresh state ──
   const response = NextResponse.redirect(
-    new URL("/dashboard?demo=1&trial=1", request.nextUrl.origin),
+    new URL(TRIAL_DASHBOARD_URL, request.nextUrl.origin),
   );
   response.cookies.set(
     SESSION_COOKIE,
     createSessionToken({
       sub: DEMO_OWNER_ID,
-      email: "trial@unitku.id",
+      email: TRIAL_SESSION_EMAIL, // penanda sesi TRIAL — dipilah dashboard dari demo CTA
       demo: true,
     }),
     sessionCookieOptions,

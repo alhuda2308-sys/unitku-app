@@ -6,6 +6,7 @@ import { api, getAuthMeOnce } from "@/lib/api-client";
 import type { PropertySummary } from "@/lib/api-client";
 import {
   applyDemoSnapshot,
+  applyTrialSnapshot,
   getDashboardSnapshot,
   getServerDashboardSnapshot,
   loadDashboard,
@@ -14,6 +15,7 @@ import {
   reloadDashboardData,
   rescueDemoIfLoading,
   setDashboardPropertyScope,
+  setDashboardTrialSession,
   subscribeDashboard,
   updateCashEntries,
   updateInvoices,
@@ -122,7 +124,6 @@ import {
   type AnnouncementDraft,
 } from "@/lib/announcement-data";
 import { savePortalMirror } from "@/lib/portal-mirror";
-import { readTrialTokenClient } from "@/lib/trial-shared";
 import { PropertyBanner } from "@/components/kost/property-banner";
 import { TrialBanner } from "@/components/kost/trial-banner";
 import {
@@ -135,6 +136,7 @@ import {
 } from "@/components/kost/dashboard-skeletons";
 import {
   commitSettingsToCloud,
+  buildTrialFreshSettings,
   DEFAULT_SETTINGS,
   fileToPhotoDataUrl,
   isSettingsCloudSyncEnabled,
@@ -147,11 +149,15 @@ import {
   getSettingsSnapshot,
   subscribeSettings,
   updateStoredSettings,
+  TRIAL_PROPERTY_ENTRY_ID,
+  TRIAL_STAFF_OWNER_ID,
   type IndoKostSettings,
   type PropertyEntry,
   type PropertyProfile,
   type ThemeKey,
 } from "@/lib/app-settings";
+import { isTrialSessionEmail, readTrialTokenClient } from "@/lib/trial-shared";
+import { loadTrialSession, saveTrialSession } from "@/lib/trial-session-store";
 
 type ViewKey =
   | "denah"
@@ -177,6 +183,37 @@ const VIEW_LABELS: Record<ViewKey, string> = {
 /** Pesan error ramah untuk toast gagal (dari Error dilempar api-client) */
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : "Terjadi kesalahan tak terduga.";
+}
+
+/**
+ * Identitas asli pemilik trial dari link mitra (nama owner & nama properti —
+ * diisi mitra saat membuat link trial). Bukan data dummy: inilah data properti
+ * milik owner, dipakai dashboard trial menggantikan label netral "Properti
+ * Saya"/"Owner". Gagal jaringan → null (label netral tetap dipakai).
+ */
+interface TrialIdentity {
+  ownerName: string;
+  propertyName: string | null;
+}
+
+async function fetchTrialIdentity(token: string): Promise<TrialIdentity | null> {
+  try {
+    const res = await fetch(`/api/trial/state?token=${encodeURIComponent(token)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      success?: boolean;
+      state?: { ownerName?: string; propertyName?: string | null };
+    };
+    if (!json?.success || !json.state) return null;
+    return {
+      ownerName: (json.state.ownerName ?? "").trim(),
+      propertyName: (json.state.propertyName ?? "").trim() || null,
+    };
+  } catch {
+    return null; // offline — dashboard trial tetap jalan dgn identitas netral
+  }
 }
 
 /** "8123456789" → "812-3456-789" style display (matches existing dataset formatting) */
@@ -255,6 +292,17 @@ export default function IndoKostPage() {
       new URLSearchParams(window.location.search).get("demo") === "1",
   );
 
+  // ── Sesi TRIAL via URL (?trial=1 — redirect dari /api/trial/enter) ──────────
+  // instantTrial: dashboard trial FRESH STATE dipasang SEKALI di render pertama
+  // tanpa panggilan API data — kamar/tagihan/kas mulai KOSONG (bukan dataset
+  // demo) dan identitas pengaturan bersih; owner memasukkan data mereka
+  // sendiri dari nol. dipakai initializer efek bootstrap & guard efek lain.
+  const [instantTrial] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("trial") === "1",
+  );
+
   // ── Data dari Supabase via Route Handlers (external store — kamar/tagihan/kas)
   const dash = useSyncExternalStore(
     subscribeDashboard,
@@ -307,7 +355,17 @@ export default function IndoKostPage() {
 
   const [isDemoSession, setIsDemoSession] = useState(false);
 
-  // ── Sesi TRIAL (link /trial dari mitra) — cookie dipasang /api/trial/enter ──
+  // ── Sesi TRIAL (link /trial dari mitra) — diaktifkan bootstrap/guard sesi ──
+  // isTrialSession: sesi trial TERKONFIRMASI (via URL ?trial=1 atau /api/auth/me
+  // email trial). trialModeRef: cermin sinkron utk efek fetch API data —
+  // respons yang datang SETELAH sesi trial aktif dibuang agar data demo milik
+  // sesi demo (properti "kgp") tidak pernah masuk state trial.
+  const [isTrialSession, setIsTrialSession] = useState(false);
+  const trialModeRef = useRef(false);
+  /** Mode data trial aktif — URL ?trial=1 (mount) atau sesi trial terkonfirmasi */
+  const isTrialMode = instantTrial || isTrialSession;
+
+  // ── Sesi TRIAL (cookie dipasang /api/trial/enter) — banner & persistensi ──
   // Baca sinkron sekali di mount (client): DemoBanner baru muncul setelah mount
   // (isDemoSession di-set effect) sehingga tidak mungkin mismatch hydration.
   // Trial pengguna melihat TrialBanner — banner demo biasa disembunyikan agar
@@ -332,6 +390,80 @@ export default function IndoKostPage() {
     else applyDemoSnapshot();
     setTickets(TICKETS);
     setAnnouncements(ANNOUNCEMENTS);
+  }, []);
+
+  /**
+   * Aktifkan sesi TRIAL — dashboard FRESH STATE tanpa data dummy (kebalikan
+   * dataset demo). Dipanggil saat sesi trial terkonfirmasi (?trial=1 dari
+   * /api/trial/enter, atau /api/auth/me email trial). Alur:
+   *   1. trialModeRef diset SINKRON — respons fetch API data yang datang
+   *     terlambat dibuang (data demo milik sesi demo tak pernah masuk state).
+   *   2. Kamar/tagihan/kas dipulihkan dari persistensi per-token (localStorage)
+   *     bila owner trial pernah mengisi data; sesi baru → benar-benar KOSONG.
+   *   3. Pengaturan diisi identitas bersih (buildTrialFreshSettings) — TANPA
+   *     nama demo; sesi baru kemudian di-hydrate identitas ASLI dari link
+   *     trial (nama owner & properti via /api/trial/state).
+   *   4. Mutasi berjalan lokal (isTrialMode ikut gerbang demo) + tiap perubahan
+   *     dipersist per-token — data owner bertahan antar reload selama trial.
+   */
+  const activateTrialDataset = useCallback(() => {
+    trialModeRef.current = true; // sinkron — fetch API data belakangan dibuang
+    setIsTrialSession(true);
+    const token = readTrialTokenClient() ?? "";
+    setDashboardTrialSession(token || null);
+    const saved = token ? loadTrialSession(token) : null;
+    // Kamar/tagihan/kas: pulihkan milik owner trial (sesi lanjutan) atau kosong
+    applyTrialSnapshot(
+      saved?.rooms ?? [],
+      saved?.invoices ?? [],
+      saved?.cashEntries ?? [],
+    );
+    setTickets(saved?.tickets ?? []);
+    setAnnouncements(saved?.announcements ?? []);
+    pauseCloudSync(() =>
+      updateStoredSettings((s) => ({
+        ...s,
+        ...(saved?.settings ?? buildTrialFreshSettings()),
+      })),
+    );
+    if (!token || saved) return; // tanpa token / sesi lanjutan → identitas sudah ada
+    // Sesi BARU → tandai snapshot awal (penanda "sudah diinisialisasi" agar
+    // reload berikutnya tidak meng-reset kerja owner) lalu hydrate identitas
+    // asli dari link trial (nama owner & properti — data mitra, bukan dummy).
+    saveTrialSession(token, { settings: getSettingsSnapshot() });
+    void fetchTrialIdentity(token).then((identity) => {
+      if (!identity) return;
+      pauseCloudSync(() =>
+        updateStoredSettings((s) => ({
+          ...s,
+          owner: identity.ownerName
+            ? { ...s.owner, nama: identity.ownerName }
+            : s.owner,
+          propertyProfile: identity.propertyName
+            ? { ...s.propertyProfile, nama: identity.propertyName }
+            : s.propertyProfile,
+          properties: [
+            {
+              id: TRIAL_PROPERTY_ENTRY_ID,
+              name: identity.propertyName || s.propertyProfile.nama || "Properti Saya",
+              type: s.propertyProfile.tipe,
+              unitCount: 0,
+              address: s.propertyProfile.alamat,
+              aktif: true,
+            },
+          ],
+          staff: [
+            {
+              id: TRIAL_STAFF_OWNER_ID,
+              nama: identity.ownerName || s.owner.nama || "Owner",
+              peran: "Owner",
+              whatsapp: s.owner.whatsapp,
+              cabang: [],
+            },
+          ],
+        })),
+      );
+    });
   }, []);
 
   /** Reset Data Demo — dataset simulasi kembali persis ke kondisi awal.
@@ -489,6 +621,20 @@ export default function IndoKostPage() {
       activateDemoDataset();
       return;
     }
+    if (instantTrial) {
+      // Sesi trial via URL — dashboard FRESH STATE instan (0 panggilan API data):
+      // kamar/tagihan/kas KOSONG (atau data milik owner trial dari persistensi
+      // per-token), TANPA dataset demo. Pengaman: ?trial=1 yang diketik manual
+      // oleh akun riil berlisensi dikembalikan ke dashboard normal setelah
+      // sesi terkonfirmasi bukan demo.
+      activateTrialDataset();
+      getAuthMeOnce()
+        .then((me) => {
+          if (!me.demo) window.location.replace("/dashboard");
+        })
+        .catch(() => {});
+      return;
+    }
 
     let alive = true;
     let navigating = false;
@@ -557,18 +703,23 @@ export default function IndoKostPage() {
       alive = false;
       clearTimeout(watchdog);
     };
-  }, [instantDemo, applyPropertyList]);
+  }, [instantDemo, instantTrial, applyPropertyList, activateTrialDataset]);
 
   // ── Bootstrap tiket komplain dari database (cloud-first, fallback mock demo)
   // Scoped ?propertyId= — panel Komplain hanya menampilkan tiket milik cabang
   // yang dikelola; otomatis dimuat ulang saat berganti properti di switcher.
+  // Sesi TRIAL: tiket mulai kosong/milik owner trial (persistensi lokal) —
+  // komplain contoh milik sesi demo tidak pernah tampil.
   useEffect(() => {
-    if (instantDemo) return; // demo: tiket simulasi lokal — tanpa API
+    if (instantDemo || instantTrial) return; // demo/trial: data lokal — tanpa API
     let alive = true;
     api
       .getTickets(activePropertyId)
       .then((res) => {
-        if (alive) setTickets(res.tickets);
+        // trialModeRef: respons yang datang SETELAH sesi trial terdeteksi
+        // (pengunjung /dashboard biasa yang ternyata trial) dibuang —
+        // dataset komplain demo tidak boleh menimpa data trial.
+        if (alive && !trialModeRef.current) setTickets(res.tickets);
       })
       .catch(() => {
         /* offline — tetap kosong (bukan mock); banner offline + retry aktif */
@@ -576,7 +727,7 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, [instantDemo, activePropertyId]);
+  }, [instantDemo, instantTrial, activePropertyId]);
 
   // ── Bootstrap PENGUMUMAN dari database (akun riil & sesi demo) ──────────────
   // Dulu pengumuman hanya state lokal perangkat — tidak pernah ikut pindah
@@ -589,18 +740,22 @@ export default function IndoKostPage() {
   //                 yang sudah terpasang tetap dipakai.
   // Scoped ?propertyId= — panel hanya memuat pengumuman cabang yang dikelola;
   // otomatis dimuat ulang saat berganti properti di switcher.
+  // Sesi TRIAL: pengumuman mulai kosong/milik owner trial — pengumuman contoh
+  // milik properti demo "kgp" tidak pernah tampil di dashboard trial.
   useEffect(() => {
+    if (instantDemo || instantTrial) return; // demo/trial: data lokal — tanpa API
     let alive = true;
     api
-      .getAnnouncements(instantDemo ? null : activePropertyId)
+      .getAnnouncements(activePropertyId)
       .then((res) => {
-        if (alive) setAnnouncements(res.announcements);
+        // trialModeRef — lihat catatan efek tiket: respons terlambat dibuang
+        if (alive && !trialModeRef.current) setAnnouncements(res.announcements);
       })
       .catch((err: unknown) => {
-        // Demo: biarkan dataset simulasi lokal (offline tetap hidup).
+        // Demo/trial: biarkan data lokal (offline tetap hidup).
         // Akun riil: tetap kosong — konsisten dgn prinsip "akun riil tidak
         // pernah melihat data dummy"; banner offline dashboard menandai gagal.
-        if (!instantDemo) {
+        if (!instantDemo && !trialModeRef.current) {
           console.warn(
             "[UnitKu] Pengumuman gagal dimuat dari database:",
             err instanceof Error ? err.message : err,
@@ -610,10 +765,30 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, [instantDemo, activePropertyId]);
+  }, [instantDemo, instantTrial, activePropertyId]);
+
+  // ── Persistensi sesi TRIAL — tiket, pengumuman & pengaturan per token ──────
+  // Kamar/tagihan/kas dipersist di dalam dashboard-store (updateRooms/dll.);
+  // tiga bagian ini menutup sisanya. Deklarasi SETELAH efek bootstrap agar
+  // snapshot trial (kosong/pulihan) sudah terpasang sebelum penulisan pertama.
+  useEffect(() => {
+    if (!isTrialMode) return;
+    const token = readTrialTokenClient();
+    if (!token) return;
+    saveTrialSession(token, { tickets, announcements });
+  }, [isTrialMode, tickets, announcements]);
+
+  useEffect(() => {
+    if (!isTrialMode) return;
+    const token = readTrialTokenClient();
+    if (!token) return;
+    saveTrialSession(token, { settings });
+  }, [isTrialMode, settings]);
 
   /** "Hari ini" versi ISO (yyyy-mm-dd) — status tayang pengumuman akun riil
-   *  memakai tanggal nyata; sesi demo memakai snapshot dataset (ISO demo). */
+   *  memakai tanggal nyata; sesi demo memakai snapshot dataset (ISO demo).
+   *  Sesi TRIAL juga memakai tanggal nyata — pengumuman yang dibuat owner
+   *  trial adalah pengumuman riil miliknya, bukan konten dataset demo. */
   const realTodayISO = useMemo(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
@@ -643,7 +818,7 @@ export default function IndoKostPage() {
   // Sukses → indikator sinkron kembali hijau (operasi cloud terakhir berhasil).
   const [forceSyncing, setForceSyncing] = useState(false);
   const handleForceSync = () => {
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       toast.info("Mode demo memakai data simulasi lokal", {
         description:
           "Sesi demo tidak tersambung ke cloud — gunakan Reset Data Demo untuk memulihkan kondisi awal.",
@@ -692,12 +867,18 @@ export default function IndoKostPage() {
       if (!alive || !info?.user) return;
       // Tandai sesi Super Admin — mengaktifkan notifikasi pendaftar baru
       setIsSuperAdmin(info.isSuperAdmin === true);
-      // Sesi demo (CTA landing /demo) → tampilkan banner demo interaktif;
-      // tanpa gerbang lisensi & tanpa redirect onboarding.
+      // Sesi demo/trial → tanpa gerbang lisensi & tanpa redirect onboarding.
+      // Sesi TRIAL (email khusus "trial@unitku.id") → dashboard FRESH STATE
+      // (bukan dataset demo) — jalur ini menangani owner trial yang membuka
+      // /dashboard langsung tanpa ?trial=1 (bookmark/PWA/reload tab lama).
       if (info.demo) {
-        // Bila bootstrap masih menggantung (database hang), selamatkan UI
-        // dengan data simulasi instan — demo tidak menunggu database.
-        activateDemoDataset(true);
+        if (isTrialSessionEmail(info.user?.email)) {
+          activateTrialDataset(); // selalu terapkan — idempoten, pulihan per-token
+        } else {
+          // Bila bootstrap masih menggantung (database hang), selamatkan UI
+          // dengan data simulasi instan — demo tidak menunggu database.
+          activateDemoDataset(true);
+        }
         return;
       }
       // Gerbang lisensi dulu: belum lunas → layar gembok (sebelum onboarding)
@@ -728,16 +909,20 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, [instantDemo]);
+  }, [instantDemo, activateTrialDataset]);
 
   // ── Sinkron profil properti & rekening dari database (cloud = sumber kebenaran)
+  // Sesi TRIAL: identitas profil milik owner trial (persistensi per-token) —
+  // identitas properti demo "kgp" dari database tidak pernah menimpanya.
   useEffect(() => {
-    if (instantDemo) return; // demo: profil simulasi lokal — tanpa API
+    if (instantDemo || instantTrial) return; // demo/trial: profil lokal — tanpa API
     let alive = true;
     api
       .getProperty()
       .then((res) => {
-        if (!alive) return;
+        // trialModeRef — respons yang datang setelah sesi trial terdeteksi
+        // dibuang (lihat catatan efek tiket); identitas trial dipertahankan.
+        if (!alive || trialModeRef.current) return;
         // Daftar & properti TERPILIH (multi-cabang) — konsisten dgn bootstrap;
         // fallback ke res.property bila daftar tak tersedia (API lama/offline).
         const p =
@@ -772,16 +957,17 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, [instantDemo, applyPropertyList]);
+  }, [instantDemo, instantTrial, applyPropertyList]);
 
   // ── Sinkron PENGATURAN owner dari cloud (Profil Saya, Staf, Template WA,
   // Fasilitas, Tema) — perbaikan data-reset: bagian pengaturan ini dulu HANYA
   // di localStorage, sehingga login dari perangkat lain / clear storage
   // menampilkan data dummy. Sekarang cloud = sumber kebenaran (owner_settings);
-  // localStorage tinggal cache instan. Sesi demo tetap murni perangkat.
+  // localStorage tinggal cache instan. Sesi demo & TRIAL tetap murni perangkat
+  // (trial memakai identitas bersih + persistensi per-token, bukan cloud).
   useEffect(() => {
-    if (instantDemo) {
-      setSettingsCloudSync(false); // demo: tidak pernah push ke cloud
+    if (instantDemo || instantTrial) {
+      setSettingsCloudSync(false); // demo/trial: tidak pernah push ke cloud
       return;
     }
     let alive = true;
@@ -881,14 +1067,16 @@ export default function IndoKostPage() {
     return () => {
       alive = false;
     };
-  }, [instantDemo, applyChosenPropertyToSettings]);
+  }, [instantDemo, instantTrial, applyChosenPropertyToSettings]);
 
   // ── Anti-stuck akun baru: bila dashboard jatuh ke mode offline saat mount
   // (getProperty sempat menggantung), verifikasi properti SEKALI database
   // menjawab — akun yang ternyata belum onboarding langsung diarahkan ke
   // wizard, bukan tertahan di data demo perangkat tanpa penjelasan.
+  // Sesi TRIAL tidak pernah offline (snapshot lokal langsung "ready") — guard
+  // demo/trial di bawah murni pengaman berlapis.
   useEffect(() => {
-    if (dbState !== "offline" || instantDemo || licenseGate) return;
+    if (dbState !== "offline" || instantDemo || instantTrial || licenseGate) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const check = () => {
@@ -903,7 +1091,11 @@ export default function IndoKostPage() {
             const me = await getAuthMeOnce();
             if (!alive) return;
             if (me.demo) {
-              activateDemoDataset(true);
+              if (isTrialSessionEmail(me.user?.email)) {
+                activateTrialDataset(); // trial → fresh state, bukan dataset demo
+              } else {
+                activateDemoDataset(true);
+              }
               return;
             }
           } catch {
@@ -920,7 +1112,7 @@ export default function IndoKostPage() {
       alive = false;
       if (timer) clearTimeout(timer);
     };
-  }, [dbState, instantDemo, licenseGate]);
+  }, [dbState, instantDemo, instantTrial, licenseGate, activateTrialDataset]);
 
   const manageRoom = useMemo(
     () => rooms.find((r) => r.id === manageRoomId) ?? null,
@@ -1017,7 +1209,7 @@ export default function IndoKostPage() {
 
   // ── Pengunjung mode demo (?demo=1 / sesi demo cookie) → target konversi
   // Meta Ads: sticky bottom bar "Beli Lisensi Sekarang" (DemoConvertBar).
-  const isDemoVisitor = instantDemo || isDemoSession;
+  const isDemoVisitor = instantDemo || isDemoSession || isTrialMode;
 
   // ── Ganti tema — SERVER-FIRST utk akun riil (sinkron lintas perangkat) ────
   // Dulu: hanya localStorage + push debounce (1,2 dtk) — tema bisa tertinggal
@@ -1283,7 +1475,7 @@ export default function IndoKostPage() {
     // MODE DEMO: manipulasi state lokal — instan, tanpa API. (Akun riil yang
     // database-nya offline TIDAK memanipulasi lokal — biarkan API gagal dengan
     // toast merah agar tidak ada perubahan yang hilang saat reload.)
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       markPaidLocal(roomId, stateInvoice);
       return;
     }
@@ -1309,7 +1501,7 @@ export default function IndoKostPage() {
   /** Tagihan table "Tandai Lunas / Konfirmasi" — server-first dgn fallback
    *  roomId, kamar & Buku Kas ikut disinkronkan; demo/offline murni lokal. */
   const handleInvoiceMarkPaid = (inv: Invoice) => {
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       markPaidLocal(inv.roomId, inv);
       return;
     }
@@ -1337,7 +1529,7 @@ export default function IndoKostPage() {
     const prompt = billingExtend;
     setBillingExtend(null);
     if (!prompt) return;
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       updateRooms((prev) =>
         prev.map((r) =>
           r.id === prompt.roomId && r.contract
@@ -1548,7 +1740,7 @@ export default function IndoKostPage() {
     // (penghuni + token portal, kontrak & deposit terkunci, invoice pertama
     // berstatus lunas) tanpa menyentuh database, karena sesi demo tidak punya
     // properti terdaftar; POST /api/tenants hanya memicu toast merah 401/403.
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       const room = rooms.find((r) => r.id === p.roomId);
       if (!room) {
         toast.info(`Kamar ${p.roomId} tidak ada di denah saat ini.`);
@@ -1721,7 +1913,7 @@ export default function IndoKostPage() {
    *  langsung tanpa reload manual. */
   const handleEditTenant = (room: Room, payload: TenantProfilePayload) => {
     // MODE DEMO: profil cukup di state lokal — dataset simulasi tidak ada di DB.
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       updateRooms((prev) =>
         prev.map((r) =>
           r.id === room.id && r.tenant ? { ...r, tenant: { ...r.tenant, ...payload } } : r,
@@ -1780,7 +1972,7 @@ export default function IndoKostPage() {
     // tidak ada di database; PATCH /api/tenants hanya memicu toast merah.
     // Perpanjangan = pembayaran periode baru → nextBillingDate ikut dimajukan
     // (tidak pernah mundur) — cermin perilaku PATCH /api/tenants di server.
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       updateRooms((prev) =>
         prev.map((r) => {
           if (r.id !== room.id || !r.contract) return r;
@@ -1848,7 +2040,7 @@ export default function IndoKostPage() {
     // MODE DEMO: check-out murni di state lokal — kamar kembali kosong,
     // penghuni & kontrak dilepas persis perilaku server; refund deposit
     // (bila ada) masuk Buku Kas lokal. Tanpa database di sesi demo.
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       updateRooms((prev) =>
         prev.map((r) =>
           r.id === room.id
@@ -1928,7 +2120,7 @@ export default function IndoKostPage() {
       // simulasi tidak ada di database. Aturan identik dgn server: setiap
       // kamar terisi wajib punya bukti pemasukan utk setiap bulan siklusnya
       // yang terbayar (due < anchor nextBillingDate/contractEnd).
-      if (instantDemo || isDemoSession) {
+      if (instantDemo || isDemoSession || isTrialMode) {
         const { rooms: curRooms, cashEntries: curCash } = getDashboardSnapshot();
         const now = new Date();
         const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -2036,7 +2228,7 @@ export default function IndoKostPage() {
         return null;
       }
     },
-    [instantDemo, isDemoSession, activePropertyId],
+    [instantDemo, isDemoSession, isTrialMode, activePropertyId],
   );
 
   const handleAddExpense = (draft: ExpenseDraft) => {
@@ -2045,7 +2237,7 @@ export default function IndoKostPage() {
     // MODE DEMO: catat murni di state lokal — baris baru langsung tampil di
     // Buku Kas (kartu ringkasan ikut terhitung ulang) tanpa memanggil API kas,
     // karena sesi demo tidak pernah menyentuh database.
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       const entry: CashEntry = {
         id: localCashId(),
         dateLabel,
@@ -2092,7 +2284,7 @@ export default function IndoKostPage() {
     const dateLabel = formatDateLabel(draft.tanggal);
 
     // MODE DEMO: catat murni di state lokal — instan, tanpa API database.
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       const entry: CashEntry = {
         id: localCashId(),
         dateLabel,
@@ -2137,7 +2329,7 @@ export default function IndoKostPage() {
   const handleUpdateExpense = (entry: CashEntry, draft: ExpenseDraft) => {
     const dateLabel = formatDateLabel(draft.tanggal);
 
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       const updated: CashEntry = {
         ...entry,
         category: draft.category,
@@ -2177,7 +2369,7 @@ export default function IndoKostPage() {
 
   const handleDeleteEntry = (entry: CashEntry) => {
     // MODE DEMO: tanpa API — catatan demo hidup hanya di sesi ini.
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       updateCashEntries((prev) => prev.filter((e) => e.id !== entry.id));
       toast.success(`Transaksi ${entry.id} dihapus`, {
         description: `${entry.description} · ${formatIDR(entry.amount)} dikeluarkan dari rekap (sesi demo).`,
@@ -2212,7 +2404,7 @@ export default function IndoKostPage() {
    *  SESI DEMO (?demo=1 / cookie demo): memakai daftar Pengaturan — sesi demo
    *  memang berjalan di atas dataset simulasi tanpa database. */
   const switcherProperties: PropertyEntry[] = useMemo(() => {
-    if (instantDemo || isDemoSession) return settings.properties;
+    if (instantDemo || isDemoSession || isTrialMode) return settings.properties;
     return dbProperties.map((p) => ({
       id: p.id,
       name: p.name,
@@ -2221,7 +2413,7 @@ export default function IndoKostPage() {
       address: p.alamat ?? "",
       photoUrl: p.fotoUrl ?? undefined,
     }));
-  }, [instantDemo, isDemoSession, dbProperties, settings.properties]);
+  }, [instantDemo, isDemoSession, isTrialMode, dbProperties, settings.properties]);
 
   /** switchProperty(newPropertyId) — TERPUSAT: persist pilihan, RESET seluruh
    *  state tampilan (detail kamar terpilih, modal terbuka, filter & pencarian)
@@ -2297,7 +2489,7 @@ export default function IndoKostPage() {
     fileToPhotoDataUrl(file)
       .then((url) => {
         // MODE DEMO: foto cukup tampil lokal (sesi demo tidak menyentuh database)
-        if (instantDemo || isDemoSession) {
+        if (instantDemo || isDemoSession || isTrialMode) {
           updateSettings({ propertyProfile: { ...settings.propertyProfile, fotoUrl: url } });
           toast.success("Foto properti diperbarui", {
             description:
@@ -2342,7 +2534,7 @@ export default function IndoKostPage() {
       address: string;
       photoUrl?: string;
     }): Promise<PropertyEntry | null> => {
-      if (instantDemo || isDemoSession) return null;
+      if (instantDemo || isDemoSession || isTrialMode) return null;
       try {
         const { summary } = await api.createProperty({
           name: draft.name,
@@ -2389,7 +2581,7 @@ export default function IndoKostPage() {
         return null;
       }
     },
-    [instantDemo, isDemoSession, applyPropertyList],
+    [instantDemo, isDemoSession, isTrialMode, applyPropertyList],
   );
 
   const handleServerUpdateProperty = useCallback(
@@ -2397,7 +2589,7 @@ export default function IndoKostPage() {
       id: string,
       draft: { name: string; type: string; address: string; photoUrl?: string },
     ): Promise<boolean> => {
-      if (instantDemo || isDemoSession) return false;
+      if (instantDemo || isDemoSession || isTrialMode) return false;
       try {
         await api.updatePropertyById(id, {
           name: draft.name,
@@ -2415,12 +2607,12 @@ export default function IndoKostPage() {
         return false;
       }
     },
-    [instantDemo, isDemoSession, applyPropertyList, applyChosenPropertyToSettings],
+    [instantDemo, isDemoSession, isTrialMode, applyPropertyList, applyChosenPropertyToSettings],
   );
 
   const handleServerDeleteProperty = useCallback(
     async (id: string): Promise<boolean> => {
-      if (instantDemo || isDemoSession) return false;
+      if (instantDemo || isDemoSession || isTrialMode) return false;
       const wasActive = id === activePropertyId;
       try {
         const res = await api.deleteProperty(id);
@@ -2445,13 +2637,13 @@ export default function IndoKostPage() {
         return false;
       }
     },
-    [instantDemo, isDemoSession, activePropertyId, applyPropertyList],
+    [instantDemo, isDemoSession, isTrialMode, activePropertyId, applyPropertyList],
   );
 
   const handleApplyTariff = (changes: { type: string; price: number }[]) => {
     // MODE DEMO: tarif cukup di state lokal — dataset simulasi tidak ada di
     // database; bulk PATCH hanya memicu toast merah.
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       updateRooms((prev) =>
         prev.map((r) => {
           const change = changes.find((c) => c.type === r.type);
@@ -2502,7 +2694,7 @@ export default function IndoKostPage() {
     // di database, POST /api/rooms hanya memicu toast merah "Properti belum
     // terdaftar". Kotak kamar langsung tampil di denah lantai terpilih dengan
     // status kosong; total kamar & okupansi ikut terhitung ulang otomatis.
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       updateRooms((prev) => [...prev, ...newRooms]);
       toast.success(
         newRooms.length === 1
@@ -2566,7 +2758,7 @@ export default function IndoKostPage() {
   /** Katalog Fasilitas — tambah custom dari modal Tambah Kamar (master katalog
    *  fasilitas tersimpan di cloud owner_settings; demo: lokal murni). */
   const handleAddCustomFacility = (label: string) => {
-    const inDemo = instantDemo || isDemoSession;
+    const inDemo = instantDemo || isDemoSession || isTrialMode;
     const s = getSettingsSnapshot();
     const facilities = {
       ...s.facilities,
@@ -2595,7 +2787,7 @@ export default function IndoKostPage() {
   /** Hapus fasilitas custom dari katalog (salah ketik) — kamar lama tak terpengaruh */
   const handleRemoveCustomFacility = (id: string) => {
     const removed = settings.facilities.unit.find((f) => f.id === id);
-    const inDemo = instantDemo || isDemoSession;
+    const inDemo = instantDemo || isDemoSession || isTrialMode;
     const s = getSettingsSnapshot();
     const facilities = {
       ...s.facilities,
@@ -2630,7 +2822,7 @@ export default function IndoKostPage() {
     // MURNI tanpa suffix; identitas kamar (id) tetap sehingga tagihan, tiket &
     // penghuni tidak perlu dinomori ulang.
     const nomorChanged = patch.id !== roomNomor(room);
-    const inDemo = instantDemo || isDemoSession;
+    const inDemo = instantDemo || isDemoSession || isTrialMode;
 
     // MODE DEMO: perubahan kamar cukup di state lokal — dataset simulasi tidak
     // ada di database; PATCH /api/rooms hanya memicu toast merah.
@@ -2696,7 +2888,7 @@ export default function IndoKostPage() {
       });
       return;
     }
-    const inDemo = instantDemo || isDemoSession;
+    const inDemo = instantDemo || isDemoSession || isTrialMode;
 
     // MODE DEMO: penghapusan kamar cukup di state lokal — dataset simulasi
     // tidak ada di database; DELETE /api/rooms hanya memicu toast merah.
@@ -2739,6 +2931,22 @@ export default function IndoKostPage() {
   // ── Zona Berbahaya (Danger Zone) ────────────────────────────────────────
 
   const handleClearDemoData = () => {
+    // MODE TRIAL: murni lokal — sesi trial tidak pernah menyentuh database
+    // (panggilan API reset akun riil justru menyentuh data demo yang bukan
+    // miliknya). Struktur kamar & profil properti dipertahankan; transaksi
+    // dikosongkan; perubahan otomatis dipersist per-token (store trial).
+    if (isTrialMode) {
+      const keptRooms = rooms.length;
+      updateInvoices(() => []);
+      updateCashEntries(() => []);
+      setTickets([]);
+      setAnnouncements([]);
+      setSelectedRoomId(null);
+      toast.success("Data transaksi berhasil dibersihkan", {
+        description: `${keptRooms} kamar & profil properti dipertahankan — penyewa, tagihan & kas dikosongkan dari sesi uji coba.`,
+      });
+      return;
+    }
     const keptRooms = rooms.length;
     const removedTenants = rooms.filter((r) => r.tenant && r.status !== "kosong").length;
     api
@@ -2763,6 +2971,25 @@ export default function IndoKostPage() {
   };
 
   const handleFactoryReset = () => {
+    // MODE TRIAL: kembali ke kondisi FRESH STATE (kamar, tagihan, kas,
+    // komplain & pengumuman kosong) — murni lokal tanpa API; snapshot
+    // per-token ikut diperbarui lewat mutator store trial.
+    if (isTrialMode) {
+      updateRooms(() => []);
+      updateInvoices(() => []);
+      updateCashEntries(() => []);
+      setTickets([]);
+      setAnnouncements([]);
+      setSelectedRoomId(null);
+      setView("denah");
+      setActiveTab("all");
+      setQuery("");
+      toast.success("Factory reset selesai", {
+        description:
+          "Seluruh data sesi uji coba dikosongkan — dashboard kembali ke kondisi awal (fresh state).",
+      });
+      return;
+    }
     const removedRooms = rooms.length;
     api
       // Isolasi multi-cabang: factory reset HANYA properti aktif — kamar & data
@@ -2796,7 +3023,7 @@ export default function IndoKostPage() {
     if (status === ticket.status) return;
 
     // MODE DEMO: tiket simulasi lokal — tanpa API (dataset tidak ada di DB).
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       setTickets((prev) =>
         prev.map((t) =>
           t.id === ticket.id
@@ -2840,7 +3067,7 @@ export default function IndoKostPage() {
   /** Hapus permanen tiket — server-first: DELETE ke database dulu; baris baru
    *  hilang dari daftar setelah server mengonfirmasi. Demo: lokal murni. */
   const handleDeleteTicket = (ticket: Ticket) => {
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
       toast.success(`Tiket ${ticket.id} berhasil dihapus`, {
         description: `${ticketSubject(ticket)} · ${ticket.kategori} — dihapus dari sesi demo.`,
@@ -2868,7 +3095,7 @@ export default function IndoKostPage() {
     setTickets((prev) => [temp, ...prev]);
 
     // MODE DEMO: tiket simulasi lokal — tanpa API.
-    if (instantDemo || isDemoSession) return temp;
+    if (instantDemo || isDemoSession || isTrialMode) return temp;
 
     api
       .createTicket({
@@ -2901,7 +3128,7 @@ export default function IndoKostPage() {
   /** "+ Buat Laporan Komplain / Maintenance" modal → new Menunggu ticket (metrics & badge live) */
   const handleCreateTicket = (draft: CreateTicketDraft): string => {
     const ticket = insertTicket(draft);
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       toast.success(`Tiket ${ticket.id} dibuat — status Perlu Ditangani`, {
         description: `${ticket.judul} · ${ticketSubject(ticket)} · urgensi ${
           TICKET_URGENSI_META[ticket.urgensi].label
@@ -2948,7 +3175,7 @@ export default function IndoKostPage() {
   /** "+ Buat Pengumuman Baru" → tayang di portal sesuai periode & target */
   const handleCreateAnnouncement = (draft: AnnouncementDraft) => {
     // Sesi demo → server-first, fallback lokal bila API tidak terjangkau
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       api
         .createAnnouncement(draft, activePropertyId)
         .then((res) => {
@@ -2987,7 +3214,7 @@ export default function IndoKostPage() {
 
   const handleUpdateAnnouncement = (a: Announcement, draft: AnnouncementDraft) => {
     // Sesi demo → update lokal instan + ikutkan ke database (best-effort)
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       setAnnouncements((prev) =>
         prev.map((row) => (row.id === a.id ? { ...row, ...draft } : row))
       );
@@ -3017,7 +3244,7 @@ export default function IndoKostPage() {
 
   const handleToggleAnnouncement = (a: Announcement) => {
     // Sesi demo → toggle lokal instan + ikutkan ke database (best-effort)
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       setAnnouncements((prev) =>
         prev.map((row) => (row.id === a.id ? { ...row, aktif: !row.aktif } : row))
       );
@@ -3057,7 +3284,7 @@ export default function IndoKostPage() {
 
   const handleDeleteAnnouncement = (a: Announcement) => {
     // Sesi demo → hapus lokal instan + ikutkan ke database (best-effort)
-    if (instantDemo || isDemoSession) {
+    if (instantDemo || isDemoSession || isTrialMode) {
       setAnnouncements((prev) => prev.filter((row) => row.id !== a.id));
       api.deleteAnnouncement(a.id).catch(() => undefined);
       toast.success(`Pengumuman ${a.id} dihapus`, {
@@ -3362,7 +3589,9 @@ export default function IndoKostPage() {
                   <div>
                     <h1 className="ik-head text-lg font-bold tracking-tight text-zinc-900">Denah Kamar</h1>
                     <p className="mt-0.5 text-sm font-medium text-zinc-700">
-                      Ringkasan okupansi &amp; status tagihan · data tersimpan di cloud Supabase
+                      {isTrialMode
+                        ? "Ringkasan okupansi & status tagihan · data tersimpan di sesi uji coba ini"
+                        : "Ringkasan okupansi & status tagihan · data tersimpan di cloud Supabase"}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -3388,10 +3617,11 @@ export default function IndoKostPage() {
                     )}
                     {/* Status sinkron cloud — 3 keadaan jujur: hijau (tersinkron
                         + jam), awan berputar (menyinkronkan), merah (gagal).
-                        Demo: teks netral — sesi demo memang tidak ke cloud. */}
+                        Demo: teks netral — sesi demo memang tidak ke cloud.
+                        Trial: teks khusus uji coba (data sesi per perangkat). */}
                     {isDemoVisitor ? (
                       <p className="hidden text-[13px] font-medium text-zinc-700 sm:block">
-                        Mode Demo · data simulasi
+                        {isTrialMode ? "Mode Uji Coba · data sesi" : "Mode Demo · data simulasi"}
                       </p>
                     ) : (
                       <div className="hidden sm:block">
@@ -3482,7 +3712,7 @@ export default function IndoKostPage() {
         {/* Sticky conversion bar mode demo — tombol memicu modal checkout +
             event custom Meta Pixel ClickCTA_Beli (InitiateCheckout baru saat
             form checkout disubmit — lihat buy-cta.tsx) */}
-        {isDemoVisitor && <DemoConvertBar />}
+        {isDemoVisitor && <DemoConvertBar variant={isTrialMode ? "trial" : "demo"} />}
         {isDemoVisitor && <div aria-hidden="true" className="h-16" />}
       </div>
 

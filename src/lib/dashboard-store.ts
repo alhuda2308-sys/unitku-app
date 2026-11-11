@@ -18,6 +18,7 @@ import { api } from "@/lib/api-client";
 import { ROOMS, type Room } from "@/lib/kost-data";
 import { INVOICES, type Invoice } from "@/lib/kost-invoices";
 import { CASH_ENTRIES, type CashEntry } from "@/lib/kost-cashflow";
+import { saveTrialSession } from "@/lib/trial-session-store";
 
 export type DashboardStatus = "loading" | "ready" | "offline";
 
@@ -65,16 +66,45 @@ export function getServerDashboardSnapshot(): DashboardState {
 
 // ── Mutators (dipakai handler dashboard — menggantikan setState lokal) ───────
 
+// ── Persistensi sesi TRIAL (per token) ───────────────────────────────────────
+// Saat sesi trial aktif (dashboard ?trial=1), SETIAP mutasi kamar/tagihan/kas
+// ikut disimpan ke localStorage per token trial (src/lib/trial-session-store.ts)
+// sehingga data yang diketik owner trial bertahan antar reload. Non-trial
+// (demo CTA / akun riil) → token null → tidak ada penulisan apa pun.
+
+let trialSessionToken: string | null = null;
+
+/** Aktif/nonaktifkan persistensi sesi trial — dipanggil aktivasi dashboard trial */
+export function setDashboardTrialSession(token: string | null): void {
+  const id = token?.trim() ?? "";
+  trialSessionToken = id || null;
+}
+
+function persistTrialSnapshot(patch: {
+  rooms?: Room[];
+  invoices?: Invoice[];
+  cashEntries?: CashEntry[];
+}): void {
+  if (!trialSessionToken) return;
+  saveTrialSession(trialSessionToken, patch);
+}
+
 export function updateRooms(fn: (prev: Room[]) => Room[]): void {
-  setState({ rooms: fn(state.rooms) });
+  const rooms = fn(state.rooms);
+  setState({ rooms });
+  persistTrialSnapshot({ rooms });
 }
 
 export function updateInvoices(fn: (prev: Invoice[]) => Invoice[]): void {
-  setState({ invoices: fn(state.invoices) });
+  const invoices = fn(state.invoices);
+  setState({ invoices });
+  persistTrialSnapshot({ invoices });
 }
 
 export function updateCashEntries(fn: (prev: CashEntry[]) => CashEntry[]): void {
-  setState({ cashEntries: fn(state.cashEntries) });
+  const cashEntries = fn(state.cashEntries);
+  setState({ cashEntries });
+  persistTrialSnapshot({ cashEntries });
 }
 
 // ── Fetch bootstrap / refresh ────────────────────────────────────────────────
@@ -221,6 +251,29 @@ export function applyDemoSnapshot(): void {
     rooms: ROOMS,
     invoices: INVOICES,
     cashEntries: CASH_ENTRIES,
+    status: "ready",
+    syncedAt: null,
+  });
+}
+
+/**
+ * Snapshot sesi TRIAL — dashboard FRESH STATE: kamar/tagihan/kas KOSONG
+ * (atau data milik owner trial yang sudah diketik sebelumnya, dipulihkan dari
+ * persistensi per-token oleh pemanggil). TANPA dataset demo sama sekali —
+ * pemilik trial harus memasukkan data kamar/kos mereka sendiri dari nol
+ * layaknya akun riil baru. Status langsung "ready": trial tidak pernah
+ * menunggu database (mutasinya murni lokal + persistensi perangkat).
+ */
+export function applyTrialSnapshot(
+  rooms: Room[],
+  invoices: Invoice[],
+  cashEntries: CashEntry[],
+): void {
+  stopRecoveryPolling();
+  setState({
+    rooms,
+    invoices,
+    cashEntries,
     status: "ready",
     syncedAt: null,
   });

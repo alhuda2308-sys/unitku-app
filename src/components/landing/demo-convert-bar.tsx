@@ -1,13 +1,15 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UnitKu — DemoConvertBar: sticky bottom bar konversi di Dashboard Demo
+// UnitKu — DemoConvertBar: sticky bottom bar konversi di Dashboard Demo/Trial
 //
 // Tampil HANYA saat pengunjung berada di mode demo (instantDemo ?demo=1 atau
-// sesi demo via cookie) — tujuan kampanye Meta Ads: demo → checkout.
+// sesi demo via cookie) ATAU sesi trial (?trial=1 dari link mitra) — tujuan
+// kampanye: demo/trial → checkout.
 //
-//  • Teks   : "Sedang mencoba demo UnitKu? Suka fiturnya? Amankan Lisensi
-//             Seumur Hidup Rp 399.000"
+//  • Teks demo : "Sedang mencoba demo UnitKu? Suka fiturnya? Amankan Lisensi
+//                Seumur Hidup Rp 399.000"
+//  • Teks trial: "Sedang mencoba gratis 3 hari? Suka fiturnya? …" (variant)
 //  • Tombol : "Beli Lisensi Sekarang" → membuka modal checkout (BuyCta) yang
 //             menembakkan event custom fbq('trackCustom','ClickCTA_Beli') —
 //             InitiateCheckout baru ditembakkan saat form disubmit (bukan
@@ -38,7 +40,12 @@ function useMounted(): boolean {
   );
 }
 
-export function DemoConvertBar() {
+export function DemoConvertBar({
+  variant = "demo",
+}: {
+  /** "trial" → copy uji coba 3 hari (dashboard ?trial=1); default copy demo */
+  variant?: "demo" | "trial";
+}) {
   const mounted = useMounted();
   const [dismissed, setDismissed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -70,10 +77,21 @@ export function DemoConvertBar() {
           Desktop: satu baris — teks · tombol · X. */}
       <div className="relative mx-auto flex max-w-4xl flex-col gap-2.5 rounded-xl border border-zinc-700 bg-zinc-900 p-3 shadow-[0_16px_40px_rgba(15,23,42,0.35)] sm:flex-row sm:items-center sm:gap-4 sm:px-5">
         <p className="min-w-0 flex-1 pr-8 text-[12.5px] font-medium leading-snug text-zinc-200 sm:pr-0 sm:text-sm">
-          Sedang mencoba demo UnitKu? Suka fiturnya?{" "}
-          <span className="font-bold text-white">
-            Amankan Lisensi Seumur Hidup Rp 399.000
-          </span>
+          {variant === "trial" ? (
+            <>
+              Sedang mencoba gratis 3 hari? Suka fiturnya?{" "}
+              <span className="font-bold text-white">
+                Amankan Lisensi Seumur Hidup Rp 399.000
+              </span>
+            </>
+          ) : (
+            <>
+              Sedang mencoba demo UnitKu? Suka fiturnya?{" "}
+              <span className="font-bold text-white">
+                Amankan Lisensi Seumur Hidup Rp 399.000
+              </span>
+            </>
+          )}
         </p>
         <BuyCta
           compact

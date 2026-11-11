@@ -27,17 +27,42 @@ export function buildCheckoutUrl(refCode: string): string {
 
 /**
  * Cookie sesi trial di browser (BUKAN cookie auth — akses /dashboard tetap
- * dijaga cookie sesi demo) — berisi token OwnerTrial agar banner "Mode Uji
- * Coba" di dashboard tahu trial mana yang sedang berjalan. Tanpa cookie ini
- * dashboard tampil normal (pemilik akun riil & pengunjung /demo tak terpengaruh).
+ * dijaga cookie sesi demo) — berisi token OwnerTrial. Dipakai untuk:
+ *   1. Banner "Mode Uji Coba" + paywall di dashboard (fetch /api/trial/state).
+ *   2. Kunci persistensi data sesi trial (rooms/tagihan/kas per token —
+ *      src/lib/trial-session-store.ts) agar data yang diketik owner bertahan
+ *      antar reload selama trial berjalan.
+ * Tanpa cookie ini dashboard tampil normal (pemilik akun riil & pengunjung
+ * /demo tak terpengaruh).
  */
 export const TRIAL_COOKIE = "unitku_trial";
 
 /** Umur cookie trial — 7 hari (72 jam trial + buffer) lalu hilang sendiri */
 export const TRIAL_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 
-/** Tujuan masuk dashboard mode trial — dataset simulasi instan + penanda trial */
-export const TRIAL_DASHBOARD_URL = "/dashboard?demo=1&trial=1";
+/**
+ * Tujuan masuk dashboard mode trial — penanda ?trial=1 (TANPA ?demo=1).
+ * Dashboard trial = FRESH STATE: tanpa dataset demo (12 kamar "Kost Griya
+ * Pratama" dsb.), pengaturan identitas bersih — owner memasukkan data kamar/
+ * kos mereka sendiri dari nol layaknya akun riil baru. Dataset yang dibuat
+ * owner tersimpan per-token di perangkat (lihat src/lib/trial-session-store.ts).
+ */
+export const TRIAL_DASHBOARD_URL = "/dashboard?trial=1";
+
+/**
+ * Email sesi demo khusus TRIAL — /api/trial/enter memasang cookie sesi demo
+ * dengan email ini, sedangkan CTA /demo memakai "demo@unitku.id". Dashboard
+ * memilah keduanya lewat /api/auth/me (email sesi) agar akun trial mendapat
+ * dashboard kosong, bukan dataset demo.
+ */
+export const TRIAL_SESSION_EMAIL = "trial@unitku.id";
+
+/** Apakah email sesi berasal dari sesi TRIAL (bukan demo CTA / akun riil)? */
+export function isTrialSessionEmail(
+  email: string | null | undefined,
+): boolean {
+  return (email ?? "").trim().toLowerCase() === TRIAL_SESSION_EMAIL;
+}
 
 /** URL portal trial dari token (trial_id) — url-encoded agar aman dikirim */
 export function buildTrialUrl(token: string): string {

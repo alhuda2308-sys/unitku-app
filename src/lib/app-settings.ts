@@ -455,6 +455,61 @@ export const DEFAULT_SETTINGS: IndoKostSettings = {
   theme: "zinc",
 };
 
+/* ── Fresh state sesi TRIAL ────────────────────────────────────────────────── */
+
+/** id entri properti sesi trial (bukan id database — sesi trial berjalan lokal) */
+export const TRIAL_PROPERTY_ENTRY_ID = "trial-properti";
+
+/** id baris staf "Owner" pada sesi trial */
+export const TRIAL_STAFF_OWNER_ID = "stf_owner_trial";
+
+/**
+ * Pengaturan AWAL sesi trial — identitas bersih TANPA data dummy. DEFAULT_SETTINGS
+ * memakai identitas demo ("Hendra Wijaya", "Kost Griya Pratama", staf contoh,
+ * rekening contoh) untuk playground CTA /demo — akun trial TIDAK boleh
+ * mewarisi nama-nama tersebut (pemilik trial harus memasukkan data mereka
+ * sendiri dari nol layaknya akun riil baru). Nilai netral di sini mencerminkan
+ * netralisasi identitas akun baru ("Properti Saya" / "Owner"):
+ *   • Katalog fasilitas & template WA dibiarkan default produk (bukan data demo).
+ *   • Nama owner/properti asli diisi belakangan dari data link trial
+ *     (dihydrate dashboard via /api/trial/state — lihat activateTrialDataset).
+ */
+export function buildTrialFreshSettings(): IndoKostSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    owner: { nama: "Owner", email: "", whatsapp: "" },
+    propertyProfile: {
+      nama: "Properti Saya",
+      tipe: "kost",
+      alamat: "",
+      lantai: "1",
+      jamMalam: "",
+      aturan: "",
+      fotoUrl: DEFAULT_FACADE_PHOTO,
+    },
+    properties: [
+      {
+        id: TRIAL_PROPERTY_ENTRY_ID,
+        name: "Properti Saya",
+        type: "kost",
+        unitCount: 0,
+        address: "",
+        aktif: true,
+      },
+    ],
+    staff: [
+      {
+        id: TRIAL_STAFF_OWNER_ID,
+        nama: "Owner",
+        peran: "Owner",
+        whatsapp: "",
+        cabang: [],
+      },
+    ],
+    rekening: { bank: "", noRek: "", atasNama: "" },
+  };
+}
+
 /* ── Persistence ───────────────────────────────────────────────────────────── */
 
 /** Baca kunci tema aktif `unitku_active_theme` — null jika tidak ada/tidak valid. */
