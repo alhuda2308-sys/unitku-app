@@ -5,6 +5,8 @@
 //   • src/lib/owner-trial.ts        (server-only: DB + API)
 //   • src/components/affiliate/trial-generator-card.tsx (dashboard mitra)
 //   • src/components/trial/*        (portal trial owner)
+//   • src/components/kost/trial-banner.tsx (banner & paywall dashboard)
+//   • src/hooks/use-trial-checkout-href.ts (URL checkout mitra utk bar konversi)
 // TANPA import server (prisma dsb.) — aman untuk "use client".
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -151,6 +153,45 @@ export function readTrialTokenClient(): string | null {
     .find((c) => c.startsWith(`${TRIAL_COOKIE}=`));
   const value = match?.slice(TRIAL_COOKIE.length + 1).trim() ?? "";
   return value || null;
+}
+
+/**
+ * Bentuk payload status trial dari GET /api/trial/state — dipakai TrialBanner
+ * (banner & paywall dashboard) dan useTrialCheckoutHref (bar konversi bawah).
+ */
+export interface TrialStatePayload {
+  ownerName: string;
+  propertyName: string | null;
+  status: OwnerTrialStatus;
+  trialStartedAt: string | null;
+  trialExpiresAt: string | null;
+  partnerRefCode: string;
+}
+
+/**
+ * Ambil status trial TERKINI dari server (client-side) — sumber kebenaran DB
+ * (lazy-lock ditegakkan server; countdown client tidak bisa menipu paywall).
+ * Mengembalikan null bila token kosong, gagal jaringan, atau respon tak valid —
+ * TIDAK pernah melempar (pemanggil cukup memeriksa null).
+ */
+export async function fetchTrialState(
+  token: string,
+): Promise<TrialStatePayload | null> {
+  if (!token) return null;
+  try {
+    const res = await fetch(
+      `/api/trial/state?token=${encodeURIComponent(token)}`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      success?: boolean;
+      state?: TrialStatePayload;
+    };
+    return json?.success && json.state ? json.state : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

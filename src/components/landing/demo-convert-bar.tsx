@@ -10,10 +10,17 @@
 //  • Teks demo : "Sedang mencoba demo UnitKu? Suka fiturnya? Amankan Lisensi
 //                Seumur Hidup Rp 399.000"
 //  • Teks trial: "Sedang mencoba gratis 3 hari? Suka fiturnya? …" (variant)
-//  • Tombol : "Beli Lisensi Sekarang" → membuka modal checkout (BuyCta) yang
-//             menembakkan event custom fbq('trackCustom','ClickCTA_Beli') —
-//             InitiateCheckout baru ditembakkan saat form disubmit (bukan
+//  • Tombol demo  : "Beli Lisensi Sekarang" → membuka modal checkout (BuyCta)
+//             yang menembakkan event custom fbq('trackCustom','ClickCTA_Beli')
+//             — InitiateCheckout baru ditembakkan saat form disubmit (bukan
 //             saat modal dibuka, agar event tak bias).
+//  • Tombol trial : "Beli Lisensi Sekarang" → ANCHOR langsung ke checkout
+//             milik MITRA pembuat trial (/checkout?ref=<refCode> via hook
+//             useTrialCheckoutHref) — BUKAN checkout pusat admin, agar
+//             komisi mitra tetap tercatat. Event ClickCTA_Beli tetap
+//             ditembakkan saat anchor diklik (paritas pengukuran Meta Ads).
+//             Selama refCode belum ter-resolve, bar DISEMBUNYIKAN — owner
+//             trial tak pernah diarahkan ke checkout pusat.
 //  • Bisa ditutup (X) — pilihan disimpan di sessionStorage agar tidak muncul
 //    lagi sepanjang sesi tab.
 //
@@ -25,6 +32,8 @@ import { useState, useSyncExternalStore } from "react";
 import { X } from "lucide-react";
 
 import { BuyCta } from "@/components/landing/buy-cta";
+import { Button } from "@/components/ui/button";
+import { useTrialCheckoutHref } from "@/hooks/use-trial-checkout-href";
 
 /** sessionStorage key — bar tak muncul lagi sepanjang sesi tab ini */
 const DISMISS_KEY = "unitku-demo-convert-bar-dismissed";
@@ -47,6 +56,10 @@ export function DemoConvertBar({
   variant?: "demo" | "trial";
 }) {
   const mounted = useMounted();
+  // Trial: resolve URL checkout mitra pembuat (cookie trial → /api/trial/state).
+  // null saat bukan trial / belum resolve → CTA disembunyikan (lihat di bawah).
+  const isTrial = variant === "trial";
+  const trialCheckoutHref = useTrialCheckoutHref(isTrial);
   const [dismissed, setDismissed] = useState(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -57,6 +70,9 @@ export function DemoConvertBar({
   });
 
   if (dismissed || !mounted) return null;
+  // Mode trial tanpa URL mitra ter-resolve → jangan tampilkan apa pun:
+  // fallback ke checkout pusat akan mencuri komisi mitra (dilarang).
+  if (isTrial && !trialCheckoutHref) return null;
 
   const dismiss = () => {
     try {
@@ -93,12 +109,34 @@ export function DemoConvertBar({
             </>
           )}
         </p>
-        <BuyCta
-          compact
-          inverted
-          className="w-full sm:order-2 sm:w-auto"
-          label="Beli Lisensi Sekarang"
-        />
+        {/* TRIAL (href ter-resolve): anchor langsung ke checkout MITRA pembuat
+            (?ref=<refCode>) — gaya identik dgn BuyCta compact+inverted.
+            DEMO: modal checkout pusat (BuyCta). Guard awal sudah menyembunyikan
+            seluruh bar saat trial & href belum resolve — jalur null di sini
+            hanya terjadi di mode demo. */}
+        {trialCheckoutHref ? (
+          <Button
+            asChild
+            className="h-10 min-h-10 w-full whitespace-nowrap bg-white px-4 py-2 text-[13px] font-bold leading-none text-zinc-900 hover:bg-zinc-100 sm:order-2 sm:h-11 sm:min-h-11 sm:w-auto sm:px-5 sm:text-sm"
+          >
+            <a
+              href={trialCheckoutHref}
+              onClick={() => {
+                // Paritas Meta Ads dgn jalur modal: sinyal minat, bukan konversi
+                window.fbq?.("trackCustom", "ClickCTA_Beli");
+              }}
+            >
+              Beli Lisensi Sekarang
+            </a>
+          </Button>
+        ) : (
+          <BuyCta
+            compact
+            inverted
+            className="w-full sm:order-2 sm:w-auto"
+            label="Beli Lisensi Sekarang"
+          />
+        )}
         <button
           type="button"
           onClick={dismiss}

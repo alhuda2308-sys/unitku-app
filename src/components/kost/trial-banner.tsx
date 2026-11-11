@@ -29,20 +29,13 @@ import { Button } from "@/components/ui/button";
 import { getAuthMeOnce } from "@/lib/api-client";
 import {
   buildCheckoutUrl,
+  fetchTrialState,
   formatTrialRemaining,
   readTrialTokenClient,
   TRIAL_COOKIE,
+  type TrialStatePayload,
 } from "@/lib/trial-shared";
 import { cn } from "@/lib/utils";
-
-interface TrialStatePayload {
-  ownerName: string;
-  propertyName: string | null;
-  status: "PENDING" | "ACTIVE" | "LOCKED";
-  trialStartedAt: string | null;
-  trialExpiresAt: string | null;
-  partnerRefCode: string;
-}
 
 type TrialPhase =
   | "checking" // memverifikasi sesi + status (belum ada UI)
@@ -85,18 +78,11 @@ export function TrialBanner() {
         return;
       }
       try {
-        const res = await fetch(
-          `/api/trial/state?token=${encodeURIComponent(token)}`,
-          { cache: "no-store" },
-        );
-        const json = (await res.json()) as {
-          success: boolean;
-          state?: TrialStatePayload;
-        };
+        const state = await fetchTrialState(token);
         if (!alive) return;
-        if (res.ok && json.success && json.state) {
-          setState(json.state);
-          setPhase(json.state.status === "LOCKED" ? "locked" : "active");
+        if (state) {
+          setState(state);
+          setPhase(state.status === "LOCKED" ? "locked" : "active");
         } else {
           setPhase("off");
         }
