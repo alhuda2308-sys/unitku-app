@@ -8,7 +8,9 @@
 //
 //   Menu inline keyboard:
 //     🎲 Acak Status Medsos          → getRandomAffiliateCopy()
-//       (HOOKS × PAIN_STORIES × BENEFITS × CTAS — bank data affiliateCopies.ts)
+//       (TOPIC-BASED POOL: hook + pain + solusi + checklist ✅ + CTA selalu
+//        diambil dari TEMA YANG SAMA di COPY_THEMES — affiliateCopies.ts,
+//        supaya alur kalimat selalu nyambung antar-paragraf)
 //     💬 Template Chat WhatsApp      → salah satu WA_TEMPLATES siap kirim
 //     🎲 Acak Teks Baru              → generate ulang kategori yang sama
 //     🔙 Menu Utama                  → kembali ke pilihan kategori
@@ -21,7 +23,7 @@
 //     - Set webhook: https://unitku.my.id/api/telegram/mitra-promo-bot
 //
 // Catatan: /api/* dilewati middleware (lihat src/middleware.ts). Data materi
-// dipisah dari route: bank copywriting baru di src/data/affiliateCopies.ts,
+// dipisah dari route: bank copywriting per-tema di src/data/affiliateCopies.ts,
 // template WA ke pemilik kost tetap di src/data/mitraPromoData.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -36,6 +38,15 @@ const BOT_TOKEN = process.env.TELEGRAM_MITRA_BOT_TOKEN || "9169376869:AAEgyAQif7
 
 function getRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** Escape karakter HTML agar aman dikirim dengan parse_mode "HTML" Telegram
+ *  (konten copywriting memuat "&" pada poin checklist). */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 async function sendTelegram(method: string, payload: any) {
@@ -73,7 +84,7 @@ export async function POST(req: NextRequest) {
         parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
-            [{ text: "🎲 Acak Status Medsos (100 Juta Variasi)", callback_data: "mitra_promo" }],
+            [{ text: "🎲 Acak Status Medsos (Nyambung Sesuai Tema)", callback_data: "mitra_promo" }],
             [{ text: "💬 Template Chat WhatsApp ke Pemilik Kost", callback_data: "mitra_wa" }],
           ],
         },
@@ -94,7 +105,7 @@ export async function POST(req: NextRequest) {
           parse_mode: "HTML",
           reply_markup: {
             inline_keyboard: [
-              [{ text: "🎲 Acak Status Medsos (100 Juta Variasi)", callback_data: "mitra_promo" }],
+              [{ text: "🎲 Acak Status Medsos (Nyambung Sesuai Tema)", callback_data: "mitra_promo" }],
               [{ text: "💬 Template Chat WhatsApp ke Pemilik Kost", callback_data: "mitra_wa" }],
             ],
           },
@@ -114,7 +125,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (content) {
-        const messageText = `💡 <b>Tap kotak di bawah untuk menyalin, lalu ganti [MASUKKAN_LINK_REFERRAL_ANDA] dengan link milik Anda:</b>\n\n<code>${content}</code>`;
+        const messageText = `💡 <b>Tap kotak di bawah untuk menyalin, lalu ganti [MASUKKAN_LINK_REFERRAL_ANDA] dengan link milik Anda:</b>\n\n<code>${escapeHtml(content)}</code>`;
 
         await sendTelegram("sendMessage", {
           chat_id: chatId,
