@@ -1,22 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — POST /api/affiliate/login — Terbitkan sesi portal mitra affiliator
 //
-// Body : { phone, token }
-//   phone — No. WhatsApp mitra (08…/62…/+62…, dinormalisasi server)
-//   token — kode akses portal dari Admin ("afk_<48 hex>", satu-satu dgn mitra)
-// Alur : verifikasi kredensial ke tabel affiliates (No. WA + token wajib
-//   cocok dengan SATU baris) → terbitkan cookie sesi mitra sendiri
-//   ("unitku_partner", HMAC) → mitra diarahkan ke /affiliate/dashboard.
-// Keamanan:
-//   • Rate limit per IP (8 percobaan / 10 menit) — memori proses.
-//   • Pesan kegagalan generik (tidak membocorkan field mana yang salah).
-//   • Cookie HttpOnly HMAC tanpa menyimpan accessToken (pola auth/local.ts).
+// Body : { phone }
+//   phone — No. WhatsApp mitra terdaftar (08…/62…/+62…, dinormalisasi server).
+// TANPA KODE MANUAL: bila nomor terdaftar sebagai mitra AKTIF di tabel
+// affiliates, sesi langsung diterbitkan oleh sistem — tanpa campur tangan
+// Admin. Alur: autentikasi ke DB → cookie sesi mitra sendiri ("unitku_partner",
+// HMAC) → mitra diarahkan ke /affiliate/dashboard.
+// Keamanan (single-factor):
+//   • Rate limit per IP lebih ketat (5 percobaan / 10 menit) — memori proses.
+//   • Sesi divalidasi ulang ke DB tiap request (mitra dihapus/nonaktif →
+//     sesi hangus seketika).
+//   • Log audit server-side utk tiap login sukses.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
-  authenticateAffiliateByCredentials,
+  authenticateAffiliateByPhone,
   buildPartnerSessionCookie,
 } from "@/lib/affiliate-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -24,8 +25,8 @@ import { checkRateLimit } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Batas percobaan login per IP: 8 kali per 10 menit */
-const RATE_MAX_ATTEMPTS = 8;
+/** Batas percobaan login per IP: 5 kali per 10 menit (single-factor) */
+const RATE_MAX_ATTEMPTS = 5;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 
 /** IP klien — Vercel menyediakan x-forwarded-for (komma = hop berurutan) */
@@ -62,30 +63,47 @@ export async function POST(request: NextRequest) {
   }
   const raw = body as Record<string, unknown>;
   const phone = typeof raw.phone === "string" ? raw.phone : "";
-  const token = typeof raw.token === "string" ? raw.token : "";
-  if (!phone.trim() || !token.trim()) {
+  if (!phone.trim()) {
     return NextResponse.json(
-      {
-        success: false,
-        error: "No. WhatsApp dan kode akses portal wajib diisi.",
-      },
+      { success: false, error: "Nomor WhatsApp wajib diisi." },
       { status: 400 },
     );
   }
 
-  const result = await authenticateAffiliateByCredentials(phone, token);
+  const result = await authenticateAffiliateByPhone(phone);
   if (!result.ok) {
+    if (result.reason === "invalid") {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Nomor WhatsApp belum sesuai — mulai dengan 08 atau 62 ya (contoh: 081234567890).",
+        },
+        { status: 400 },
+      );
+    }
+    if (result.reason === "not-found") {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Nomor WhatsApp tidak terdaftar sebagai mitra aktif. Periksa kembali nomor Anda, atau hubungi Admin bila nomor memang sudah terdaftar.",
+        },
+        { status: 401 },
+      );
+    }
     return NextResponse.json(
       {
         success: false,
-        error:
-          result.reason === "error"
-            ? "Gagal menghubungi server — coba lagi sebentar."
-            : "No. WhatsApp atau kode akses portal tidak cocok. Periksa kembali, atau minta kode terbaru ke Admin.",
+        error: "Gagal menghubungi server — coba lagi sebentar.",
       },
-      { status: result.reason === "error" ? 500 : 401 },
+      { status: 500 },
     );
   }
+
+  console.log(
+    `[UnitKu Affiliate Login] Mitra masuk via No. WA: "${result.affiliate.refCode}" (${result.affiliate.name}, WA ${result.affiliate.phone ?? "-"}).`,
+  );
 
   const response = NextResponse.json({
     success: true,

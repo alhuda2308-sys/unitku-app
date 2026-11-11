@@ -1,12 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Sesi & kredensial portal mitra affiliator (server-only, Node)
 //
-// Mitra didaftarkan Super Admin TANPA akun email — identitasnya No. WhatsApp
-// dan kredensial rahasianya accessToken portal ("afk_<48 hex>", dikirim
-// Admin bersama magic-link). Halaman /affiliate/login memasangkan keduanya,
-// lalu menerbitkan sesi mitra sendiri (cookie "unitku_partner", HMAC-signed)
-// yang TERPISAH dari sesi owner (unitku_session / sb-*) — sehingga guard
-// /affiliate/dashboard tidak lagi membuang mitra ke /login pemilik properti.
+// Mitra didaftarkan Super Admin ATAU daftar mandiri TANPA akun email —
+// identitasnya No. WhatsApp. Login portal TANPA KODE MANUAL: mitra cukup
+// memasukkan No. WhatsApp terdaftar; bila nomor itu milik mitra AKTIF
+// (affiliates.isActive), sesi diterbitkan langsung oleh sistem. Halaman
+// /affiliate/login menerbitkan sesi mitra sendiri (cookie "unitku_partner",
+// HMAC-signed) yang TERPISAH dari sesi owner (unitku_session / sb-*) —
+// sehingga guard /affiliate/dashboard tidak membuang mitra ke /login
+// pemilik properti. accessToken ("afk_…") kini murni utk MAGIC-LINK
+// (tombol "Link Portal" Admin), bukan lagi kredensial login.
 //
 // Struktur cookie: <base64url(payload)>.<hmac-sha256> (pola auth/local.ts).
 // Payload TIDAK menyimpan accessToken — tiap request divalidasi ulang ke DB:
@@ -35,6 +38,14 @@ export interface AffiliateSessionRow {
   phone: string | null;
   /** Token portal dari DB (dijamin ada — legacy di-backfill lazy) */
   accessToken: string;
+}
+
+/** Identitas minimum utk menerbitkan cookie sesi mitra (login nomor WA) */
+export interface AffiliateIdentity {
+  id: string;
+  name: string;
+  refCode: string;
+  phone: string | null;
 }
 
 interface PartnerSessionPayload {
@@ -103,7 +114,7 @@ export const partnerSessionCookieOptions = {
 
 /** Susun cookie sesi mitra utk response — nilai token dibuat di sini agar
  *  detail payload tetap enkapsulasi di lib ini (route cukup memanggil). */
-export function buildPartnerSessionCookie(affiliate: AffiliateSessionRow) {
+export function buildPartnerSessionCookie(affiliate: AffiliateIdentity) {
   return {
     name: PARTNER_SESSION_COOKIE,
     value: createPartnerSessionToken({
@@ -117,8 +128,9 @@ export function buildPartnerSessionCookie(affiliate: AffiliateSessionRow) {
 
 /**
  * Resolusi sesi mitra dari cookie (Server Component / route handler).
- * Mengembalikan baris mitra TERBARU dari DB bila sesi sah & mitra masih ada;
- * `null` bila tidak ada sesi / HMAC basi / mitra sudah dihapus Admin.
+ * Mengembalikan baris mitra TERBARU dari DB bila sesi sah & mitra masih ada
+ * dan AKTIF; `null` bila tidak ada sesi / HMAC basi / mitra sudah dihapus
+ * atau dinonaktifkan Admin.
  * accessToken legacy yang kosong di-backfill lazy (pola panel admin) agar
  * generator trial & form rekening pencairan tetap berfungsi.
  */
@@ -137,11 +149,14 @@ export async function getAffiliateFromSession(): Promise<AffiliateSessionRow | n
         name: true,
         refCode: true,
         phone: true,
+        isActive: true,
         accessToken: true,
       },
     });
-    // Baris hilang (mitra dihapus Admin) → sesi hangus seketika
-    if (!affiliate) return null;
+    // Baris hilang (mitra dihapus Admin) ATAU dinonaktifkan (isActive=false)
+    // → sesi hangus seketika — konsisten dgn syarat "mitra aktif" di login
+    // nomor WhatsApp
+    if (!affiliate || !affiliate.isActive) return null;
 
     let accessToken = affiliate.accessToken;
     if (!accessToken) {
@@ -168,52 +183,42 @@ export async function getAffiliateFromSession(): Promise<AffiliateSessionRow | n
   }
 }
 
-export type AffiliateCredentialResult =
-  | { ok: true; affiliate: AffiliateSessionRow }
-  | { ok: false; reason: "invalid" | "error" };
+export type AffiliatePhoneAuthResult =
+  | { ok: true; affiliate: AffiliateIdentity }
+  | { ok: false; reason: "invalid" | "not-found" | "error" };
 
 /**
- * Verifikasi kredensial login mitra: No. WhatsApp + kode akses portal.
- * Keduanya wajib cocok dengan SATU baris affiliates (token dicari dulu lewat
- * kunci unik accessToken, lalu No. WA dicocokkan dua sisi ternormalisasi agar
- * baris legacy berformat 08…/​+62… tetap sah). API pemanggil memilih pesan
- * generik agar tidak membocorkan field mana yang salah.
+ * Autentikasi login mitra BERBAS NOMOR WHATSAPP — tanpa kode akses manual.
+ * Nomor dinormalisasi (08…/62…/+62…) lalu dicocokkan dua sisi dgn No. WA
+ * mitra yang MASIH AKTIF (isActive=true); baris legacy berformat 08…/+62…
+ * tetap sah. Kolom phone tidak unik di skema, jadi pencocokan memakai pola
+ * admin (ambil daftar aktif lalu bandingkan ternormalisasi; baris terbaru
+ * menang bila ada duplikat warisan). Satu faktor: keamanan ditegakkan lewat
+ * rate limit ketat di API + sesi yang divalidasi ulang ke DB tiap request.
  */
-export async function authenticateAffiliateByCredentials(
+export async function authenticateAffiliateByPhone(
   rawPhone: string,
-  rawToken: string,
-): Promise<AffiliateCredentialResult> {
+): Promise<AffiliatePhoneAuthResult> {
   const phone = normalizeWaPhone(rawPhone);
-  const token = rawToken.trim();
-  if (!/^62[0-9]{8,13}$/.test(phone) || !token || token.length > 128) {
+  if (!/^62[0-9]{8,13}$/.test(phone)) {
     return { ok: false, reason: "invalid" };
   }
   try {
     await ensureAffiliateTables();
-    const affiliate = await prisma.affiliate.findUnique({
-      where: { accessToken: token },
+    const partners = await prisma.affiliate.findMany({
+      where: { isActive: true },
       select: { id: true, name: true, refCode: true, phone: true },
+      orderBy: { createdAt: "desc" },
+      take: 1000,
     });
-    if (
-      !affiliate ||
-      !affiliate.phone ||
-      normalizeWaPhone(affiliate.phone) !== phone
-    ) {
-      return { ok: false, reason: "invalid" };
-    }
-    return {
-      ok: true,
-      affiliate: {
-        id: affiliate.id,
-        name: affiliate.name,
-        refCode: affiliate.refCode,
-        phone: affiliate.phone,
-        accessToken: token,
-      },
-    };
+    const affiliate = partners.find(
+      (p) => p.phone && normalizeWaPhone(p.phone) === phone,
+    );
+    if (!affiliate) return { ok: false, reason: "not-found" };
+    return { ok: true, affiliate };
   } catch (error) {
     console.error(
-      "[UnitKu Affiliate Auth] Gagal memverifikasi kredensial mitra:",
+      "[UnitKu Affiliate Auth] Gagal memverifikasi nomor WhatsApp mitra:",
       error,
     );
     return { ok: false, reason: "error" };

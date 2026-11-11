@@ -3,8 +3,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Form Login Portal Mitra (/affiliate/login)
 //
-// Kredensial mitra: No. WhatsApp + Kode Akses Portal ("afk_…" yang dikirim
-// Admin bersama magic-link). Berhasil → cookie sesi mitra diterbitkan server
+// LOGIN OTOMATIS BERBASIS NOMOR WHATSAPP — tanpa kode akses manual: mitra
+// cukup memasukkan No. WhatsApp terdaftar; bila nomor itu milik mitra aktif
+// di database, server langsung menerbitkan cookie sesi mitra
 // (POST /api/affiliate/login) → mitra dibawa ke ?next= atau dashboard mitra.
 // Tema emerald/zinc senada portal affiliator; mobile-first.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,7 +28,6 @@ interface PartnerLoginFormProps {
 export function PartnerLoginForm({ nextPath }: PartnerLoginFormProps) {
   const router = useRouter();
   const [phone, setPhone] = useState("");
-  const [token, setToken] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -42,17 +42,13 @@ export function PartnerLoginForm({ nextPath }: PartnerLoginFormProps) {
       return;
     }
     setFieldError(null);
-    if (!token.trim()) {
-      setFieldError("Kode akses portal wajib diisi — lihat pesan Admin.");
-      return;
-    }
 
     setSubmitting(true);
     try {
       const res = await fetch("/api/affiliate/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, token: token.trim() }),
+        body: JSON.stringify({ phone }),
       });
       const data = (await res.json().catch(() => null)) as {
         success?: boolean;
@@ -110,27 +106,9 @@ export function PartnerLoginForm({ nextPath }: PartnerLoginFormProps) {
             aria-invalid={Boolean(fieldError)}
             className="h-11"
           />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="partner-token">Kode Akses Portal</Label>
-          <Input
-            id="partner-token"
-            name="token"
-            type="text"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            placeholder="afk_…"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            disabled={submitting}
-            aria-invalid={Boolean(fieldError)}
-            className="h-11 font-mono text-[13px]"
-          />
           <p className="text-xs leading-snug text-zinc-500">
-            Kode dikirim Admin bersama link portal Anda (berawalan{" "}
-            <span className="font-mono">afk_</span>) — salin tempel apa adanya.
+            Gunakan nomor WhatsApp yang terdaftar sebagai mitra — sistem
+            memeriksa otomatis, tanpa kode akses.
           </p>
         </div>
 
@@ -176,7 +154,7 @@ export function PartnerLoginForm({ nextPath }: PartnerLoginFormProps) {
           className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 underline-offset-2 transition-colors hover:text-emerald-700 hover:underline"
         >
           <MessageCircle className="size-3.5" aria-hidden="true" />
-          Lupa kode akses / nomor tidak dikenali? Chat Admin via WhatsApp
+          Nomor belum terdaftar / ingin ganti nomor? Chat Admin via WhatsApp
         </a>
       </div>
     </div>

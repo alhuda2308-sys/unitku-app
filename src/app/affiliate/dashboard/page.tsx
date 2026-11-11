@@ -8,10 +8,11 @@
 //     membuka link pribadi /affiliate/dashboard?ref=<kode>&token=<accessToken>.
 //     Middleware mengizinkan rute ber-token (isTokenizedAffiliatePortal), dan
 //     halaman INI yang memverifikasi token ke DB — token salah → gerbang mitra.
-//   3. SESI PORTAL MITRA (baru): login khusus /affiliate/login (No. WA + kode
-//     akses portal) menerbitkan cookie "unitku_partner" (HMAC, terpisah dari
-//     sesi owner) → tamu /affiliate/dashboard tanpa token dibawa middleware ke
-//     gerbang mitra, bukan /login akun riil — tidak tercampur guard owner.
+//   3. SESI PORTAL MITRA (baru): login khusus /affiliate/login (No. WhatsApp
+//     terdaftar, otomatis) menerbitkan cookie "unitku_partner" (HMAC, terpisah
+//     dari sesi owner) → tamu /affiliate/dashboard tanpa token dibawa
+//     middleware ke gerbang mitra, bukan /login akun riil — tidak tercampur
+//     guard owner.
 //
 // Isi: link referral + link direct checkout (salin), metrik komisi, riwayat
 // referral (email pembeli disensor demi privasi), pengaturan rekening

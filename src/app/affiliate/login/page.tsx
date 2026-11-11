@@ -1,10 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — /affiliate/login : Login khusus mitra affiliator (PUBLIK)
 //
-// Mitra didaftarkan Super Admin TANPA akun owner — identitas = No. WhatsApp,
-// kredensial = kode akses portal ("afk_…"). Halaman ini GERBANG khusus mitra:
-//   • Belum login  → form No. WA + kode akses → POST /api/affiliate/login →
-//     cookie sesi mitra ("unitku_partner") → lanjut ?next= / dashboard mitra.
+// Mitra didaftarkan Super Admin ATAU daftar mandiri TANPA akun owner —
+// identitas = No. WhatsApp terdaftar (tanpa kode manual). Halaman ini GERBANG
+// khusus mitra:
+//   • Belum login  → form No. WA → POST /api/affiliate/login → cookie sesi
+//     mitra ("unitku_partner") → lanjut ?next= / dashboard mitra.
 //   • Sudah punya sesi mitra sah → langsung dilempar ke dashboard (tanpa
 //     mengetik ulang).
 // Senada /affiliate/join: tema emerald/zinc, mobile-first, footer sticky.
@@ -15,7 +16,7 @@
 
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { KeyRound, UserRound } from "lucide-react";
+import { MessageCircle, UserRound } from "lucide-react";
 
 import { PartnerLoginForm } from "@/components/affiliate/partner-login-form";
 import { getAffiliateFromSession } from "@/lib/affiliate-auth";
@@ -24,7 +25,7 @@ import { SUPPORT_WA_DISPLAY, SUPPORT_WA_LINK } from "@/lib/landing-config";
 export const metadata: Metadata = {
   title: "Masuk Portal Mitra — UnitKu",
   description:
-    "Login khusus mitra afiliasi UnitKu. Masukkan No. WhatsApp dan kode akses portal untuk mengelola link referral, komisi, dan rekening pencairan Anda.",
+    "Login khusus mitra afiliasi UnitKu. Masukkan nomor WhatsApp terdaftar untuk masuk otomatis ke portal: kelola link referral, komisi, dan rekening pencairan Anda.",
 };
 
 export const dynamic = "force-dynamic";
@@ -75,8 +76,8 @@ export default async function AffiliateLoginPage({
       <footer className="mt-auto border-t border-zinc-200 bg-white/80 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm">
         <div className="mx-auto flex w-full max-w-md flex-col items-center gap-1 px-4 py-4 text-center">
           <p className="inline-flex items-center gap-1.5 text-xs text-zinc-500">
-            <KeyRound className="size-3.5 shrink-0" aria-hidden="true" />
-            Kode akses portal hilang? Chat Admin UnitKu (WA {SUPPORT_WA_DISPLAY})
+            <MessageCircle className="size-3.5 shrink-0" aria-hidden="true" />
+            Nomor tidak dikenali? Chat Admin UnitKu (WA {SUPPORT_WA_DISPLAY})
           </p>
           <a
             href={SUPPORT_WA_LINK}

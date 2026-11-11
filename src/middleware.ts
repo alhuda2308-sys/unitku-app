@@ -5,8 +5,8 @@
 // - Halaman owner ("/dashboard", /onboarding, dst.) wajib sesi → belum masuk
 //   diarahkan ke /login?next=… ; yang sudah masuk tidak melihat /login|/register.
 // - Portal MITRA (/affiliate/dashboard) punya GERBANG SENDIRI: tamu tanpa
-//   token diarahkan ke /affiliate/login (login khusus mitra — No. WA + kode
-//   akses portal, sesi cookie "unitku_partner"), BUKAN /login pemilik
+//   token diarahkan ke /affiliate/login (login khusus mitra — No. WhatsApp
+//   terdaftar, otomatis; sesi cookie "unitku_partner"), BUKAN /login pemilik
 //   properti — mitra didaftarkan admin tanpa akun owner sehingga tidak
 //   boleh terkunci guard akun riil. Bawa token magic-link (?token=…) tetap
 //   lolos langsung (isTokenizedAffiliatePortal).
