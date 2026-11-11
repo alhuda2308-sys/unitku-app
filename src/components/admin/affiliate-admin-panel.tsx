@@ -154,7 +154,9 @@ function sanitizeRefCodeInput(raw: string): string {
  * Pesan sambutan WhatsApp mitra — TEMPLATE BAKU permintaan admin (persis,
  * termasuk emoji & poin) dengan sapaan ramah "Kak" — dipakai modal sukses
  * pendaftaran & tombol "Kirim WA Sambutan" di Daftar Mitra. Link memakai
- * SITE_URL (https://unitku.my.id).
+ * SITE_URL (https://unitku.my.id). Baris grup WhatsApp mitra disisipkan
+ * tanpa mengubah struktur baku (link grup dikirim apa adanya — seluruh
+ * pesan tetap di-encode encodeURIComponent di titik pemakaian).
  */
 function waSambutanMessage(name: string, refCode: string): string {
   return [
@@ -167,6 +169,9 @@ function waSambutanMessage(name: string, refCode: string): string {
     "",
     "Kakak bisa mengakses Dashboard Afiliasi pribadi di:",
     `${SITE_URL}/affiliate/dashboard`,
+    "",
+    "Gabung ke grup WhatsApp mitra UnitKu ya Kak:",
+    "https://chat.whatsapp.com/KUOM09AbTUKKBfDVsFzR62",
     "",
     "Jangan lupa buka dashboard untuk melengkapi data rekening bank/e-wallet ya Kak, agar pencairan komisi (Rp150.000 per penjualan) bisa langsung kami transfer.",
     "",
