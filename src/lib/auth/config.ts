@@ -17,6 +17,15 @@ export const SESSION_COOKIE = "unitku_session";
 /** Masa berlaku sesi lokal: 30 hari */
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 
+/** Nama cookie sesi portal MITRA affiliator (HttpOnly, HMAC-signed) —
+ *  diterbitkan login khusus mitra /affiliate/login (No. WA + kode akses
+ *  portal). SENGAJA terpisah dari SESSION_COOKIE agar kredensial mitra
+ *  tidak tercampur guard akun pemilik properti biasa. */
+export const PARTNER_SESSION_COOKIE = "unitku_partner";
+
+/** Masa berlaku sesi mitra: 30 hari */
+export const PARTNER_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+
 /** Rahasia HMAC sesi lokal — WAJIB diisi AUTH_SECRET di produksi */
 export const AUTH_SECRET =
   process.env.AUTH_SECRET ?? "unitku-dev-secret-ganti-di-produksi";
@@ -81,5 +90,6 @@ export const PUBLIC_PAGE_PREFIXES = [
   "/checkout", // halaman checkout khusus iklan Facebook Ads (publik, tanpa sesi)
   "/demo", // masuk dashboard demo tanpa registrasi (CTA landing "Coba Denah Kost Saya")
   "/affiliate/join", // pendaftaran mitra afiliasi publik (form terbuka; /affiliate/dashboard TETAP terlindungi sesi/token)
+  "/affiliate/login", // login khusus mitra affiliator (No. WA + kode akses portal) — mitra tanpa akun owner tetap bisa masuk
   "/trial", // portal uji coba 3 hari pemilik kost (magic token dari link mitra — token diverifikasi di halaman)
 ];

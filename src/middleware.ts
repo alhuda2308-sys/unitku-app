@@ -4,6 +4,12 @@
 // - Landing komersial "/" PUBLIK (KYC Mayar: fitur, harga, legalitas).
 // - Halaman owner ("/dashboard", /onboarding, dst.) wajib sesi → belum masuk
 //   diarahkan ke /login?next=… ; yang sudah masuk tidak melihat /login|/register.
+// - Portal MITRA (/affiliate/dashboard) punya GERBANG SENDIRI: tamu tanpa
+//   token diarahkan ke /affiliate/login (login khusus mitra — No. WA + kode
+//   akses portal, sesi cookie "unitku_partner"), BUKAN /login pemilik
+//   properti — mitra didaftarkan admin tanpa akun owner sehingga tidak
+//   boleh terkunci guard akun riil. Bawa token magic-link (?token=…) tetap
+//   lolos langsung (isTokenizedAffiliatePortal).
 // - Halaman publik: "/", /login, /register, /legal/*, /portal (penyewa),
 //   /staff (staf), /payment (sukses bayar), /auth/callback (OAuth), aset & PWA.
 // - Link referral (?ref=kode, Tahap 2 affiliate) ditangkap di sini: disimpan
@@ -28,6 +34,7 @@ import {
 } from "@/lib/affiliate";
 import {
   isSupabaseConfigured,
+  PARTNER_SESSION_COOKIE,
   PUBLIC_PAGE_PREFIXES,
   SESSION_COOKIE,
   SUPABASE_ANON_KEY,
@@ -62,9 +69,31 @@ function isTokenizedAffiliatePortal(request: NextRequest): boolean {
   );
 }
 
+/** Area portal mitra yang TERPROTEKSI — hanya /affiliate/dashboard (dan di
+ *  bawahnya). /affiliate (landing publik), /affiliate/join & /affiliate/login
+ *  tetap publik. Dipakai utk memilih gerbang login: tamu portal mitra →
+ *  /affiliate/login (login khusus), bukan /login pemilik properti. */
+function isAffiliatePortalPath(pathname: string): boolean {
+  return (
+    pathname === "/affiliate/dashboard" ||
+    pathname.startsWith("/affiliate/dashboard/")
+  );
+}
+
 function redirectToLogin(request: NextRequest): NextResponse {
   const url = request.nextUrl.clone();
   url.pathname = "/login";
+  url.search = "";
+  const next = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+  if (next && next !== "/") url.searchParams.set("next", next);
+  return NextResponse.redirect(url);
+}
+
+/** Gerbang login KHUSUS MITRA — tamu /affiliate/dashboard tanpa token/sesi
+ *  dibawa ke /affiliate/login?next=… (bukan /login akun owner riil). */
+function redirectToAffiliateLogin(request: NextRequest): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = "/affiliate/login";
   url.search = "";
   const next = `${request.nextUrl.pathname}${request.nextUrl.search}`;
   if (next && next !== "/") url.searchParams.set("next", next);
@@ -155,6 +184,12 @@ async function handleRouteProtection(request: NextRequest): Promise<NextResponse
     // HMAC + pembatasan demo dilakukan penuh di getAuthUser() (route handler),
     // pola sama dengan mode lokal.
     const hasDemoCookie = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+    // Cookie sesi portal mitra (/affiliate/login) — cek keberadaan saja;
+    // verifikasi HMAC + lookup DB dilakukan penuh di getAffiliateFromSession()
+    // pada halaman (mitra dihapus → sesi hangus di level halaman).
+    const hasPartnerCookie = Boolean(
+      request.cookies.get(PARTNER_SESSION_COOKIE)?.value,
+    );
 
     if (isPublicPage(pathname) || isTokenizedAffiliatePortal(request)) {
       // Pemilik sesi TERVERIFIKASI tidak perlu melihat /login|/register lagi.
@@ -175,12 +210,21 @@ async function handleRouteProtection(request: NextRequest): Promise<NextResponse
     // (network auth / race refresh token), BIARKAN LEWAT: halaman dashboard
     // menangani dengan anggun (fallback offline), route handler menegakkan 401
     // JSON bila sesi memang batal — TANPA pantulan redirect halaman.
-    if (!user && !hasSbCookies && !hasDemoCookie) return redirectToLogin(request);
+    // Portal mitra dibedakan: tamunya dibawa ke GERBANG MITRA
+    // (/affiliate/login), bukan /login pemilik properti.
+    if (!user && !hasSbCookies && !hasDemoCookie && !hasPartnerCookie) {
+      return isAffiliatePortalPath(pathname)
+        ? redirectToAffiliateLogin(request)
+        : redirectToLogin(request);
+    }
     return getResponse();
   }
 
   // ── Mode lokal — keberadaan cookie sesi (verifikasi penuh di handler) ────
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+  const hasPartnerCookie = Boolean(
+    request.cookies.get(PARTNER_SESSION_COOKIE)?.value,
+  );
 
   if (isPublicPage(pathname) || isTokenizedAffiliatePortal(request)) {
     if (hasSession && isAuthPage) {
@@ -193,7 +237,11 @@ async function handleRouteProtection(request: NextRequest): Promise<NextResponse
     // induk (unitku_ref) agar Server Component render ini langsung membacanya.
     return NextResponse.next({ request });
   }
-  if (!hasSession) return redirectToLogin(request);
+  if (!hasSession && !hasPartnerCookie) {
+    return isAffiliatePortalPath(pathname)
+      ? redirectToAffiliateLogin(request)
+      : redirectToLogin(request);
+  }
   return NextResponse.next({ request });
 }
 

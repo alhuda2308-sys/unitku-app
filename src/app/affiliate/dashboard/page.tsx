@@ -1,14 +1,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // UnitKu — Dashboard / Portal Affiliator (Tahap 4)
 //
-// /affiliate/dashboard — DUA jalur akses:
-//   1. SESI (pola lama)      : user login → profil dicari via affiliates.
-//     userId. Middleware menjaga rute ini (tamu → /login?next=…).
-//   2. MAGIC-LINK (baru)     : mitra yang didaftarkan admin TANPA akun email
+// /affiliate/dashboard — TIGA jalur akses:
+//   1. SESI OWNER (pola lama) : user login → profil dicari via affiliates.
+//     userId. Middleware menjaga rute ini (tamu → gerbang mitra).
+//   2. MAGIC-LINK             : mitra yang didaftarkan admin TANPA akun email
 //     membuka link pribadi /affiliate/dashboard?ref=<kode>&token=<accessToken>.
 //     Middleware mengizinkan rute ber-token (isTokenizedAffiliatePortal), dan
-//     halaman INI yang memverifikasi token ke DB — token salah → redirect
-//     /login (tidak ada kebocoran antar mitra).
+//     halaman INI yang memverifikasi token ke DB — token salah → gerbang mitra.
+//   3. SESI PORTAL MITRA (baru): login khusus /affiliate/login (No. WA + kode
+//     akses portal) menerbitkan cookie "unitku_partner" (HMAC, terpisah dari
+//     sesi owner) → tamu /affiliate/dashboard tanpa token dibawa middleware ke
+//     gerbang mitra, bukan /login akun riil — tidak tercampur guard owner.
 //
 // Isi: link referral + link direct checkout (salin), metrik komisi, riwayat
 // referral (email pembeli disensor demi privasi), pengaturan rekening
@@ -29,14 +32,17 @@ import {
 } from "lucide-react";
 
 import { PayoutSettingsForm } from "@/components/affiliate/payout-settings-form";
+import { PartnerLogoutButton } from "@/components/affiliate/partner-logout-button";
 import { PromoBotCard } from "@/components/affiliate/promo-bot-card";
 import { ReferralLinkCard } from "@/components/affiliate/referral-link-card";
 import { TrialGeneratorCard } from "@/components/affiliate/trial-generator-card";
 import { MetricCard } from "@/components/kost/metric-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getAffiliateFromSession } from "@/lib/affiliate-auth";
 import {
   getAffiliatePortalData,
+  getAffiliatePortalDataById,
   getAffiliatePortalDataByToken,
   getUserContactByEmail,
   type AffiliatePortalData,
@@ -140,56 +146,90 @@ export default async function AffiliateDashboardPage({
   // ── Jalur 2: magic-link — verifikasi token ke DB SEBELUM apa pun ──────────
   if (token) {
     const dataByToken = await getAffiliatePortalDataByToken(token);
-    // Token salah/kedaluwarsa → perlakukan seperti tamu: gerbang login
-    if (!dataByToken) redirect("/login?next=%2Faffiliate%2Fdashboard");
+    // Token salah/kedaluwarsa → perlakukan seperti tamu: gerbang login mitra
+    if (!dataByToken) redirect("/affiliate/login?next=%2Faffiliate%2Fdashboard");
     return (
-      <AffiliateDashboardView data={dataByToken} accessToken={token} />
+      <AffiliateDashboardView
+        data={dataByToken}
+        accessToken={token}
+        accessMode="magic-link"
+      />
     );
   }
 
-  // ── Jalur 1: sesi login (pola lama) — tamu → /login dgn tujuan kembali ────
+  // ── Jalur 1: sesi owner (pola lama) — profil dicari via affiliates.userId ─
   const user = await getAuthUser();
-  if (!user) redirect("/login?next=%2Faffiliate%2Fdashboard");
+  if (user) {
+    const data = await getAffiliatePortalData(user.id);
 
-  const data = await getAffiliatePortalData(user.id);
-
-  // ── Kontak utk prefill form join (CTA "belum terdaftar") ──────────────────
-  // Prioritas: user_metadata akun (diisi /register & webhook Mayar) →
-  // fallback lead license_leads by email (akun lama). Query fallback hanya
-  // dijalankan bila CTA memang akan tampil & data masih ada yang kosong.
-  let contactName = user.name ?? null;
-  let contactPhone = user.phone ?? null;
-  if (!data.error && !data.affiliate && (!contactName || !contactPhone)) {
-    const fallback = await getUserContactByEmail(user.email);
-    if (fallback) {
-      contactName = contactName ?? fallback.name;
-      contactPhone = contactPhone ?? fallback.phone;
+    // ── Kontak utk prefill form join (CTA "belum terdaftar") ──────────────────
+    // Prioritas: user_metadata akun (diisi /register & webhook Mayar) →
+    // fallback lead license_leads by email (akun lama). Query fallback hanya
+    // dijalankan bila CTA memang akan tampil & data masih ada yang kosong.
+    let contactName = user.name ?? null;
+    let contactPhone = user.phone ?? null;
+    if (!data.error && !data.affiliate && (!contactName || !contactPhone)) {
+      const fallback = await getUserContactByEmail(user.email);
+      if (fallback) {
+        contactName = contactName ?? fallback.name;
+        contactPhone = contactPhone ?? fallback.phone;
+      }
     }
+
+    return (
+      <AffiliateDashboardView
+        data={data}
+        joinHref={buildAffiliateJoinHref(contactName, contactPhone)}
+        accessMode="owner-session"
+      />
+    );
   }
 
+  // ── Jalur 3: sesi portal mitra — login khusus /affiliate/login ───────────
+  // Mitra tanpa akun owner (identitas = No. WA) memakai gerbang mitra; sesi
+  // diverifikasi ulang ke DB di sini — mitra dihapus Admin → sesi hangus.
+  const partner = await getAffiliateFromSession();
+  if (!partner) redirect("/affiliate/login?next=%2Faffiliate%2Fdashboard");
+
+  const dataBySession = await getAffiliatePortalDataById(partner.id);
   return (
     <AffiliateDashboardView
-      data={data}
-      joinHref={buildAffiliateJoinHref(contactName, contactPhone)}
+      data={dataBySession}
+      accessToken={partner.accessToken}
+      accessMode="partner-session"
     />
   );
 }
 
 /**
- * Seluruh isi portal — dipakai kedua jalur akses. `accessToken` hanya
- * terisi pada jalur magic-link (diteruskan ke form rekening agar mitra
- * tanpa akun login tetap bisa menyimpan rekeningnya). `joinHref` = tujuan
- * CTA aktivasi afiliasi (prefilled) — hanya dipakai jalur sesi login.
+ * Seluruh isi portal — dipakai ketiga jalur akses. `accessToken` hanya
+ * terisi pada jalur magic-link & sesi portal mitra (diteruskan ke form
+ * rekening dan generator trial agar mitra tanpa akun owner tetap bisa
+ * mengelola datanya). `accessMode` menentukan navigasi pulang:
+ *   owner-session   → "Kembali ke Dashboard" (dashboard owner, ada sesi)
+ *   magic-link      → "Beranda Program Afiliasi" (/affiliate, publik)
+ *   partner-session → beranda program + tombol Keluar (akhiri sesi mitra)
  */
 function AffiliateDashboardView({
   data,
   accessToken,
   joinHref = "/affiliate/join",
+  accessMode,
 }: {
   data: AffiliatePortalData;
   accessToken?: string;
   joinHref?: string;
+  accessMode: "owner-session" | "magic-link" | "partner-session";
 }) {
+  const backHref = accessMode === "owner-session" ? "/dashboard" : "/affiliate";
+  const backLabel =
+    accessMode === "owner-session"
+      ? "Kembali ke Dashboard"
+      : "Beranda Program Afiliasi";
+  const footerLabel =
+    accessMode === "owner-session"
+      ? "Kembali ke Dashboard Utama"
+      : "Beranda Program Afiliasi";
 
   return (
     <main className="min-h-screen bg-zinc-50 pb-12">
@@ -198,11 +238,11 @@ function AffiliateDashboardView({
         <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <a
-              href="/dashboard"
+              href={backHref}
               className="inline-flex items-center gap-1 text-[13px] font-medium text-zinc-500 transition-colors hover:text-zinc-800"
             >
               <ArrowLeft className="size-4" strokeWidth={2} aria-hidden="true" />
-              Kembali ke Dashboard
+              {backLabel}
             </a>
             <h1 className="mt-1 text-xl font-black tracking-tight text-zinc-900 sm:text-2xl">
               Program Afiliasi
@@ -464,14 +504,16 @@ function AffiliateDashboardView({
           })()
         )}
 
-        {/* Footer kecil */}
+        {/* Footer kecil — tujuan pulang sesuai jalur akses; sesi portal mitra
+            mendapat tombol Keluar (POST /api/affiliate/logout) */}
         <footer className="mt-8 flex flex-col items-center gap-2 text-center">
           <Button asChild variant="ghost" size="sm" className="h-8 text-zinc-600">
-            <a href="/dashboard">
+            <a href={backHref}>
               <ArrowLeft className="size-4" strokeWidth={2} aria-hidden="true" />
-              Kembali ke Dashboard Utama
+              {footerLabel}
             </a>
           </Button>
+          {accessMode === "partner-session" && <PartnerLogoutButton />}
         </footer>
       </div>
     </main>

@@ -138,6 +138,32 @@ export async function getAffiliatePortalData(
 }
 
 /**
+ * Data portal affiliator via id mitra — dipakai JALUR SESI PORTAL MITRA
+ * (login khusus /affiliate/login). Ownership dijamin: id berasal dari payload
+ * cookie HMAC yang diterbitkan server setelah verifikasi kredensial — TIDAK
+ * pernah dari input client. Pola fail-graceful sama seperti getAffiliatePortalData.
+ */
+export async function getAffiliatePortalDataById(
+  affiliateId: string,
+): Promise<AffiliatePortalData> {
+  try {
+    await ensureAffiliateTables();
+    const affiliate = await prisma.affiliate.findUnique({
+      where: { id: affiliateId },
+      select: PORTAL_SELECT,
+    });
+    if (!affiliate) return { error: false, affiliate: null, commissions: [] };
+    return toPortalData(affiliate);
+  } catch (error) {
+    console.error(
+      "[UnitKu Affiliate] Gagal memuat data portal (sesi mitra):",
+      error,
+    );
+    return { error: true };
+  }
+}
+
+/**
  * Data portal affiliator via MAGIC-LINK token (akses tanpa login) — mitra
  * baru didaftarkan admin tanpa email/akun Supabase, jadi portal diakses
  * lewat link pribadi /affiliate/dashboard?ref=<kode>&token=<accessToken>.
