@@ -184,7 +184,7 @@ async function recoverDashboard(): Promise<boolean> {
     const data = await fetchDashboardData();
     stopRecoveryPolling();
     console.info("[UnitKu] Database kembali terjangkau — dashboard disinkronkan ulang.");
-    setState({ ...data, status: "ready", syncedAt: nowLabel() });
+    commitReady({ ...data, syncedAt: nowLabel() });
     return true;
   } catch {
     return false;
@@ -239,6 +239,64 @@ function startRecoveryPolling(): void {
   }
 }
 
+// ── Jeda toleransi sebelum mode offline diumumkan (anti-banner-panik) ────────
+// Alur muat awal yang gagal cepat (server cold-start, koneksi lambat, DB belum
+// siap) TIDAK BOLEH langsung menampilkan banner kuning "Mode offline" —
+// pengguna baru membuka aplikasi dan mengira dashboard rusak. Status "offline"
+// (banner + polling pemulihan) baru diterbitkan setelah:
+//   • 3 percobaan sinkron gagal DAN jeda toleransi OFFLINE_GRACE_MS berlalu,
+//   • ATAU perangkat benar-benar putus (navigator.onLine === false — definitif,
+//     tanpa jeda).
+// Selama jeda, status tetap "loading" → skeleton/spinner sinkron yang tenang
+// yang tampil, bukan peringatan panik. Begitu data berhasil dimuat
+// (commitReady), jeda dibatalkan otomatis — banner tidak pernah muncul.
+
+const OFFLINE_GRACE_MS = 6_000; // jeda toleransi (5-8 dtk) sebelum banner offline
+let offlineGraceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelOfflineGrace(): void {
+  if (offlineGraceTimer !== null) {
+    clearTimeout(offlineGraceTimer);
+    offlineGraceTimer = null;
+  }
+}
+
+function enterOfflineNow(): void {
+  cancelOfflineGrace();
+  setState({ status: "offline" });
+  startRecoveryPolling();
+}
+
+/**
+ * Jadwalkan penerbitan status "offline" — aman dipanggil berulang dari
+ * markStalled / loadDashboard / retry manual: jeda hanya dijadwalkan sekali
+ * dan dibatalkan otomatis oleh commitReady begitu data berhasil dimuat.
+ */
+function announceOffline(): void {
+  if (state.status === "offline") {
+    // Retry manual dari banner gagal lagi — pastikan polling pemulihan tetap hidup
+    startRecoveryPolling();
+    return;
+  }
+  if (state.status !== "loading") return; // "ready"/data hidup — jangan timpa
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    enterOfflineNow(); // perangkat memang putus koneksi — banner segera (jujur)
+    return;
+  }
+  if (offlineGraceTimer !== null) return; // jeda toleransi sudah berjalan
+  offlineGraceTimer = setTimeout(() => {
+    offlineGraceTimer = null;
+    if (state.status === "loading") enterOfflineNow();
+  }, OFFLINE_GRACE_MS);
+}
+
+/** Terbitkan status "ready" (onSuccess) — batalkan jeda toleransi offline yang
+ *  mungkin masih berjalan supaya banner tidak pernah muncul setelah data hidup. */
+function commitReady(patch: Partial<DashboardState>): void {
+  cancelOfflineGrace();
+  setState({ ...patch, status: "ready" });
+}
+
 /**
  * Mode demo instan (?demo=1 — redirect dari GET /demo): pasang dataset
  * simulasi 12 kamar LANGSUNG tanpa satu pun panggilan API/database. Dashboard
@@ -247,11 +305,10 @@ function startRecoveryPolling(): void {
  */
 export function applyDemoSnapshot(): void {
   stopRecoveryPolling();
-  setState({
+  commitReady({
     rooms: ROOMS,
     invoices: INVOICES,
     cashEntries: CASH_ENTRIES,
-    status: "ready",
     syncedAt: null,
   });
 }
@@ -270,20 +327,15 @@ export function applyTrialSnapshot(
   cashEntries: CashEntry[],
 ): void {
   stopRecoveryPolling();
-  setState({
-    rooms,
-    invoices,
-    cashEntries,
-    status: "ready",
-    syncedAt: null,
-  });
+  commitReady({ rooms, invoices, cashEntries, syncedAt: null });
 }
 
 /**
  * Pengaman anti-hang (watchdog dashboard): bila status masih "loading" setelah
- * batas waktu — koneksi database tidak pernah menjawab — lepaskan skeleton ke
- * mode "offline" DENGAN DATA TETAP KOSONG + banner offline + polling pemulihan
- * (data asli otomatis masuk saat database merespons).
+ * batas waktu — koneksi database tidak pernah menjawab — jadwalkan transisi ke
+ * mode "offline" SETELAH JEDA TOLERANSI (announceOffline) DENGAN DATA TETAP
+ * KOSONG + banner offline + polling pemulihan (data asli otomatis masuk saat
+ * database merespons). Selama jeda, skeleton tenang tetap tampil.
  *
  * ARSITEKTUR DATA: akun riil TIDAK PERNAH diberi data dummy — menampilkan
  * dataset simulasi ke pemilik akun justru menyesatkan (bisa dianggap data
@@ -293,10 +345,9 @@ export function applyTrialSnapshot(
 export function markStalled(): void {
   if (state.status !== "loading") return;
   console.warn(
-    "[UnitKu] Database tidak merespons tepat waktu — mode offline diaktifkan (watchdog) dengan data kosong (tanpa dummy).",
+    "[UnitKu] Database tidak merespons tepat waktu — mode offline dijadwalkan setelah jeda toleransi (watchdog, tanpa dummy).",
   );
-  setState({ status: "offline" });
-  startRecoveryPolling();
+  announceOffline();
 }
 
 /**
@@ -315,14 +366,14 @@ export function rescueDemoIfLoading(): void {
  * in-place per kartu data (UI shell dashboard tetap tampil, layar penuh tidak
  * pernah diblokir); kegagalan sementara di-retry otomatis (warm-up server,
  * SQLITE_BUSY, dsb. tidak langsung menjatuhkan mode offline). Setelah 3
- * percobaan gagal → status "offline" + banner retry + polling /api/health
- * utk pemulihan otomatis — DATA TETAP KOSONG, TANPA dataset dummy (akun riil
- * tidak boleh melihat data simulasi seolah-olah datanya hilang). Melempar
- * error agar pemanggil menampilkan toast.
+ * percobaan gagal → JEDA TOLERANSI dulu, baru status "offline" + banner retry
+ * + polling /api/health utk pemulihan otomatis — DATA TETAP KOSONG, TANPA
+ * dataset dummy (akun riil tidak boleh melihat data simulasi seolah-olah
+ * datanya hilang). Melempar error agar pemanggil menampilkan toast.
  *
  * Dijamin SELALU selesai: tiap fetch punya timeout, sehingga status tak
- * mungkin menggantung di "loading" — sukses ("ready") maupun gagal
- * ("offline") selalu dicatat sebelum fungsi kembali.
+ * mungkin menggantung di "loading" — sukses ("ready") maupun kegagalan final
+ * (jadwal "offline" via announceOffline) selalu ditangani sebelum kembali.
  */
 export async function loadDashboard(): Promise<void> {
   // Saat mode offline, JANGAN balik ke skeleton — biarkan tampilan (kosong/
@@ -340,7 +391,7 @@ export async function loadDashboard(): Promise<void> {
       const data = await fetchDashboardData();
       stopRecoveryPolling();
       if (n > 1) console.info(`[UnitKu] Sinkron berhasil pada percobaan ke-${n}.`);
-      setState({ ...data, status: "ready", syncedAt: nowLabel() });
+      commitReady({ ...data, syncedAt: nowLabel() });
       return;
     } catch (err) {
       lastError = err;
@@ -351,7 +402,7 @@ export async function loadDashboard(): Promise<void> {
   }
   // Benar-benar gagal → mode offline DENGAN DATA KOSONG (tanpa dummy) + log
   console.error(
-    "[UnitKu] MODE OFFLINE diaktifkan — database tidak terjangkau setelah 3 percobaan (data tidak dimuat, tanpa dummy).",
+    "[UnitKu] GAGAL SINKRON 3 PERCOBAAN — mode offline dijadwalkan setelah jeda toleransi (data tidak dimuat, tanpa dummy).",
     "\n  Penyebab:",
     describeError(lastError),
     "\n  (Detail permintaan gagal: lihat log [UnitKu API] di atas — network error / HTTP 4xx-5xx)",
@@ -359,8 +410,7 @@ export async function loadDashboard(): Promise<void> {
   // Cegah balapan: bila data sudah dipulihkan lewat jalur lain (watchdog +
   // polling kesehatan berhasil lebih dulu), jangan timpa status "ready".
   if (state.status === "ready") return;
-  setState({ status: "offline" });
-  startRecoveryPolling();
+  announceOffline(); // jeda toleransi dulu — banner hanya setelah gagal ±6 dtk
   throw lastError;
 }
 
@@ -371,11 +421,7 @@ export async function loadDashboard(): Promise<void> {
 export async function refreshDashboard(): Promise<void> {
   try {
     const data = await fetchDashboardData();
-    setState({
-      ...data,
-      status: "ready",
-      syncedAt: nowLabel(),
-    });
+    commitReady({ ...data, syncedAt: nowLabel() });
   } catch (err) {
     /* biarkan data saat ini — caller sudah menampilkan toast error */
     console.warn(
@@ -395,5 +441,5 @@ export async function refreshDashboard(): Promise<void> {
 export async function reloadDashboardData(): Promise<void> {
   const data = await fetchDashboardData(); // melempar bila semua percobaan fetch gagal
   stopRecoveryPolling();
-  setState({ ...data, status: "ready", syncedAt: nowLabel() });
+  commitReady({ ...data, syncedAt: nowLabel() });
 }
