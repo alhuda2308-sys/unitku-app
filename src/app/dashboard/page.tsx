@@ -3417,6 +3417,23 @@ export default function IndoKostPage() {
                 : "mx-auto max-w-[1440px] space-y-5 px-3.5 py-4 pb-24 sm:pb-4 lg:p-6"
             }
           >
+            {/* Indikator muat awal yang tenang — pengganti banner saat skeleton
+                data tampil; banner offline hanya muncul setelah jeda toleransi
+                di dashboard-store dan request benar-benar gagal */}
+            {isDataLoading && (
+              <p
+                className="flex items-center gap-2 rounded-lg border border-border bg-white px-3.5 py-2.5 text-[12.5px] font-medium text-zinc-600"
+                role="status"
+                aria-label="Memuat data dashboard"
+              >
+                <Loader2
+                  className="size-4 animate-spin text-emerald-600"
+                  strokeWidth={2.25}
+                  aria-hidden="true"
+                />
+                Memuat data, mohon tunggu...
+              </p>
+            )}
             {isDemoSession && !hasTrialCookie && (
               <DemoBanner onReset={handleResetDemo} />
             )}

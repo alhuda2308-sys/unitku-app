@@ -44,6 +44,35 @@ export type AffiliatePortalData =
 /** Batas riwayat komisi yang ditampilkan — cukup utk dashboard, anti-berat */
 const COMMISSION_LIMIT = 100;
 
+// ── Toleransi DB utk pembacaan portal (anti banner-error saat cold-start) ────
+// Query portal diulangi hingga 3x dengan jeda backoff — total upaya ±6,5 dtk —
+// sehingga database yang lambat menyala (cold-start Supabase) tidak langsung
+// dilaporkan "Gagal memuat data afiliasi". Selama upaya berjalan, App Router
+// menampilkan loading.tsx (spinner "Memuat data, mohon tunggu..."); banner
+// error HANYA muncul bila SEMUA percobaan benar-benar gagal (isLoading selesai).
+const PORTAL_RETRY_DELAYS_MS = [0, 2_500, 4_000] as const;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withPortalDbRetry<T>(op: () => Promise<T>): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < PORTAL_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (PORTAL_RETRY_DELAYS_MS[attempt] > 0) await delay(PORTAL_RETRY_DELAYS_MS[attempt]);
+    try {
+      return await op();
+    } catch (error) {
+      lastError = error;
+      console.warn(
+        `[UnitKu Affiliate] Upaya DB ${attempt + 1}/${PORTAL_RETRY_DELAYS_MS.length} gagal:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+  throw lastError;
+}
+
 /** Bentuk select bersama profil + riwayat komisi (dipakai by-user & by-token) */
 const PORTAL_SELECT = {
   id: true,
@@ -124,10 +153,12 @@ export async function getAffiliatePortalData(
   userId: string,
 ): Promise<AffiliatePortalData> {
   try {
-    await ensureAffiliateTables();
-    const affiliate = await prisma.affiliate.findUnique({
-      where: { userId },
-      select: PORTAL_SELECT,
+    const affiliate = await withPortalDbRetry(async () => {
+      await ensureAffiliateTables();
+      return prisma.affiliate.findUnique({
+        where: { userId },
+        select: PORTAL_SELECT,
+      });
     });
     if (!affiliate) return { error: false, affiliate: null, commissions: [] };
     return toPortalData(affiliate);
@@ -147,10 +178,12 @@ export async function getAffiliatePortalDataById(
   affiliateId: string,
 ): Promise<AffiliatePortalData> {
   try {
-    await ensureAffiliateTables();
-    const affiliate = await prisma.affiliate.findUnique({
-      where: { id: affiliateId },
-      select: PORTAL_SELECT,
+    const affiliate = await withPortalDbRetry(async () => {
+      await ensureAffiliateTables();
+      return prisma.affiliate.findUnique({
+        where: { id: affiliateId },
+        select: PORTAL_SELECT,
+      });
     });
     if (!affiliate) return { error: false, affiliate: null, commissions: [] };
     return toPortalData(affiliate);
@@ -176,10 +209,12 @@ export async function getAffiliatePortalDataByToken(
   const token = rawToken?.trim() ?? "";
   if (!token || token.length > 128) return null;
   try {
-    await ensureAffiliateTables();
-    const affiliate = await prisma.affiliate.findUnique({
-      where: { accessToken: token },
-      select: PORTAL_SELECT,
+    const affiliate = await withPortalDbRetry(async () => {
+      await ensureAffiliateTables();
+      return prisma.affiliate.findUnique({
+        where: { accessToken: token },
+        select: PORTAL_SELECT,
+      });
     });
     if (!affiliate) return null;
     return toPortalData(affiliate);
