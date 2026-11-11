@@ -15,8 +15,10 @@
 //     🎲 Acak Teks Baru              → generate ulang kategori yang sama
 //     🔙 Menu Utama                  → kembali ke pilihan kategori
 //
-//   Mitra tinggal tap kotak <code> untuk menyalin, lalu mengganti
-//   placeholder [MASUKKAN_LINK_REFERRAL_ANDA] dengan link referral sendiri.
+//   Mitra tinggal tap ikon COPY di pojok kanan atas kotak pesan (preformatted
+//   code block <pre><code class="language-copy"> — memicu tombol salin bawaan
+//   Telegram), lalu mengganti placeholder [MASUKKAN_LINK_REFERRAL_ANDA]
+//   dengan link referral sendiri.
 //
 //   Konfigurasi:
 //     - Env (opsional): TELEGRAM_MITRA_BOT_TOKEN (fallback hardcode produksi)
@@ -125,7 +127,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (content) {
-        const messageText = `💡 <b>Tap kotak di bawah untuk menyalin, lalu ganti [MASUKKAN_LINK_REFERRAL_ANDA] dengan link milik Anda:</b>\n\n<code>${escapeHtml(content)}</code>`;
+        const messageText = `💡 <b>Tap kotak di bawah untuk menyalin, lalu ganti [MASUKKAN_LINK_REFERRAL_ANDA] dengan link milik Anda:</b>\n\n<pre><code class="language-copy">${escapeHtml(content)}</code></pre>`;
 
         await sendTelegram("sendMessage", {
           chat_id: chatId,
