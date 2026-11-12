@@ -6,14 +6,19 @@
 //   siapa pun yang menekan /start pada bot ini bisa mengambil draf promosi
 //   siap pakai untuk menawarkan UnitKu ke pemilik kost/kontrakan.
 //
-//   Menu inline keyboard:
-//     🎲 Acak Status Medsos          → getRandomAffiliateCopy()
-//       (TOPIC-BASED POOL: hook + pain + solusi + checklist ✅ + CTA selalu
-//        diambil dari TEMA YANG SAMA di COPY_THEMES — affiliateCopies.ts,
-//        supaya alur kalimat selalu nyambung antar-paragraf)
+//   Menu inline keyboard (2 kategori generator copywriting + 1 fitur lama):
+//     🏠 Iklan Produk (Tawarkan ke Pemilik Kost)  → getRandomAffiliateCopy()
+//     🤝 Ajak Mitra (Tawarkan Peluang Komisi 150rb) → getRandomRecruitmentCopy()
+//       (TOPIC-BASED POOL: semua paragraf diambil dari TEMA YANG SAMA di
+//        affiliateCopies.ts — COPY_THEMES untuk produk, RECRUITMENT_THEMES
+//        untuk rekrutmen — supaya alur kalimat selalu nyambung)
 //     💬 Template Chat WhatsApp      → salah satu WA_TEMPLATES siap kirim
-//     🎲 Acak Teks Baru              → generate ulang kategori yang sama
 //     🔙 Menu Utama                  → kembali ke pilihan kategori
+//
+//   Tombol inline mengikuti kategori aktif:
+//     - Produk   : [🎲 Acak Teks Produk Lain] [🔄 Ganti ke Teks Ajak Mitra] [🔙 Menu Utama]
+//     - Ajak Mitra: [🎲 Acak Teks Mitra Lain] [🔄 Ganti ke Teks Produk]     [🔙 Menu Utama]
+//     - WhatsApp : [🎲 Acak Teks Baru] [🔙 Menu Utama]
 //
 //   Mitra tinggal tap ikon COPY di pojok kanan atas kotak pesan (preformatted
 //   code block <pre><code class="language-copy"> — memicu tombol salin bawaan
@@ -30,7 +35,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from "next/server";
-import { getRandomAffiliateCopy } from "@/data/affiliateCopies";
+import { getRandomAffiliateCopy, getRandomRecruitmentCopy } from "@/data/affiliateCopies";
 import { WA_TEMPLATES } from "@/data/mitraPromoData";
 
 export const runtime = "nodejs";
@@ -63,6 +68,17 @@ async function sendTelegram(method: string, payload: any) {
   }
 }
 
+/** Keyboard menu utama — dipakai /start dan tombol 🔙 Menu Utama. */
+function buildMainMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🏠 Iklan Produk (Tawarkan ke Pemilik Kost)", callback_data: "mitra_promo" }],
+      [{ text: "🤝 Ajak Mitra (Tawarkan Peluang Komisi 150rb)", callback_data: "mitra_rekrut" }],
+      [{ text: "💬 Template Chat WhatsApp ke Pemilik Kost", callback_data: "mitra_wa" }],
+    ],
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -82,14 +98,9 @@ export async function POST(req: NextRequest) {
     if (isMessage && body.message.text === "/start") {
       await sendTelegram("sendMessage", {
         chat_id: chatId,
-        text: "👋 <b>Selamat Datang di Generator Materi Promosi Mitra UnitKu!</b>\n\nAmbil draf promosi siap pakai untuk ditawarkan ke pemilik kost/kontrakan. Klik tombol di bawah:",
+        text: "👋 <b>Selamat Datang di Generator Materi Promosi Mitra UnitKu!</b>\n\nPilih kategori materi: 🏠 iklan produk untuk ditawarkan ke pemilik kost, atau 🤝 ajakan rekrutmen untuk menggas mitra baru. Klik tombol di bawah:",
         parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "🎲 Acak Status Medsos (Nyambung Sesuai Tema)", callback_data: "mitra_promo" }],
-            [{ text: "💬 Template Chat WhatsApp ke Pemilik Kost", callback_data: "mitra_wa" }],
-          ],
-        },
+        reply_markup: buildMainMenuKeyboard(),
       });
       return NextResponse.json({ ok: true });
     }
@@ -105,40 +116,51 @@ export async function POST(req: NextRequest) {
           chat_id: chatId,
           text: "⚡ <b>Pilih Kategori Materi:</b>",
           parse_mode: "HTML",
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "🎲 Acak Status Medsos (Nyambung Sesuai Tema)", callback_data: "mitra_promo" }],
-              [{ text: "💬 Template Chat WhatsApp ke Pemilik Kost", callback_data: "mitra_wa" }],
-            ],
-          },
+          reply_markup: buildMainMenuKeyboard(),
         });
         return NextResponse.json({ ok: true });
       }
 
+      // Konten + tombol inline mengikuti kategori yang sedang aktif
       let content = "";
-      let repeatAction = "";
+      let replyMarkup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } | null = null;
 
       if (data === "mitra_promo") {
         content = getRandomAffiliateCopy();
-        repeatAction = "mitra_promo";
+        replyMarkup = {
+          inline_keyboard: [
+            [{ text: "🎲 Acak Teks Produk Lain", callback_data: "mitra_promo" }],
+            [{ text: "🔄 Ganti ke Teks Ajak Mitra", callback_data: "mitra_rekrut" }],
+            [{ text: "🔙 Menu Utama", callback_data: "menu_main" }],
+          ],
+        };
+      } else if (data === "mitra_rekrut") {
+        content = getRandomRecruitmentCopy();
+        replyMarkup = {
+          inline_keyboard: [
+            [{ text: "🎲 Acak Teks Mitra Lain", callback_data: "mitra_rekrut" }],
+            [{ text: "🔄 Ganti ke Teks Produk", callback_data: "mitra_promo" }],
+            [{ text: "🔙 Menu Utama", callback_data: "menu_main" }],
+          ],
+        };
       } else if (data === "mitra_wa") {
         content = getRandom(WA_TEMPLATES);
-        repeatAction = "mitra_wa";
+        replyMarkup = {
+          inline_keyboard: [
+            [{ text: "🎲 Acak Teks Baru", callback_data: "mitra_wa" }],
+            [{ text: "🔙 Menu Utama", callback_data: "menu_main" }],
+          ],
+        };
       }
 
-      if (content) {
+      if (content && replyMarkup) {
         const messageText = `💡 <b>Tap kotak di bawah untuk menyalin, lalu ganti [MASUKKAN_LINK_REFERRAL_ANDA] dengan link milik Anda:</b>\n\n<pre><code class="language-copy">${escapeHtml(content)}</code></pre>`;
 
         await sendTelegram("sendMessage", {
           chat_id: chatId,
           text: messageText,
           parse_mode: "HTML",
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "🎲 Acak Teks Baru", callback_data: repeatAction }],
-              [{ text: "🔙 Menu Utama", callback_data: "menu_main" }],
-            ],
-          },
+          reply_markup: replyMarkup,
         });
       }
 

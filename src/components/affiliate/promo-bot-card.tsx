@@ -26,7 +26,7 @@ const STEPS: ReadonlyArray<{ title: string; desc: string }> = [
   },
   {
     title: "Pilih jenis materi",
-    desc: "Pilih menu 🎲 Acak Status Medsos atau 💬 Template Chat WA Pemilik Kost sesuai kebutuhan promosi Anda.",
+    desc: "Pilih menu 🏠 Iklan Produk (ke Pemilik Kost), 🤝 Ajak Mitra (Peluang Komisi 150rb), atau 💬 Template Chat WA sesuai kebutuhan Anda.",
   },
   {
     title: "Tap salin, ganti link",
@@ -58,8 +58,8 @@ export function PromoBotCard() {
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-zinc-600 sm:text-[13px]">
               Bingung mau posting apa hari ini? Gunakan bot resmi mitra kami
-              untuk membuat draf status medsos dan chat WhatsApp siap pakai
-              secara otomatis.
+              untuk membuat teks iklan produk, ajakan rekrutmen mitra, dan
+              chat WhatsApp siap pakai secara otomatis.
             </p>
           </div>
         </div>
