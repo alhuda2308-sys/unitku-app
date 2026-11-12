@@ -26,8 +26,12 @@
 //   dengan link referral sendiri.
 //
 //   Konfigurasi:
-//     - Env (opsional): TELEGRAM_MITRA_BOT_TOKEN (fallback hardcode produksi)
-//     - Set webhook: https://unitku.my.id/api/telegram/mitra-promo-bot
+//     - Env: TELEGRAM_PARTNER_BOT_TOKEN (utama — token @unitku_partner_bot);
+//       fallback TELEGRAM_MITRA_BOT_TOKEN (kompatibilitas lama), lalu
+//       TELEGRAM_BOT_TOKEN. TANPA token hardcode di kode — bila semua env
+//       kosong, webhook menolak diam (log error, tidak crash).
+//     - Set webhook pada bot @unitku_partner_bot (BotFather /setwebhook):
+//       https://unitku.my.id/api/telegram/mitra-promo-bot
 //
 // Catatan: /api/* dilewati middleware (lihat src/middleware.ts). Data materi
 // dipisah dari route: bank copywriting per-tema di src/data/affiliateCopies.ts,
@@ -41,7 +45,14 @@ import { WA_TEMPLATES } from "@/data/mitraPromoData";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const BOT_TOKEN = process.env.TELEGRAM_MITRA_BOT_TOKEN || "9169376869:AAEgyAQif7vHReKFUVKGLmJZW-vQFmauohc";
+/** Token bot — WAJIB dari environment variable, tanpa hardcode di kode.
+ *  Urutan: var khusus partner → var lama (kompatibilitas) → var umum. */
+const BOT_TOKEN = (
+  process.env.TELEGRAM_PARTNER_BOT_TOKEN ||
+  process.env.TELEGRAM_MITRA_BOT_TOKEN ||
+  process.env.TELEGRAM_BOT_TOKEN ||
+  ""
+).trim();
 
 function getRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -79,8 +90,29 @@ function buildMainMenuKeyboard() {
   };
 }
 
+/** Cooldown klik callback per chat (1,5 detik) — klik cepat beruntun tidak
+ *  memicu kirim pesan berulang sehingga aman dari rate-limit/spam server
+ *  Telegram. Callback yang kena cooldown tetap dijawab answerCallbackQuery
+ *  (toast ringan) supaya spinner tombol berhenti tanpa kirim pesan. */
+const CALLBACK_COOLDOWN_MS = 1500;
+const lastCallbackAt = new Map<number, number>();
+
+function pruneCallbackMap(now: number): void {
+  if (lastCallbackAt.size < 1000) return;
+  for (const [key, ts] of lastCallbackAt) {
+    if (now - ts > 60_000) lastCallbackAt.delete(key);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
+    if (!BOT_TOKEN) {
+      console.error(
+        "[mitra-promo-bot] Token bot belum diatur — set TELEGRAM_PARTNER_BOT_TOKEN (atau TELEGRAM_BOT_TOKEN) di environment."
+      );
+      return NextResponse.json({ ok: true });
+    }
+
     const body = await req.json();
 
     const isMessage = Boolean(body.message);
@@ -98,7 +130,7 @@ export async function POST(req: NextRequest) {
     if (isMessage && body.message.text === "/start") {
       await sendTelegram("sendMessage", {
         chat_id: chatId,
-        text: "👋 <b>Selamat Datang di Generator Materi Promosi Mitra UnitKu!</b>\n\nPilih kategori materi: 🏠 iklan produk untuk ditawarkan ke pemilik kost, atau 🤝 ajakan rekrutmen untuk menggas mitra baru. Klik tombol di bawah:",
+        text: "👋 <b>Selamat Datang di Generator Materi Promosi Mitra UnitKu!</b>\n\nPilih kategori materi: 🏠 iklan produk untuk ditawarkan ke pemilik kost, atau 🤝 ajakan kemitraan untuk merekrut mitra baru. Klik tombol di bawah:",
         parse_mode: "HTML",
         reply_markup: buildMainMenuKeyboard(),
       });
@@ -109,6 +141,21 @@ export async function POST(req: NextRequest) {
       const data = body.callback_query.data;
       const callbackId = body.callback_query.id;
 
+      // Rate-limit ringan: abaikan klik beruntun < 1,5 detik pada chat yang sama
+      const now = Date.now();
+      pruneCallbackMap(now);
+      const lastTs = lastCallbackAt.get(chatId) ?? 0;
+      if (now - lastTs < CALLBACK_COOLDOWN_MS) {
+        await sendTelegram("answerCallbackQuery", {
+          callback_query_id: callbackId,
+          text: "Tunggu sebentar ya, materi sedang disiapkan 🙏",
+          show_alert: false,
+        });
+        return NextResponse.json({ ok: true });
+      }
+      lastCallbackAt.set(chatId, now);
+
+      // Respons callback langsung agar spinner tombol Telegram berhenti
       await sendTelegram("answerCallbackQuery", { callback_query_id: callbackId });
 
       if (data === "menu_main") {

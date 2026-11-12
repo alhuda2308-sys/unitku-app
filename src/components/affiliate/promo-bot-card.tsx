@@ -2,8 +2,8 @@
 // UnitKu — Card "Asisten Materi Promosi (Telegram Bot)" untuk portal mitra
 //
 // Section menonjol di /affiliate/dashboard yang mengarahkan mitra ke bot
-// Telegram resmi @unitku_mitra_bot (webhook /api/telegram/mitra-promo-bot):
-//   1. CTA eksternal ke https://t.me/unitku_mitra_bot (tab baru, noopener).
+// Telegram resmi @unitku_partner_bot (webhook /api/telegram/mitra-promo-bot):
+//   1. CTA eksternal ke https://t.me/unitku_partner_bot (tab baru, noopener).
 //   2. Tutorial 3 langkah: Start bot → pilih menu → tap salin + ganti
 //      placeholder [MASUKKAN_LINK_REFERRAL_ANDA] dengan link referral mitra.
 //
@@ -16,13 +16,13 @@ import { Bot, Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-const TELEGRAM_PROMO_BOT_URL = "https://t.me/unitku_mitra_bot";
+const TELEGRAM_PROMO_BOT_URL = "https://t.me/unitku_partner_bot";
 
 /** Tutorial pemakaian bot — urutan wajib terjaga (nomor dirender otomatis). */
 const STEPS: ReadonlyArray<{ title: string; desc: string }> = [
   {
     title: "Buka bot, tekan Start",
-    desc: "Klik tombol di atas untuk membuka bot @unitku_mitra_bot di aplikasi Telegram Anda, lalu tekan tombol Start.",
+    desc: "Klik tombol di atas untuk membuka bot @unitku_partner_bot di aplikasi Telegram Anda, lalu tekan tombol Start.",
   },
   {
     title: "Pilih jenis materi",

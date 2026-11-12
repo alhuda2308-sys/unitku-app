@@ -368,7 +368,7 @@ function AffiliateDashboardView({
                 {/* Link referral */}
                 <ReferralLinkCard refCode={affiliate.refCode} />
 
-                {/* Asisten materi promosi via Telegram bot (@unitku_mitra_bot) */}
+                {/* Asisten materi promosi via Telegram bot (@unitku_partner_bot) */}
                 <PromoBotCard />
 
                 {/* Generator Link Trial 3 Hari utk owner (komisi terjaga via
