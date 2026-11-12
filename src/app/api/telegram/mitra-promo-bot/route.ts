@@ -1,24 +1,24 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// UnitKu — Telegram Webhook MITRA: Generator Materi Promosi (PUBLIK)
+// UnitKu — Telegram Webhook MITRA: Generator Materi Promosi PRODUK (PUBLIK)
 //
 // POST /api/telegram/mitra-promo-bot
 //   Bot Telegram untuk seluruh MITRA UnitKu — bebas akses, tanpa whitelist:
 //   siapa pun yang menekan /start pada bot ini bisa mengambil draf promosi
-//   siap pakai untuk menawarkan UnitKu ke pemilik kost/kontrakan.
+//   siap pakai untuk menawarkan PRODUK UnitKu ke pemilik kost/kontrakan.
+//   Bot ini FOKUS PENJUALAN PRODUK — materi rekrutmen/ajakan kemitraan
+//   dipindahkan ke bot admin @unitku_promogen_bot (src/data/adminPromoData.ts
+//   + /api/telegram/admin-promo-bot).
 //
-//   Menu inline keyboard (2 kategori generator copywriting + 1 fitur lama):
+//   Menu inline keyboard:
 //     🏠 Iklan Produk (Tawarkan ke Pemilik Kost)  → getRandomAffiliateCopy()
-//     🤝 Ajak Mitra (Tawarkan Peluang Komisi 150rb) → getRandomRecruitmentCopy()
 //       (TOPIC-BASED POOL: semua paragraf diambil dari TEMA YANG SAMA di
-//        affiliateCopies.ts — COPY_THEMES untuk produk, RECRUITMENT_THEMES
-//        untuk rekrutmen — supaya alur kalimat selalu nyambung)
+//        affiliateCopies.ts — COPY_THEMES — supaya alur kalimat selalu nyambung)
 //     💬 Template Chat WhatsApp      → salah satu WA_TEMPLATES siap kirim
 //     🔙 Menu Utama                  → kembali ke pilihan kategori
 //
 //   Tombol inline mengikuti kategori aktif:
-//     - Produk   : [🎲 Acak Teks Produk Lain] [🔄 Ganti ke Teks Ajak Mitra] [🔙 Menu Utama]
-//     - Ajak Mitra: [🎲 Acak Teks Mitra Lain] [🔄 Ganti ke Teks Produk]     [🔙 Menu Utama]
-//     - WhatsApp : [🎲 Acak Teks Baru] [🔙 Menu Utama]
+//     - Produk   : [🎲 Acak Teks Produk Lain] [🔙 Menu Utama]
+//     - WhatsApp : [🎲 Acak Teks Baru]        [🔙 Menu Utama]
 //
 //   Mitra tinggal tap ikon COPY di pojok kanan atas kotak pesan (preformatted
 //   code block <pre><code class="language-copy"> — memicu tombol salin bawaan
@@ -39,7 +39,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from "next/server";
-import { getRandomAffiliateCopy, getRandomRecruitmentCopy } from "@/data/affiliateCopies";
+import { getRandomAffiliateCopy } from "@/data/affiliateCopies";
 import { WA_TEMPLATES } from "@/data/mitraPromoData";
 
 export const runtime = "nodejs";
@@ -84,7 +84,6 @@ function buildMainMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🏠 Iklan Produk (Tawarkan ke Pemilik Kost)", callback_data: "mitra_promo" }],
-      [{ text: "🤝 Ajak Mitra (Tawarkan Peluang Komisi 150rb)", callback_data: "mitra_rekrut" }],
       [{ text: "💬 Template Chat WhatsApp ke Pemilik Kost", callback_data: "mitra_wa" }],
     ],
   };
@@ -130,7 +129,7 @@ export async function POST(req: NextRequest) {
     if (isMessage && body.message.text === "/start") {
       await sendTelegram("sendMessage", {
         chat_id: chatId,
-        text: "👋 <b>Selamat Datang di Generator Materi Promosi Mitra UnitKu!</b>\n\nPilih kategori materi: 🏠 iklan produk untuk ditawarkan ke pemilik kost, atau 🤝 ajakan kemitraan untuk merekrut mitra baru. Klik tombol di bawah:",
+        text: "👋 <b>Selamat Datang di Generator Materi Promosi Mitra UnitKu!</b>\n\nPilih kategori materi: 🏠 iklan produk untuk ditawarkan ke pemilik kost, atau 💬 template chat WhatsApp siap kirim. Klik tombol di bawah:",
         parse_mode: "HTML",
         reply_markup: buildMainMenuKeyboard(),
       });
@@ -177,16 +176,6 @@ export async function POST(req: NextRequest) {
         replyMarkup = {
           inline_keyboard: [
             [{ text: "🎲 Acak Teks Produk Lain", callback_data: "mitra_promo" }],
-            [{ text: "🔄 Ganti ke Teks Ajak Mitra", callback_data: "mitra_rekrut" }],
-            [{ text: "🔙 Menu Utama", callback_data: "menu_main" }],
-          ],
-        };
-      } else if (data === "mitra_rekrut") {
-        content = getRandomRecruitmentCopy();
-        replyMarkup = {
-          inline_keyboard: [
-            [{ text: "🎲 Acak Teks Mitra Lain", callback_data: "mitra_rekrut" }],
-            [{ text: "🔄 Ganti ke Teks Produk", callback_data: "mitra_promo" }],
             [{ text: "🔙 Menu Utama", callback_data: "menu_main" }],
           ],
         };
