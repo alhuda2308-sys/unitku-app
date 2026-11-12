@@ -494,7 +494,7 @@ export default function AffiliateLandingPage() {
                       </span>
                       <div>
                         <p className="text-[12.5px] font-black text-zinc-950">
-                          UnitKu Mitra Bot
+                          UnitKu Partner Bot
                         </p>
                         <p className="text-[10.5px] font-bold text-emerald-600">
                           ● online — siap buat materi
@@ -503,7 +503,7 @@ export default function AffiliateLandingPage() {
                     </div>
                     <div className="mt-3 space-y-2" aria-hidden="true">
                       <p className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-[12.5px] font-bold text-zinc-800">
-                        🎲 Acak Status Medsos
+                        🏠 Iklan Produk (ke Pemilik Kost)
                       </p>
                       <p className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-[12.5px] font-bold text-zinc-800">
                         💬 Template Chat WA Pemilik Kost
