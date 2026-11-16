@@ -133,6 +133,31 @@ export function periodMonthKey(range: PeriodRange): string | null {
   return null;
 }
 
+/** Batas monthKey (inklusif) utk rentang bulan-granular — satu bulan spesifik,
+ *  Bulan Ini/Lalu, Tahun Ini, dan 1 Tahun Terakhir. Dipakai filter Buku Kas
+ *  utk atribusi pemasukan sewa otomatis menurut PERIODE TAGIHAN (bukan tanggal
+ *  kas) sehingga total bulanan selaras dgn "Sudah Diterima" Tagihan & Invoice.
+ *  Rentang hari-granular (Hari Ini, 7 Hari, Kustom) & "Semua Waktu" → null —
+ *  filter tetap berbasis tanggal entri (kas riil). */
+export function periodMonthBounds(range: PeriodRange): { start: string; end: string } | null {
+  switch (range.kind) {
+    case "bulan":
+    case "bulan-ini":
+    case "bulan-lalu":
+      return range.monthKey ? { start: range.monthKey, end: range.monthKey } : null;
+    case "tahun-ini":
+      return range.startISO && range.endISO
+        ? { start: range.startISO.slice(0, 7), end: range.endISO.slice(0, 7) }
+        : null;
+    case "1-tahun":
+      return range.startISO && range.endISO
+        ? { start: range.startISO.slice(0, 7), end: range.endISO.slice(0, 7) }
+        : null;
+    default:
+      return null;
+  }
+}
+
 /** Label pendek tombol trigger: "Nov 2026", "7 Hari", "Tahun 2026", "6 Nov – 6 Des" */
 export function periodTriggerLabel(range: PeriodRange): string {
   switch (range.kind) {

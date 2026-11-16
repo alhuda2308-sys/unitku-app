@@ -96,14 +96,17 @@ export async function GET(request: NextRequest) {
       where: { propertyId: { in: scope } },
       orderBy: [{ dateSort: "desc" }, { id: "asc" }],
     });
-    // Dedup NON-DESTRUKTIF saat baca — entri otomatis (KM-…) kategori "Sewa
-    // Kamar" dgn deskripsi+nominal identik adalah SATU pembayaran yang sama
-    // (Tandai Lunas + backfill self-heal) → tampil sekali, angka Total
-    // Pemasukan tak pernah mendobel. Entri manual pemilik tak tersentuh;
-    // data tidak dihapus dari database (bisa dibereskan bila perlu).
+    // Dedup NON-DESTRUKTIF saat baca — dijalankan pada BARIS MENTAH (sebelum
+    // mapping) agar kunci (properti + kamar + PERIODE BULAN) lengkap: entri
+    // otomatis kategori "Sewa Kamar" utk kamar & periode yang sama tampil
+    // SEKALI dgn prioritas Invoice Lunas (KM-AUTO-INV-…) — entri backfill
+    // self-heal (KM-ROOMSYNC…) yang dobel disembunyikan walau teks
+    // deskripsinya berbeda (nama penyewa/nominal menyimpang). Catatan manual
+    // pemilik tak tersentuh; data tidak dihapus dari database (bisa
+    // dibereskan bila perlu).
     return NextResponse.json({
       success: true,
-      entries: applyRentalIncomeDedup(entries.map(toClientCashEntry)),
+      entries: applyRentalIncomeDedup(entries).map(toClientCashEntry),
     });
   } catch (err) {
     // Fail-open (ANTI-500): GET cash adalah bagian dari Promise.all bootstrap

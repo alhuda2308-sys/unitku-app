@@ -76,6 +76,7 @@ import {
   periodFromKustom,
   periodFromMonthKey,
   periodFullLabel,
+  periodMonthBounds,
   periodMonthKey,
   periodSlug,
   periodSortBounds,
@@ -84,6 +85,7 @@ import {
   type PeriodKind,
   type PeriodRange,
 } from "@/lib/cash-period";
+import { applyRentalIncomeDedup, rentalPrimaryMonthOf } from "@/lib/cash-dedup";
 import { formatDateLabel, formatIDR, MONTH_NAMES, todayISO } from "@/lib/kost-data";
 import type { StaffAccessRole } from "@/lib/staff-access";
 import { cn } from "@/lib/utils";
@@ -182,24 +184,41 @@ export function KasView({
   const [periodOpen, setPeriodOpen] = useState(false);
   const [kustomFrom, setKustomFrom] = useState("");
   const [kustomEnd, setKustomEnd] = useState("");
+  /** Dedup NON-DESTRUKTIF di sisi tampilan — entri otomatis utk kamar &
+   *  PERIODE yang sama tampil sekali dgn prioritas Invoice Lunas
+   *  (KM-AUTO-INV-…) atas backfill sinkronisasi (KM-ROOMSYNC…). Menutup kasus
+   *  dobel 21 vs 19 transaksi (deskripsi kedua jalur berbeda teks) — juga
+   *  melindungi data demo lokal. Catatan manual pemilik tak tersentuh. */
+  const dedupedEntries = useMemo(() => applyRentalIncomeDedup(entries), [entries]);
+
+  /** monthKey "yyyy-mm" dari dateSort "yyyyMMdd" */
+  const monthKeyOfSort = (sort: number) => {
+    const s = String(sort).padStart(8, "0");
+    return `${s.slice(0, 4)}-${s.slice(4, 6)}`;
+  };
+
   /** Opsi bulan = jendela standar (1 depan + 3 belakang) + SEMUA bulan yang
    *  benar-benar berisi transaksi — pembayaran di luar jendela (mis. Okt 2026
-   *  saat bulan berjalan Nov) tetap bisa dipilih, tidak hilang dari dropdown. */
+   *  saat bulan berjalan Nov) tetap bisa dipilih, tidak hilang dari dropdown.
+   *  Bulan PERIODE pemasukan sewa otomatis ikut didaftarkan — tagihan dibayar
+   *  telat (periode Okt, kas masuk Nov) tetap bisa dilihat di Okt. */
   const monthOptions = useMemo(() => {
     const base = buildMonthOptions();
     const known = new Set(base.map((o) => o.key));
     const extras: { key: string; label: string; tag?: string }[] = [];
-    for (const e of entries) {
+    const addKey = (key: string) => {
+      if (!/^\d{4}-\d{2}$/.test(key) || known.has(key)) return;
+      known.add(key);
+      extras.push({ key, label: periodShortLabel(key) });
+    };
+    for (const e of dedupedEntries) {
       const s = String(e.dateSort);
-      if (!/^\d{8}$/.test(s)) continue; // dateSort "yyyyMMdd"
-      const key = `${s.slice(0, 4)}-${s.slice(4, 6)}`;
-      if (!known.has(key)) {
-        known.add(key);
-        extras.push({ key, label: periodShortLabel(key) });
-      }
+      if (/^\d{8}$/.test(s)) addKey(`${s.slice(0, 4)}-${s.slice(4, 6)}`);
+      const attributed = rentalPrimaryMonthOf(e);
+      if (attributed) addKey(attributed);
     }
     return [...base, ...extras].sort((a, b) => b.key.localeCompare(a.key));
-  }, [entries]);
+  }, [dedupedEntries]);
   const [flow, setFlow] = useState<FlowFilter>("semua");
   const [category, setCategory] = useState("all");
   const [expenseOpen, setExpenseOpen] = useState(false);
@@ -216,23 +235,43 @@ export function KasView({
   );
 
   /** Entri dalam rentang periode aktif — batas inklusif atas dateSort (yyyyMMdd);
-   *  "Semua Waktu" = tanpa batas. Pengganti filter bulan tunggal lama. */
+   *  "Semua Waktu" = tanpa batas. Pengganti filter bulan tunggal lama.
+   *
+   *  ATRIBUSI PERIODE (single source of truth = Tagihan & Invoice): utk rentang
+   *  BULAN-granular (bulan spesifik, Bulan Ini/Lalu, Tahun Ini, 1 Tahun)
+   *  pemasukan sewa OTOMATIS dinilai menurut PERIODE TAGIHAN di deskripsinya —
+   *  bukan tanggal kas — sehingga tagihan dibayar telat (periode Okt 2026,
+   *  lunas Nov 2026) terhitung di Okt dan total Sewa Kamar bulan berjalan
+   *  sama persis dgn angka "Sudah Diterima" Tagihan periode yang sama (kecuali
+   *  ada catatan pemasukan manual pemilik). Tanggal riil tetap tampil per
+   *  baris utk verifikasi. Rentang hari-granular (Hari Ini/7 Hari/Kustom)
+   *  tetap berbasis tanggal kas. */
   const periodEntries = useMemo(() => {
     const { startSort, endSort } = periodSortBounds(period);
-    return entries
-      .filter(
-        (e) =>
+    const monthBounds = periodMonthBounds(period);
+    return dedupedEntries
+      .filter((e) => {
+        if (monthBounds) {
+          const m = rentalPrimaryMonthOf(e) ?? monthKeyOfSort(e.dateSort);
+          return m >= monthBounds.start && m <= monthBounds.end;
+        }
+        return (
           (startSort === null || e.dateSort >= startSort) &&
           (endSort === null || e.dateSort <= endSort)
-      )
+        );
+      })
       .sort((a, b) => b.dateSort - a.dateSort);
-  }, [entries, period]);
+  }, [dedupedEntries, period]);
 
   /** Transaksi terakhir keseluruhan — dasar indikator “bulan lain” saat
    *  bulan terpilih kosong (mis. pembayaran pertama terjadi bulan lalu). */
   const latestEntry = useMemo(
-    () => entries.reduce<CashEntry | null>((acc, e) => (!acc || e.dateSort > acc.dateSort ? e : acc), null),
-    [entries]
+    () =>
+      dedupedEntries.reduce<CashEntry | null>(
+        (acc, e) => (!acc || e.dateSort > acc.dateSort ? e : acc),
+        null
+      ),
+    [dedupedEntries]
   );
   const latestMonthKey = latestEntry
     ? `${String(latestEntry.dateSort).slice(0, 4)}-${String(latestEntry.dateSort).slice(4, 6)}`

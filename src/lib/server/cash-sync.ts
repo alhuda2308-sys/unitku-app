@@ -15,6 +15,20 @@
 //     "14-15 kamar check-in Okt, diperpanjang Nov, kas Nov kosong" yang oleh
 //     sinkron lama (satu entri per kamar seumur kamar) tak pernah terheal.
 //
+// KONTRAK DEDUP & ATRIBUSI (selaras dgn src/lib/cash-dedup.ts):
+//   • Dedup non-destruktif saat baca berbasis KUNCI (properti + kamar +
+//     PERIODE BULAN) — bukan kecocokan teks deskripsi: deskripsi pelunasan
+//     invoice (KM-AUTO-INV-…, nama/nominal dari invoice) dan backfill
+//     sinkronisasi (KM-ROOMSYNC2-…, nama/nominal dari kamar) boleh berbeda
+//     teks utk kamar & bulan yang sama tanpa mendobelkan tampilan. Prioritas:
+//     invoice lunas menang; entri kamar & bulan yang sama dgn invoice
+//     disembunyikan (lihat applyRentalIncomeDedup).
+//   • Atribusi bulan di filter Buku Kas mengikuti PERIODE TAGIHAN di
+//     deskripsi — invoice periode Okt 2026 yang baru lunas Nov 2026 tetap
+//     terhitung di Okt, sehingga total Sewa Kamar bulanan = angka "Sudah
+//     Diterima" Tagihan & Invoice periode yang sama. Tanggal entri tetap
+//     tanggal kas riil (paidAt) — tampil per baris utk verifikasi.
+//
 // Semua entri otomatis ber-id deterministik → IDEMPOTEN: dijalankan berapa
 // kali pun (otomatis saat GET /api/cash, manual via POST /api/cash/sync)
 // buku kas tidak pernah mendobel.
@@ -103,7 +117,8 @@ export interface CashSyncRange {
 /** Sinkronkan pemasukan sewa yang hilang utk scope properti owner — DUA pass:
  *
  *  PASS 1 (per invoice): setiap invoice "lunas" adalah bukti pembayaran →
- *  wajib punya SATU entri pemasukan dgn tanggal paidAt persis.
+ *  wajib punya SATU entri pemasukan dgn tanggal paidAt persis (atribusi bulan
+ *  mengikuti periode di deskripsi saat filter — lihat kontrak di header).
  *
  *  PASS 2 (per kamar per BULAN — period-aware): setiap kamar TERISI wajib
  *  punya bukti pemasukan di setiap bulan siklusnya yang sudah terbayar

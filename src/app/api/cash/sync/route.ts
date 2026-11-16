@@ -64,7 +64,9 @@ export async function POST(request: NextRequest) {
     );
     // Kembalikan isi Buku Kas terbaru — klien mengganti state dalam SATU
     // round trip (tanpa fetch kedua), konsisten dengan hasil sync. Dedup
-    // non-destruktif utk entri otomatis berdeskripsi+nominal identik.
+    // non-destruktif pada baris mentah (kunci properti+kamar+PERIODE): entri
+    // otomatis utk kamar & periode sama tampil sekali, prioritas Invoice
+    // Lunas (KM-AUTO-INV-…) atas backfill sinkronisasi (KM-ROOMSYNC…).
     const entries = await db.cashEntry.findMany({
       where: { propertyId: { in: scope } },
       orderBy: [{ dateSort: "desc" }, { id: "asc" }],
@@ -73,7 +75,7 @@ export async function POST(request: NextRequest) {
       success: true,
       created: result.created,
       scanned: result.scanned,
-      entries: applyRentalIncomeDedup(entries.map(toClientCashEntry)),
+      entries: applyRentalIncomeDedup(entries).map(toClientCashEntry),
     });
   } catch (err) {
     console.error("[api/cash/sync POST]", err);
