@@ -15,7 +15,7 @@ import {
   roomNomor,
   type Room,
 } from "@/lib/kost-data";
-import { arrearsLine, contractEndOf, isBillingOverdue } from "@/lib/room-status";
+import { arrearsLine, contractEndOf, isRoomOverdue } from "@/lib/room-status";
 import { isVillaType } from "@/lib/app-settings";
 import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { StatusBadge, STATUS_SKIN } from "./status-badge";
@@ -51,9 +51,9 @@ interface RoomCardProps {
  * menggantikan baris tipe (tarif tepat di atas tombol aksen).
  *
  * Status yang tampil adalah status DINAMIS (single source of truth di
- * src/lib/room-status.ts): dashboard menggeser kamar yang tagihannya lewat
- * tempo menjadi menunggak (kartu MERAH tegas bg-red-600 ber-teks putih —
- * bukan hijau lunas), sehingga baris "Habis" kamar lewat tempo tampil PUTIH
+ * src/lib/room-status.ts — getEffectiveRoomStatus): dashboard menggeser kamar
+ * yang lewat jatuh tempo TAGIHAN maupun tanggal "Habis" kontrak menjadi
+ * menunggak (kartu MERAH tegas bg-red-600 ber-teks putih — bukan hijau lunas), sehingga baris "Habis" kamar lewat tempo tampil PUTIH
  * tebal + baris keterangan hari REAL-TIME di bawahnya: "Lewat tempo 5 hari" /
  * "Jatuh tempo hari ini" / "Jatuh tempo 2 hari lagi" (arrearsLine — bukan
  * teks statis). Warna status BAKU sama di 12 tema, light maupun dark.
@@ -80,18 +80,20 @@ export function RoomCard({ room, onSelect, onManage, onDelete, onCheckin, onRene
 
   // ── Baris 4: tanggal sewa — label Indonesia siap tampil dari SATU fungsi
   //    bersama (room-status.ts): "Habis" = akhir masa kontrak (contractEndOf),
-  //    alarm lewat tempo = jatuh tempo TAGIHAN (billingDueOf — nextBillingDate,
-  //    fallback contractEnd utk data lama). Dua tanggal DECOUPLED: siklus
-  //    pembayaran bisa lewat tempo sementara kontrak komitmen masih panjang.
+  //    alarm lewat tempo = anchor terburuk (billingDueOf — nextBillingDate /
+  //    fallback kontrak, ATAU endDate eksplisit) via isRoomOverdue — SATU
+  //    sumber dgn warna & badge kartu (getEffectiveRoomStatus) sehingga teks
+  //    dan warna mustahil berbeda.
   const masukLabel =
     room.contract?.startDate?.trim() ||
     (room.tenant?.moveInDate && room.tenant.moveInDate !== "—" ? room.tenant.moveInDate : "");
   const habisLabel = contractEndOf(room).label;
-  /** Lewat tempo: status efektif "menunggak" — hari ini sudah melewati jatuh
-   *  tempo TAGIHAN (dihitung terpusat di room-status.ts oleh dashboard, aturan
-   *  murni tanggal). Baris Habis tampil PUTIH tebal di kartu merah tegas.
+  /** Lewat tempo: status efektif "menunggak" — hari ini sudah melewati salah
+   *  satu tanggal acuan (jatuh tempo TAGIHAN atau "Habis" kontrak eksplisit;
+   *  dihitung terpusat di room-status.ts oleh dashboard, aturan murni tanggal
+   *  real-time). Baris Habis tampil PUTIH tebal di kartu merah tegas.
    *  Kamar "jatuhTempo" (jendela H-3..H+0) belum lewat — tanpa ini. */
-  const isLewatTempo = !isVacant && room.status === "menunggak" && isBillingOverdue(room);
+  const isLewatTempo = !isVacant && room.status === "menunggak" && isRoomOverdue(room);
   /** Keterangan tunggakan/jatuh tempo REAL-TIME — sumber tanggal sama dengan
    *  status (billingDueOf) sehingga teks & warna kartu selalu konsisten:
    *  "Lewat tempo 5 hari" · "Jatuh tempo hari ini" · "Jatuh tempo 2 hari lagi".

@@ -6,19 +6,24 @@
 // input apa pun array `rooms` aktif, output selalu kamar berstatus EFEKTIF.
 //
 // Status kamar TIDAK pernah dibaca mentah dari `room.status` (kolom database
-// denormalisasi / dataset statis). Status efektif DIHITUNG realtime dari:
+// denormalisasi / dataset statis). Status efektif DIHITUNG realtime dari
+// DUA alarm tanggal (getEffectiveRoomStatus — sumber kebenaran tunggal):
 //   • nextBillingDate — jatuh tempo tagihan berikutnya (siklus sewa; maju 1
 //     siklus tiap "Tandai Lunas"), fallback contractEnd utk data lama
+//   • contract.endDate EKSPLISIT — tanggal "Habis" di kartu: lewat → PAKSA
+//     "menunggak" walau DB masih "lunas" (laporan pemilik: kamar lewat habis
+//     sewa tampil hijau Lunas — kini mustahil)
 //   • selisih terhadap HARI INI (tengah malam lokal, stabil lintas zona waktu)
 //
 // Klasifikasi (aturan di src/lib/room-status.ts — dipakai bersama server):
-//   lewat jatuh tempo tagihan (today > due) → "menunggak"  — TANPA kecuali
-//   H-3 s.d. H+0                            → "jatuhTempo"
-//   tagihan berikutnya masih jauh            → "lunas" (siklus terbayar)
-//   kosong / tanpa tanggal acuan            → status dasar
+//   lewat jatuh tempo tagihan ATAU tanggal habis kontrak → "menunggak"
+//   H-3 s.d. H+0 (salah satu anchor)                     → "jatuhTempo"
+//   dua-duanya masih jauh                                → "lunas" (terbayar)
+//   kosong / tanpa tanggal acuan                          → status dasar
 //
-// contractEnd TIDAK lagi menentukan status (decoupled) — tanggal itu kini
-// murni batas masa komitmen sewa ("Habis:" di kartu & sisa hari kontrak).
+// contractEnd EKSPLISIT ikut menentukan status lewat alarm kontrak (lewat →
+// menunggak) — tanggal "Habis:" di kartu kini selalu jujur dgn warna kartu;
+// enddate kanonik (tanpa endDate) tetap hanya metadata utk sisa hari kontrak.
 //
 // ── Update OTOMATIS saat tanggal berganti ────────────────────────────────────
 // "Hari ini" TIDAK dibekukan seumur halaman: ticker modul memeriksa kalender

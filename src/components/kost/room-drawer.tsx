@@ -301,9 +301,10 @@ export function RoomDrawer({
                         muncul kembali otomatis saat tempo berikutnya tiba. */}
                     {canManage && (room.status === "menunggak" || room.status === "jatuhTempo") && (
                       <p className="mt-2 text-[11.5px] leading-4 text-zinc-500">
-                        Status kamar mengikuti jatuh tempo tagihan (otomatis per tanggal).
-                        Menandai lunas memajukan tagihan satu siklus — alarm mereda sampai
-                        tempo berikutnya; Perpanjang Sewa menyesuaikan masa kontraknya.
+                        Status kamar mengikuti jatuh tempo tagihan dan tanggal
+                        habis sewa (otomatis per tanggal).
+                        Menandai lunas memajukan tagihan satu siklus — alarm tagihan mereda
+                        sampai tempo berikutnya; Perpanjang Sewa menyesuaikan masa kontraknya.
                       </p>
                     )}
                   </SectionCard>

@@ -183,12 +183,12 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
                     <span className="tabular-nums">{room.contract!.startDate}</span>
                   </InfoRow>
                   <InfoRow label="Kontrak Berakhir">
-                    {/* Batas MASA KOMITMEN sewa (decoupled dari tagihan —
-                        lihat "Tagihan Berikutnya" di atas): tanggal kanonik
-                        (endDate eksplisit ATAU fallback masuk + 1 siklus),
-                        selalu sejajar dgn baris "Habis:" kartu Denah. Merah
-                        "(Lewat Tempo)” HANYA bila tagihan menunggak — kontrak
-                        lewat sendirian bukan berarti tunggakan. */}
+                    {/* Batas MASA KOMITMEN sewa — tanggal kanonik (endDate
+                        eksplisit ATAU fallback masuk + 1 siklus), selalu
+                        sejajar dgn baris "Habis:" kartu Denah. Merah "(Lewat
+                        Tempo)" bila status EFEKTIF menunggak — tagihan lewat
+                        ATAU kontrak eksplisit lewat (getEffectiveRoomStatus
+                        memaksa menunggak utk kamar habis sewa). */}
                     {(() => {
                       const info = contractEndOf(room);
                       if (!info.date) {

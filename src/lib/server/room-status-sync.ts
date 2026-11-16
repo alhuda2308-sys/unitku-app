@@ -1,15 +1,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// UnitKu — Sinkronisasi otomatis status kamar berbasis SIKLUS TAGIHAN
+// UnitKu — Sinkronisasi otomatis status kamar (DUA alarm tanggal gabungan)
 //
 // Status efektif kamar TIDAK dibaca mentah dari kolom rooms.status yang
-// denormalisasi — melainkan DIHITUNG murni dari selisih hari ini terhadap
-// rooms.nextBillingDate (jatuh tempo tagihan berikutnya), memakai ATURAN YANG
-// SAMA PERSIS dengan sisi klien (src/lib/room-status.ts — single source of
-// truth deriveStatusFromBilling):
+// denormalisasi — melainkan DIHITUNG murni dari selisih hari ini terhadap dua
+// tanggal acuan, memakai ATURAN YANG SAMA PERSIS dengan sisi klien
+// (src/lib/room-status.ts — single source of truth deriveStatusFromAnchors):
 //
-//   status apa pun + tagihan sudah lewat tempo   → "menunggak" (merah)
-//   status apa pun + H-3..H+0 jatuh tempo        → "jatuhTempo" (kuning)
-//   status apa pun + tagihan berikutnya masih jauh → "lunas" (terbayar)
+//   status apa pun + tagihan lewat tempo          → "menunggak" (merah)
+//   status apa pun + contractEnd EKSPLISIT lewat  → "menunggak" (merah —
+//                                                   alarm komitmen: kamar
+//                                                   habis sewanya MUSTAHIL
+//                                                   merah, walau kolom status
+//                                                   masih "lunas")
+//   salah satu H-3..H+0 jatuh tempo               → "jatuhTempo" (kuning)
+//   dua-duanya masih jauh                          → "lunas" (terbayar)
 //
 // Fallback data lama: kamar pra-refaktor tanpa nextBillingDate dievaluasi
 // dari rooms.contractEnd (semantik model lama) — perilaku identik sampai
@@ -19,16 +23,13 @@
 // Saat GET /api/rooms status baru dipersist ke database (best-effort,
 // fail-open sesuai doktrin GET) SEKALIGUS diterapkan ke payload respons agar
 // denah & tab filter (Lunas / Jatuh Tempo / Menunggak) langsung akurat tanpa
-// reload manual. Klien tetap menghitung ulang secara independen sehingga UI
-// tetap benar walau persist gagal.
-//
-// Note: contractEnd TIDAK lagi menentukan status (decoupled) — kolom itu kini
-// murni batas masa komitmen sewa ("Habis:", sisa hari kontrak).
+// reload manual. Klien tetap menghitung ulang secara independen (real-time
+// computed status) sehingga UI tetap benar walau persist gagal.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { db } from "@/lib/prisma";
 import type { RoomStatus } from "@/lib/kost-data";
-import { deriveStatusFromBilling } from "@/lib/room-status";
+import { deriveStatusFromAnchors } from "@/lib/room-status";
 
 export interface RoomStatusRow {
   id: string;
@@ -56,12 +57,18 @@ export async function syncContractOverdueStatuses<TRow extends RoomStatusRow>(
     );
     if (candidates.length === 0) return rows;
 
-    // Derive status efektif dgn aturan yang sama persis dgn klien, lalu persist
-    // (best-effort) — murni tanggal jatuh tempo tagihan.
+    // Derive status efektif dgn aturan gabungan yang sama persis dgn klien
+    // (alarm tagihan + alarm kontrak eksplisit), lalu persist (best-effort).
+    // nextBillingDate kosong → fallback contractEnd utk jalur tagihan (data
+    // lama); contractEnd eksplisit jadi alarm komitmen kedua.
     const flips: { row: TRow; next: string }[] = [];
     for (const row of candidates) {
-      const due = row.nextBillingDate ?? row.contractEnd;
-      const next = deriveStatusFromBilling(row.status as RoomStatus, due, today);
+      const next = deriveStatusFromAnchors(
+        row.status as RoomStatus,
+        row.nextBillingDate ?? row.contractEnd,
+        row.contractEnd,
+        today,
+      );
       if (next !== row.status) flips.push({ row, next });
     }
     if (flips.length === 0) return rows;
@@ -76,7 +83,7 @@ export async function syncContractOverdueStatuses<TRow extends RoomStatusRow>(
     // badge kuning/merah, dan tab filter langsung akurat pada fetch ini.
     for (const { row, next } of flips) row.status = next;
     console.info(
-      `[room-status-sync] ${flips.length} kamar digeser status tagihannya: ${flips
+      `[room-status-sync] ${flips.length} kamar digeser status efektifnya: ${flips
         .map(({ row, next }) => `${row.id}→${next}`)
         .join(", ")}`,
     );
