@@ -21,6 +21,7 @@ import {
   unauthorized,
 } from "@/lib/auth/ownership";
 import { dateSortFromLabel, CASH_SOURCES, type CashType } from "@/lib/kost-cashflow";
+import { applyRentalIncomeDedup } from "@/lib/cash-dedup";
 import { parseDateLabel } from "@/lib/kost-data";
 import { syncMissingRentalIncome } from "@/lib/server/cash-sync";
 
@@ -95,7 +96,15 @@ export async function GET(request: NextRequest) {
       where: { propertyId: { in: scope } },
       orderBy: [{ dateSort: "desc" }, { id: "asc" }],
     });
-    return NextResponse.json({ success: true, entries: entries.map(toClientCashEntry) });
+    // Dedup NON-DESTRUKTIF saat baca — entri otomatis (KM-…) kategori "Sewa
+    // Kamar" dgn deskripsi+nominal identik adalah SATU pembayaran yang sama
+    // (Tandai Lunas + backfill self-heal) → tampil sekali, angka Total
+    // Pemasukan tak pernah mendobel. Entri manual pemilik tak tersentuh;
+    // data tidak dihapus dari database (bisa dibereskan bila perlu).
+    return NextResponse.json({
+      success: true,
+      entries: applyRentalIncomeDedup(entries.map(toClientCashEntry)),
+    });
   } catch (err) {
     // Fail-open (ANTI-500): GET cash adalah bagian dari Promise.all bootstrap
     // dashboard (rooms + invoices + cash) — satu saja yang 500 membuat seluruh

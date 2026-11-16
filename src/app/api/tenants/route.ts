@@ -22,7 +22,7 @@ import { getAuthUser } from "@/lib/auth/server";
 import { getOwnedPropertyIds, unauthorized } from "@/lib/auth/ownership";
 import { MONTH_NAMES, newPortalToken, parseDateLabel, addMonths, diffNights, formatDateLabel, wibDateLabel, wibMidnight } from "@/lib/kost-data";
 import { dateSortFromLabel } from "@/lib/kost-cashflow";
-import { periodKeyOf } from "@/lib/kost-invoices";
+import { periodKeyOf, periodShortLabel } from "@/lib/kost-invoices";
 import { advanceOneCycle } from "@/lib/room-status";
 
 export const dynamic = "force-dynamic";
@@ -455,12 +455,18 @@ export async function PATCH(request: NextRequest) {
       try {
         const anchor = room.nextBillingDate ?? room.contractEnd ?? null;
         let cycles = 0;
+        const cycleLabels: string[] = [];
         if (!anchor || anchor.getTime() >= newEndDate.getTime()) {
           cycles = 1; // niat bayar eksplisit — catat minimal satu siklus
+          cycleLabels.push(periodShortLabel(periodKeyOf(anchor ?? newEndDate)));
         } else {
           let cursor = new Date(anchor);
           let guard = 0;
           while (cursor.getTime() < newEndDate.getTime() && guard < 120) {
+            // Label PERIODE siklus yang dibayar — deskripsi rentang ini yang
+            // menjadi bukti atribusi PASS 2 (perpanjangan multi-siklus menutup
+            // seluruh bulan siklusnya, mis. "(Periode Okt 2026 – Des 2026)").
+            cycleLabels.push(periodShortLabel(periodKeyOf(cursor)));
             cursor = advanceOneCycle(cursor, room.contractDuration);
             cycles += 1;
             guard += 1;
@@ -479,7 +485,11 @@ export async function PATCH(request: NextRequest) {
                 renewalIncomeDescription(
                   room.nomor?.trim() || roomId,
                   room.tenant?.name,
-                  periodKeyOf(anchor ?? newEndDate),
+                  cycleLabels.length > 0
+                    ? cycleLabels.length === 1
+                      ? cycleLabels[0]
+                      : cycleLabels.join(" – ")
+                    : null,
                 ) + (cycles > 1 ? ` · ${cycles} siklus` : ""),
               amount,
               entryDate: wibMidnight(),

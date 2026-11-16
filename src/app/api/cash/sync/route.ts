@@ -28,6 +28,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/prisma";
 import { ensureSeedForUser } from "@/lib/server/seed";
 import { toClientCashEntry } from "@/lib/server/mappers";
+import { applyRentalIncomeDedup } from "@/lib/cash-dedup";
 import { getAuthUser } from "@/lib/auth/server";
 import { resolveOwnedPropertyScopeLenient, unauthorized } from "@/lib/auth/ownership";
 import { syncMissingRentalIncome } from "@/lib/server/cash-sync";
@@ -62,7 +63,8 @@ export async function POST(request: NextRequest) {
       explicit ? { fromISO: isoParam(fromRaw), toISO: isoParam(toRaw) } : undefined,
     );
     // Kembalikan isi Buku Kas terbaru — klien mengganti state dalam SATU
-    // round trip (tanpa fetch kedua), konsisten dengan hasil sync.
+    // round trip (tanpa fetch kedua), konsisten dengan hasil sync. Dedup
+    // non-destruktif utk entri otomatis berdeskripsi+nominal identik.
     const entries = await db.cashEntry.findMany({
       where: { propertyId: { in: scope } },
       orderBy: [{ dateSort: "desc" }, { id: "asc" }],
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest) {
       success: true,
       created: result.created,
       scanned: result.scanned,
-      entries: entries.map(toClientCashEntry),
+      entries: applyRentalIncomeDedup(entries.map(toClientCashEntry)),
     });
   } catch (err) {
     console.error("[api/cash/sync POST]", err);

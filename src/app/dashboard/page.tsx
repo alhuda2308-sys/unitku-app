@@ -103,6 +103,7 @@ import {
 import { portalLink } from "@/lib/tenant-portal";
 import { openExternal } from "@/lib/open-external";
 import { dateSortFromLabel, type CashEntry } from "@/lib/kost-cashflow";
+import { periodMonthsFromDescription } from "@/lib/cash-dedup";
 import {
   TICKETS,
   TICKET_STATUS_META,
@@ -2153,7 +2154,15 @@ export default function IndoKostPage() {
             if (!hit && tenantLower && e.amount === room.price && desc.includes(tenantLower)) {
               hit = true;
             }
-            if (hit) coveredMonths.add(month);
+            if (hit) {
+              coveredMonths.add(month);
+              // Atribusi PERIODE DESKRIPSI — entri menutup semua bulan siklus
+              // yang disebut deskripsinya (tagihan dibayar telat & perpanjangan
+              // multi-siklus), selaras dgn aturan server (cash-sync PASS 2).
+              for (const covered of periodMonthsFromDescription(e.description)) {
+                coveredMonths.add(covered);
+              }
+            }
           }
           // Siklus terbayar: due berjalan dari tanggal mulai s.d. satu langkah
           // sebelum anchor — due == anchor = siklus berjalan (belum dibayar).
@@ -2198,15 +2207,23 @@ export default function IndoKostPage() {
               const id = `KM-ROOMSYNC2-${room.id.replace(/[^A-Za-z0-9-]/g, "") || "room"}-${String(due.getFullYear())}${String(due.getMonth() + 1).padStart(2, "0")}${String(due.getDate()).padStart(2, "0")}`;
               if (existingIds.has(id)) continue; // idempoten
               existingIds.add(id);
+              // Deskripsi backfill: siklus pendek (Mingguan/Harian) menyebut
+              // TANGGAL siklusnya — unik per pembayaran, selaras dgn server.
+              const shortCycle =
+                room.contract?.duration === "Mingguan" || room.contract?.duration === "Harian";
               created.push({
                 id,
                 dateLabel: label,
                 dateSort: sort,
                 type: "masuk",
                 category: "Sewa Kamar",
-                description: `Pembayaran sewa Kamar ${roomNomor(room)} - ${
-                  room.tenant?.name?.trim() || "Penyewa"
-                } (Sewa ${periodShortLabel(monthKey)})`,
+                description: shortCycle
+                  ? `Pembayaran sewa Kamar ${roomNomor(room)} - ${
+                      room.tenant?.name?.trim() || "Penyewa"
+                    } (Sewa ${label})`
+                  : `Pembayaran sewa Kamar ${roomNomor(room)} - ${
+                      room.tenant?.name?.trim() || "Penyewa"
+                    } (Sewa ${periodShortLabel(monthKey)})`,
                 amount: room.price,
               });
             }

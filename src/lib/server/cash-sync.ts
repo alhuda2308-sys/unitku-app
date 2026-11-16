@@ -25,6 +25,7 @@
 
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/prisma";
+import { periodMonthsFromDescription } from "@/lib/cash-dedup";
 import { dateSortFromLabel } from "@/lib/kost-cashflow";
 import { dateToLabel, wibDateLabel, wibDateParts, wibMidnight } from "@/lib/kost-data";
 import { periodShortLabel } from "@/lib/kost-invoices";
@@ -125,6 +126,13 @@ export interface CashSyncRange {
  *      nama penyewa (catatan manual pemilik tanpa nomor kamar);
  *   d. kamar punya invoice lunas periodKey = M — PASS 1 yang mencatat entri
  *      (paidAt bisa jatuh di bulan lain bila dibayar telat; jangan dobel).
+ *
+ *  Atribusi PERIODE DESKRIPSI (perbaikan laporan dobel Nov 2026): entri yang
+ *  ter-atribusi ke kamar R menutup SEMUA bulan yang disebut deskripsinya —
+ *  bukan hanya bulan tanggal entri. Tagihan dibayar telat ("… (Sewa Okt 2026)"
+ *  ber-tanggal Nov) dan perpanjangan multi-siklus ("… (Periode Okt 2026 –
+ *  Des 2026)", nominal 3× tarif) mencakup bulan-bulan siklusnya — tanpa ini
+ *  bulan-bulan tsb di-backfill ULANG padahal sudah terbayar (dobel kas).
  *
  *  Tanpa `range` (auto-heal GET /api/cash) hanya jendela 3 bulan terakhir
  *  (bulan berjalan −2 … berjalan) — aman dari backfill massal bertahun-tahun
@@ -318,6 +326,11 @@ export async function syncMissingRentalIncome(
           let set = entryMonthsByRoom.get(meta.room.id);
           if (!set) entryMonthsByRoom.set(meta.room.id, (set = new Set()));
           set.add(month);
+          // Atribusi PERIODE DESKRIPSI — entri menutup semua bulan siklus yang
+          // disebutnya, bukan hanya bulan tanggal entri (lihat komentar atas).
+          for (const covered of periodMonthsFromDescription(e.description ?? "")) {
+            set.add(covered);
+          }
         }
       }
     }
@@ -382,17 +395,27 @@ export async function syncMissingRentalIncome(
           if (toSortBound !== null && sort > toSortBound) continue;
           const id = roomCycleSyncCashId(room.id, due);
           if (existingIds.has(id)) continue; // sudah pernah dibuat (idempoten)
+          // Deskripsi backfill: siklus Bulanan/Per 3 Bulan/Tahunan menyebut
+          // PERIODE bulan siklusnya ("… (Sewa Nov 2026)"); siklus pendek
+          // (Mingguan/Harian — bisa beberapa siklus sah dalam SATU bulan)
+          // menyebut TANGGAL siklusnya ("… (Sewa 12 Nov 2026)") agar setiap
+          // entri tetap unik per pembayaran — dasar dedup yang akurat.
+          const shortCycle =
+            room.contractDuration === "Mingguan" || room.contractDuration === "Harian";
+          const description = shortCycle
+            ? `${rentalIncomeDescription(
+                room.nomor?.trim() || room.id,
+                room.tenant?.name,
+                null,
+              )} (Sewa ${dateLabel})`
+            : rentalIncomeDescription(room.nomor?.trim() || room.id, room.tenant?.name, monthKey);
           try {
             await db.cashEntry.create({
               data: {
                 id,
                 type: "masuk",
                 category: "Sewa Kamar",
-                description: rentalIncomeDescription(
-                  room.nomor?.trim() || room.id,
-                  room.tenant?.name,
-                  monthKey,
-                ),
+                description,
                 amount: room.price,
                 entryDate: wibMidnight(due),
                 dateLabel,
