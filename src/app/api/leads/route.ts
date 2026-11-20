@@ -10,14 +10,16 @@
 // ATRIBUSI REFERRAL: bila body.ref berisi kode mitra AKTIF, source lead
 // menjadi "Referral: <kode>" (bukan PESAN_MANUAL) — kolom Sumber Panel Admin
 // menunjukkan mitra pemilik link, termasuk untuk pesanan manual via tombol
-// "Pesan via WhatsApp Mitra" (data komisi manual direkonsiliasi admin).
+// "Pesan Manual via WhatsApp Admin" yang routingnya diarahkan ke WA mitra
+// (white-label — komisi manual direkonsiliasi admin).
 // Attribution guard di upsertLicenseLead menjaga atribusi lama:
 // lead yang sudah ber-source "Referral: X" TIDAK diturunkan ke sumber generik.
 //
-// Dipanggil tombol "Pesan Manual via WhatsApp Admin" / "Pesan via WhatsApp
-// Mitra" (modal landing & halaman /checkout) SEBELUM membuka wa.me — sehingga
-// Admin/Mitra tetap memiliki Nama/No. WhatsApp terkirim rapi ke database meski
-// user belum menyelesaikan pembayaran. Juga dipakai /api/auth/register.
+// Dipanggil tombol "Pesan Manual via WhatsApp Admin" (modal landing & halaman
+// /checkout — tujuan WA bisa mitra referral saat aktif) SEBELUM membuka wa.me
+// — sehingga Admin/Mitra tetap memiliki Nama/No. WhatsApp terkirim rapi ke
+// database meski user belum menyelesaikan pembayaran. Juga dipakai
+// /api/auth/register.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, after, type NextRequest } from "next/server";

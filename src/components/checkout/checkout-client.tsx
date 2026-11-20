@@ -22,15 +22,16 @@
 //                   LANGSUNG me-redirect pembeli ke sana — tidak pernah
 //                   terhenti di layar error.
 //      - Sekunder : selalu tampil, target mengikuti status referral:
-//          • Referral AKTIF + mitra punya No. WA terdaftar →
-//            "Pesan via WhatsApp Mitra (Nama)" → wa.me MITRA (bukan Admin
-//            pusat) dgn pesan otomatis berisi kode referral + data form —
-//            calon pembeli dilayani mitra pemilik link (laporan mitra:
-//            komisi/jualan tidak lepas ke chat Admin). Kode referral tetap
-//            diteruskan eksplisit ke POST /api/leads (source
+//          • Referral AKTIF + mitra punya No. WA terdaftar → wa.me MITRA
+//            (bukan Admin pusat) — calon pembeli dilayani mitra pemilik link
+//            (laporan mitra: komisi/jualan tidak lepas ke chat Admin). Kode
+//            referral tetap diteruskan eksplisit ke POST /api/leads (source
 //            "Referral: <kode>") dan POST /api/checkout.
-//          • Organik / mitra tanpa No. WA → "Pesan Manual via WhatsApp
-//            Admin (085187813569)" → wa.me Admin.
+//          • Organik / mitra tanpa No. WA → wa.me Admin pusat.
+//          WHITE-LABEL: label tombol & isi pesan WA SERAGAM "Admin UnitKu"
+//          (MANUAL_ORDER_BUTTON_LABEL & buildOrderWaMessage) — TANPA kata
+//          "Mitra"/"Affiliate"/nama mitra/kode referral di mata pembeli;
+//          routing nomor di belakang layar tidak terlihat.
 //          Keduanya: VALIDASI form → POST /api/leads (simpan kontak —
 //          fire-and-forget) → wa.me (anchor native, imun pop-up blocker).
 //   4. Catatan jaminan di bawah tombol.
@@ -63,20 +64,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   EMPTY_CHECKOUT_FORM,
+  MANUAL_ORDER_BUTTON_LABEL,
   buildManualOrderWaLink,
   buildMitraOrderWaLink,
-  mitraButtonLabel,
   validateCheckoutBuyer,
   type CheckoutFieldErrors,
   type CheckoutFormState,
   type MitraReferralInfo,
 } from "@/lib/checkout-validation";
 import { sanitizeAffiliateRef } from "@/lib/affiliate";
-import {
-  LICENSE_AMOUNT_IDR,
-  SUPPORT_WA_DISPLAY,
-  SUPPORT_WA_PURCHASE_LINK,
-} from "@/lib/landing-config";
+import { LICENSE_AMOUNT_IDR } from "@/lib/landing-config";
 import { toast } from "@/lib/toast";
 
 /** Harga referensi sebelum diskon (dicoret) — tampilan iklan early adopter */
@@ -122,7 +119,8 @@ export function CheckoutClient({
    *  menuju wa.me MITRA (bukan Admin pusat) — calon pembeli dilayani langsung
    *  oleh pemilik link referral. Tanpa salah satu syarat → fallback Admin.
    *  (mitraWa hanya non-null bila referral SUDAH tervalidasi aktif di server,
-   *  jadi cukup cek nomor WA-nya.) */
+   *  jadi cukup cek nomor WA-nya.) WHITE-LABEL: perbedaan ini TIDAK terlihat
+   *  pembeli — label & pesan seragam "Admin UnitKu" (lihat tombol sekunder). */
   const mitraMode = mitraWa?.waPhone ? mitraWa : null;
 
   /** Guard anti-dobel: InitiateCheckout TEPAT SEKALI per submit form.
@@ -155,21 +153,18 @@ export function CheckoutClient({
     });
   };
 
-  // Link WA manual mengikuti isi form (draft pesan terisi otomatis).
-  // Mode mitra → buildMitraOrderWaLink valid sejak form kosong (baris data
-  // pembeli menyusul saat terisi); mode Admin → fallback link statis selama
-  // form belum valid (tak pernah dinavigasi — klik dicegah handleManualOrder
-  // bila form belum lengkap).
-  const formValid =
-    Object.keys(validateCheckoutBuyer(form)).length === 0;
+  // Link WA manual mengikuti isi form (draft pesan terisi otomatis — baris
+  // Nama/No. WA menyusul saat diisi). Kedua jalur memakai pesan resmi identik
+  // (buildOrderWaMessage); hanya TUJUAN nomor yang berbeda: WA mitra saat
+  // referral aktif + No. WA sah, selain itu WA Admin pusat. Link valid sejak
+  // form kosong; klik sebelum lengkap tetap dicegah handleManualOrder.
   const manualWaHref = mitraMode
     ? buildMitraOrderWaLink(form, mitraMode)
-    : formValid
-      ? buildManualOrderWaLink(form)
-      : SUPPORT_WA_PURCHASE_LINK;
+    : buildManualOrderWaLink(form);
 
-  /** Klik tombol sekunder ("Pesan via WhatsApp Mitra" / "Pesan Manual via
-   *  WhatsApp Admin") — simpan lead dulu (non-blocking), lalu buka WhatsApp.
+  /** Klik tombol sekunder "Pesan Manual via WhatsApp Admin" (label seragam
+   *  white-label; tujuan nomor di belakang layar bisa WA mitra saat referral
+   *  aktif) — simpan lead dulu (non-blocking), lalu buka WhatsApp.
    *  Momen sah (b) InitiateCheckout: klik VALID ini = submit form manual →
    *  event ditembakkan tepat sekali untuk percobaan submit ini. */
   const handleManualOrder = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -202,11 +197,9 @@ export function CheckoutClient({
     })
       .then(async (res) => {
         if (res.ok) {
-          toast.success(
-            mitraMode
-              ? "Data kontak tersimpan — membuka WhatsApp Mitra…"
-              : "Data kontak tersimpan — membuka WhatsApp Admin…",
-          );
+          // WHITE-LABEL: toast seragam "Admin" — mitra tak pernah tersingkap
+          // di UI pembeli meski routing nomor menuju WA mitra.
+          toast.success("Data kontak tersimpan — membuka WhatsApp Admin…");
         } else {
           toast.warning(
             "Gagal menyimpan data ke server — chat WhatsApp tetap dibuka.",
@@ -466,8 +459,9 @@ export function CheckoutClient({
                 )}
               </div>
 
-              {/* Aksi: dua tombol seimbang — sekunder dinamis (Mitra saat
-                  referral aktif + No. WA tersedia, selain itu Admin) */}
+              {/* Aksi: dua tombol seimbang — sekunder berlabel seragam
+                  white-label; tujuan WA dinamis (mitra saat referral aktif
+                  + No. WA tersedia, selain itu Admin pusat) */}
               <div className="grid grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2">
                 <Button
                   type="button"
@@ -511,9 +505,7 @@ export function CheckoutClient({
                       strokeWidth={1.75}
                       aria-hidden="true"
                     />
-                    {mitraMode
-                      ? mitraButtonLabel(mitraMode.name)
-                      : `Pesan Manual via WhatsApp Admin (${SUPPORT_WA_DISPLAY})`}
+                    {MANUAL_ORDER_BUTTON_LABEL}
                   </a>
                 </Button>
               </div>

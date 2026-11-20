@@ -9,12 +9,14 @@
 //           (normalizeMitraWaNumber: 08…/62…/+62… → 62xxxxxxxxxx).
 //
 //   Response 200 (selalu — kegagalan = "found:false", TIDAK pernah melempar):
-//     { found: true,  refCode, name, waPhone }  — waPhone null bila mitra
-//                                                 tidak punya nomor sah
+//     { found: true,  refCode, waPhone }  — waPhone null bila mitra tidak
+//                                           punya nomor sah
 //     { found: false }
 //
-// KEAMANAN (data diekspos MINIMAL — hanya info kontak publik mitra):
-//   • refCode, name, waPhone — dibutuhkan tombol "Pesan via WhatsApp Mitra".
+// KEAMANAN (data diekspos MINIMAL — hanya routing tombol WA white-label):
+//   • refCode + waPhone — cukup utk routing tombol "Pesan Manual via WhatsApp
+//     Admin" ke WA mitra saat referral aktif. Nama mitra SENGAJA tidak
+//     dikirim (white-label: pembeli hanya melihat identitas "Admin UnitKu").
 //   • TIDAK PERNAH mengekspos email, saldo komisi (totalEarnings), rekening
 //     pencairan, accessToken, atau status aktivasi mentah.
 //   • Kode mitra nonaktif/dihapus → found:false — kode mati tidak bisa
@@ -58,7 +60,6 @@ export async function GET(request: NextRequest) {
     {
       found: true,
       refCode: affiliate.refCode,
-      name: affiliate.name,
       waPhone,
     },
     { status: 200, headers: { "Cache-Control": "no-store" } },

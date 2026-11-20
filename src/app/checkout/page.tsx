@@ -20,13 +20,14 @@
 //     menyusul HANYA saat tombol bayar diklik (lihat checkout-client.tsx).
 //
 // Alur pembelian (lihat checkout-client.tsx):
-//   Tombol sekunder selalu tampil, targetnya DINAMIS:
-//   - Traffic REFERRAL MITRA dgn No. WA terdaftar → "Pesan via WhatsApp
-//     Mitra (Nama)" → wa.me MITRA (bukan Admin pusat) — pesan otomatis
-//     memuat kode referral + data form; lead tersimpan ber-source
-//     "Referral: <kode>". Komisi manual direkonsiliasi admin.
-//   - Organik / mitra tanpa No. WA → "Pesan Manual via WhatsApp Admin
-//     (085187813569)" → wa.me Admin.
+//   Tombol sekunder selalu tampil, targetnya DINAMIS (WHITE-LABEL — label
+//   & pesan seragam "Admin UnitKu", perbedaan tak terlihat pembeli):
+//   - Traffic REFERRAL MITRA dgn No. WA terdaftar → wa.me MITRA (bukan
+//     Admin pusat) — pesan otomatis resmi identik tanpa kode referral/nama
+//     mitra; lead tersimpan ber-source "Referral: <kode>". Komisi manual
+//     direkonsiliasi admin.
+//   - Organik / mitra tanpa No. WA → "Pesan Manual via WhatsApp Admin" →
+//     wa.me Admin pusat.
 //   Tombol "Bayar Otomatis" → POST /api/checkout (Route Handler internal):
 //   server menyimpan lead (source "Referral: <kode>" bila mitra aktif),
 //   membuat invoice Mayar per-pembeli dgn extraData.affiliate_ref, lalu
@@ -73,15 +74,16 @@ export default async function CheckoutPage({ searchParams }: CheckoutPageProps) 
   const resolved = await resolveActiveAffiliate(rawRef);
   const initialRef = resolved?.refCode ?? null;
 
-  // Info mitra utk tombol "Pesan via WhatsApp Mitra" — nomor WA dinormalisasi
+  // Info mitra utk routing tombol WA (white-label) — nomor WA dinormalisasi
   // SEKALI di server (08…/62…/+62… → 62xxxxxxxxxx); null bila mitra tidak
   // punya nomor sah → tombol jatuh ke fallback WA Admin di client. TANPA
   // fetch tambahan di client: render pertama sudah tahu status mitra (tanpa
-  // layout shift), data sensitif (email/saldo/rekening) tidak pernah keluar.
+  // layout shift). Nama mitra SENGAJA TIDAK diteruskan ke client — tidak
+  // pernah tampil di UI pembeli; data sensitif (email/saldo/rekening) pun
+  // tidak pernah keluar dari server.
   const mitraWa: MitraReferralInfo | null = resolved
     ? {
         refCode: resolved.refCode,
-        name: resolved.name,
         waPhone: normalizeMitraWaNumber(resolved.phone) ?? "",
       }
     : null;

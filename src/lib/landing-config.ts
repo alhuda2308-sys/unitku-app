@@ -32,23 +32,9 @@ export const SUPPORT_WA_DISPLAY = SUPPORT_WA_NUMBER.startsWith("62")
   ? `0${SUPPORT_WA_NUMBER.slice(2)}`
   : SUPPORT_WA_NUMBER;
 
-export const SUPPORT_WA_PURCHASE_LINK = `${SUPPORT_WA_LINK}?text=${encodeURIComponent(
-  "Halo Admin UnitKu, saya ingin membeli Lisensi Seumur Hidup (Rp 399.000). Mohon info rekening / panduan pembayarannya. Terima kasih!",
-)}`;
-
-/** Tautan bantuan "ragu cara bayar" — Admin memandu langkah demi langkah */
 export const SUPPORT_WA_HELP_LINK = `${SUPPORT_WA_LINK}?text=${encodeURIComponent(
   "Halo Admin UnitKu, saya ragu cara pembayarannya. Mohon dipandu langkah demi langkah membeli Lisensi Seumur Hidup (Rp 399.000). Terima kasih!",
 )}`;
-
-/**
- * Tautan tombol sekunder "Pesan Manual via WhatsApp Admin" DI DALAM modal
- * checkout — pesan promo persis sesuai kampanye (data Nama & No. WhatsApp
- * pembeli disimpan ke license_leads via POST /api/leads SEBELUM chat dibuka).
- */
-export const SUPPORT_WA_MANUAL_PROMO_LINK =
-  `https://wa.me/${SUPPORT_WA_NUMBER}?text=` +
-  "Halo%20Admin%20UnitKu,%20saya%20ingin%20ambil%20promo%20Lisensi%20Seumur%20Hidup%20Rp%20399.000.%20Mohon%20info%20rekening%20pembayarannya.";
 
 export const SUPPORT_EMAIL =
   process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@elvindigital.com";
