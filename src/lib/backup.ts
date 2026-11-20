@@ -25,6 +25,8 @@ export interface BackupTenant {
   emergencyName?: string;
   emergencyPhone?: string;
   portalToken?: string;
+  /** Foto dokumen KTP (dataURL terkompresi / URL) — ikut dicadangkan */
+  ktpImage?: string;
 }
 
 export interface BackupRoom {
@@ -47,6 +49,8 @@ export interface BackupRoom {
     endDate?: string;
     deposit?: number;
     depositHeld?: boolean;
+    /** Status deposit eksplisit — ditahan | dikembalikan | dipotong */
+    depositStatus?: string;
   };
 }
 
@@ -163,6 +167,7 @@ function roomToBackup(room: Room): BackupRoom {
             moveInDate: room.tenant.moveInDate,
             emergencyName: room.tenant.emergencyContact?.name,
             emergencyPhone: room.tenant.emergencyContact?.phone,
+            ...(room.tenant.ktpImage ? { ktpImage: room.tenant.ktpImage } : {}),
           },
         }
       : {}),
@@ -175,6 +180,7 @@ function roomToBackup(room: Room): BackupRoom {
             endDate: room.contract.endDate,
             deposit: room.contract.deposit,
             depositHeld: room.contract.depositHeld,
+            ...(room.contract.depositStatus ? { depositStatus: room.contract.depositStatus } : {}),
           },
         }
       : {}),

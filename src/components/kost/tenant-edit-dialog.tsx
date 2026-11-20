@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { CircleAlert, PencilLine, Plus, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { CircleAlert, ImagePlus, IdCard, PencilLine, Plus, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,13 +22,19 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  DEPOSIT_STATUS_LABELS,
   MARITAL_STATUS_OPTIONS,
+  depositStatusOf,
   roomNomor,
+  type DepositStatus,
   type Room,
   type TenantCustomField,
   type TenantProfilePayload,
 } from "@/lib/kost-data";
+import { fileToCompressedDataUrl } from "@/lib/image-compress";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { RupiahInput } from "./rupiah-input";
 
 interface TenantEditDialogProps {
   room: Room | null;
@@ -39,6 +45,9 @@ interface TenantEditDialogProps {
 
 const inputCls =
   "h-9 border-zinc-200 bg-white text-[13px] text-zinc-900 placeholder:text-zinc-400 focus-visible:ring-zinc-900/5";
+
+/** Opsi status deposit — urutan alur wajar: ditahan → dikembalikan → dipotong */
+const DEPOSIT_STATUS_OPTIONS: DepositStatus[] = ["ditahan", "dikembalikan", "dipotong"];
 
 interface CustomRow {
   key: number;
@@ -75,10 +84,21 @@ export function TenantEditDialog({ room, open, onOpenChange, onSubmit }: TenantE
       value: f.value,
     })),
   );
+  // ── Kontrak & deposit (baris "Uang Deposit" di Detail Penghuni) ──
+  const [deposit, setDeposit] = useState(() => room?.contract?.deposit ?? 0);
+  const [depositStatus, setDepositStatus] = useState<DepositStatus>(() =>
+    depositStatusOf(room?.contract),
+  );
+  // ── Foto KTP — picked = gambar BARU dipilih di sesi ini (menimpa existing)
+  const [ktpPicked, setKtpPicked] = useState<string | null>(null);
+  const [ktpBusy, setKtpBusy] = useState(false);
+  const ktpInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
 
   if (!room || !room.tenant) return null;
   const tenant = room.tenant;
+  // Foto yang ditampilkan: pilihan BARU di sesi ini, kalau tidak ada foto DB
+  const ktpPreview = ktpPicked ?? tenant.ktpImage ?? null;
 
   const addRow = () => {
     if (rows.length >= 25) return;
@@ -87,6 +107,23 @@ export function TenantEditDialog({ room, open, onOpenChange, onSubmit }: TenantE
   const updateRow = (key: number, patch: Partial<Omit<CustomRow, "key">>) =>
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const removeRow = (key: number) => setRows((prev) => prev.filter((r) => r.key !== key));
+
+  /** Pilih foto KTP → kompres sisi klien (≤1024px JPEG) → pratinjau;
+   *  tersimpan saat "Simpan Perubahan" ditekan (bukan saat memilih). */
+  const pickKtp = async (file: File | undefined) => {
+    if (!file) return;
+    setKtpBusy(true);
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      setKtpPicked(dataUrl);
+    } catch {
+      toast.error("Gagal memproses foto", {
+        description: "Coba file JPG/PNG lain atau ambil ulang foto KTP.",
+      });
+    } finally {
+      setKtpBusy(false);
+    }
+  };
 
   const submit = () => {
     const waDigits = normalizeWaDigits(wa);
@@ -111,6 +148,11 @@ export function TenantEditDialog({ room, open, onOpenChange, onSubmit }: TenantE
       customFields: rows
         .filter((r) => r.label.trim())
         .map((r) => ({ label: r.label.trim(), value: r.value.trim() })),
+      // ── Kontrak & deposit — selalu dikirim (nilai terakhir di form) ──
+      deposit,
+      depositStatus,
+      // ── Foto KTP — hanya bila dipilih baru di sesi ini (undefined = tetap) ──
+      ...(ktpPicked ? { ktpImage: ktpPicked } : {}),
     });
     onOpenChange(false);
   };
@@ -225,6 +267,117 @@ export function TenantEditDialog({ room, open, onOpenChange, onSubmit }: TenantE
                 rows={2}
               />
             </div>
+          </div>
+
+          {/* ── Kontrak & Deposit — nominal + status (baris "Uang Deposit") ── */}
+          <div className="space-y-3 rounded-md border border-border bg-white p-3">
+            <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-zinc-800">
+              <Wallet className="size-3.5 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
+              Kontrak &amp; Deposit
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="te-deposit" className="text-[12.5px] text-zinc-600">
+                  Uang Deposit (Rp)
+                </Label>
+                <RupiahInput
+                  id="te-deposit"
+                  ariaLabel="Nominal uang deposit dalam Rupiah"
+                  value={deposit}
+                  onChange={setDeposit}
+                  className={inputCls}
+                />
+                <p className="text-[11.5px] leading-4 text-zinc-500">
+                  Nominal terbaru langsung tampil di Detail Penghuni &amp; Portal Penyewa.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="te-deposit-status" className="text-[12.5px] text-zinc-600">
+                  Status Deposit
+                </Label>
+                <Select value={depositStatus} onValueChange={(v) => setDepositStatus(v as DepositStatus)}>
+                  <SelectTrigger id="te-deposit-status" className={cn(inputCls, "w-full justify-between")}>
+                    <SelectValue placeholder="Pilih status deposit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DEPOSIT_STATUS_OPTIONS.map((opt) => (
+                      <SelectItem key={opt} value={opt} className="text-[13px]">
+                        {DEPOSIT_STATUS_LABELS[opt]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11.5px] leading-4 text-zinc-500">
+                  Ditahan = masih dijaminan · Dipotong = dipakai ganti kerusakan/tunggakan.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Foto KTP — dokumen identitas penyewa (persist ke database) ── */}
+          <div className="space-y-2 rounded-md border border-border bg-white p-3">
+            <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-zinc-800">
+              <IdCard className="size-3.5 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
+              Foto KTP (Dokumen Identitas)
+            </p>
+            {ktpPreview ? (
+              <div className="flex items-start gap-3">
+                <img
+                  src={ktpPreview}
+                  alt={`Foto KTP ${tenant.name}`}
+                  className="h-24 w-36 shrink-0 rounded-md border border-border object-cover"
+                />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <p className="text-[12px] leading-4 text-zinc-700">
+                    {ktpPicked
+                      ? "Foto baru siap — tersimpan saat “Simpan Perubahan” ditekan."
+                      : "Tersimpan di database — tampil di Detail Penghuni & ikut terlihat oleh penyewa di portal."}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => ktpInputRef.current?.click()}
+                      disabled={ktpBusy}
+                      className="h-7 border-zinc-200 bg-white px-2 text-xs font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                    >
+                      <ImagePlus className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                      {ktpPicked ? "Ganti Pilihan" : "Ganti Foto"}
+                    </Button>
+                    {ktpPicked && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setKtpPicked(null)}
+                        className="h-7 px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                      >
+                        Batalkan
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => ktpInputRef.current?.click()}
+                disabled={ktpBusy}
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2.5 text-[12.5px] text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-white hover:text-zinc-700"
+              >
+                <ImagePlus className="size-4 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
+                {ktpBusy ? "Memproses foto…" : "Unggah foto KTP penyewa (JPG/PNG)"}
+              </button>
+            )}
+            <input
+              ref={ktpInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => void pickKtp(e.target.files?.[0])}
+              aria-label="Unggah foto KTP"
+            />
           </div>
 
           {/* ── Kolom kustom fleksibel: [Label] : [Isi] ── */}

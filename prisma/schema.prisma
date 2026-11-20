@@ -281,6 +281,11 @@ model Room {
   nextBillingDate  DateTime?
   deposit          Int       @default(0)
   depositHeld      Boolean   @default(false)
+  // Status deposit eksplisit — "ditahan" | "dikembalikan" | "dipotong".
+  // null = data lama → UI derive dari depositHeld (true → Ditahan). Sync
+  // dua arah di API: set depositStatus juga meng-set depositHeld (held =
+  // "ditahan") agar fitur lama tetap benar.
+  depositStatus    String?
 
   facilities Json? // string[] fasilitas milik kamar (JSONB)
 
@@ -316,6 +321,11 @@ model Tenant {
   addressKtp     String? // Alamat Asal / Alamat KTP
   notes          String? // Catatan Tambahan
   customFields   Json?   // [{ label, value }] — kolom kustom fleksibel buatan pengguna
+  // Foto dokumen KTP penyewa — dataURL terkompresi (≤1024px JPEG, pola sama
+  // dgn foto tiket) ATAU URL storage. Diunggah penyewa via Portal Penyewa
+  // (POST /api/portal/ktp, magic token) atau pemilik (check-in / Edit
+  // Penghuni / kartu KTP di Detail Penghuni).
+  ktpImage       String?
 
   // Isolasi multi-cabang — kolom langsung (denormalisasi dari room.propertyId,
   // di-backfill otomatis oleh self-heal skema) agar reset/filter per properti

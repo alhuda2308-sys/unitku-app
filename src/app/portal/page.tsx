@@ -183,6 +183,24 @@ function PortalByToken() {
       rekening={rekening}
       todayISO={portalTodayISO}
       standalone
+      // Foto KTP penyewa sukses diunggah → perbarui state cloud SEKETIKA
+      // (tanpa menunggu refetch berkala 30 detik) agar kartu KTP langsung
+      // menampilkan foto baru.
+      onKtpUploaded={(ktpImage) =>
+        setCloud((prev) =>
+          prev
+            ? {
+                ...prev,
+                room: {
+                  ...prev.room,
+                  tenant: prev.room.tenant
+                    ? { ...prev.room.tenant, ktpImage }
+                    : prev.room.tenant,
+                },
+              }
+            : prev,
+        )
+      }
     />
   );
 }

@@ -11,6 +11,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  DEPOSIT_STATUS_LABELS,
+  DEPOSIT_STATUS_PILL,
+  depositStatusOf,
   formatIDR,
   initialsOf,
   roomNomor,
@@ -346,12 +349,10 @@ export function RoomDrawer({
                           <span
                             className={cn(
                               "inline-flex h-5 items-center rounded-full border px-1.5 text-xs font-semibold",
-                              room.contract?.depositHeld
-                                ? "border-amber-200 bg-amber-50 text-amber-700"
-                                : "border-zinc-200 bg-zinc-100 text-zinc-700"
+                              DEPOSIT_STATUS_PILL[depositStatusOf(room.contract)]
                             )}
                           >
-                            {room.contract?.depositHeld ? "Ditahan" : "Dikembalikan"}
+                            {DEPOSIT_STATUS_LABELS[depositStatusOf(room.contract)]}
                           </span>
                         </span>
                       </InfoRow>

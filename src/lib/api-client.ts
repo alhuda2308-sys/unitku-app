@@ -351,6 +351,8 @@ export const api = {
     deposit: number;
     addons: string[];
     totalPerBulan: number;
+    // Foto KTP (dataURL terkompresi) — persist ke tenants.ktpImage
+    ktpImage?: string;
     // ── Sewa harian (siklus Harian / Villa-Homestay)
     tanggalCheckout?: string; // yyyy-mm-dd
     durasiHari?: number; // jumlah malam
@@ -381,12 +383,20 @@ export const api = {
       }),
     }),
   /** Edit Data Penghuni — perbarui profil penyewa (nama, WA, pekerjaan,
-   *  status perkawinan, wali, kontak darurat, alamat KTP, catatan, dan kolom
-   *  kustom JSONB) langsung ke tabel tenants. */
+   *  status perkawinan, wali, kontak darurat, alamat KTP, catatan, kolom
+   *  kustom JSONB, nominal & status deposit, serta foto KTP) langsung ke
+   *  database (tabel tenants + kontrak deposit di tabel rooms). */
   updateTenantProfile: (roomId: string, payload: TenantProfilePayload) =>
     request<{ room: ClientRoom }>("/api/tenants", {
       method: "PATCH",
       body: JSON.stringify({ roomId, ...payload }),
+    }),
+  /** Unggah/ganti foto KTP penyewa oleh OWNER (kartu KTP di Detail Penghuni)
+   *  — PATCH parsial: hanya ktpImage yang berubah. "" = hapus foto. */
+  updateTenantKtp: (roomId: string, ktpImage: string) =>
+    request<{ room: ClientRoom }>("/api/tenants", {
+      method: "PATCH",
+      body: JSON.stringify({ roomId, ktpImage }),
     }),
   checkoutTenant: (roomId: string) =>
     request<{ room: ClientRoom; checkedOut: string }>(
@@ -703,6 +713,13 @@ export const portalApi = {
       // dari owner tampil tanpa clear cache browser (respons API juga no-store)
       { cache: "no-store" },
     ),
+  /** Unggah foto KTP oleh PENYEWA (Portal Penyewa) — dataURL terkompresi.
+   *  Server memvalidasi magic token → simpan ke tenants.ktpImage. */
+  uploadKtp: (token: string, ktpImage: string) =>
+    request<{ ok: true; ktpImage: string }>("/api/portal/ktp", {
+      method: "POST",
+      body: JSON.stringify({ token, ktpImage }),
+    }),
 };
 
 // re-export tipe ringan untuk konsumen

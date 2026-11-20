@@ -156,6 +156,12 @@ export async function POST(request: NextRequest) {
           nextBillingDate: backupLabelToDate(room.nextBillingDate),
           deposit: room.contract?.deposit ?? 0,
           depositHeld: room.contract?.depositHeld ?? false,
+          depositStatus:
+            room.contract?.depositStatus === "ditahan" ||
+            room.contract?.depositStatus === "dikembalikan" ||
+            room.contract?.depositStatus === "dipotong"
+              ? room.contract.depositStatus
+              : null,
         };
 
         if (existing) {
@@ -184,6 +190,7 @@ export async function POST(request: NextRequest) {
             moveInAt: backupLabelToDate(room.tenant.moveInDate),
             emergencyName: room.tenant.emergencyName ?? null,
             emergencyPhone: room.tenant.emergencyPhone ?? null,
+            ktpImage: room.tenant.ktpImage ?? null,
           };
           if (tenantInDb) {
             await tx.tenant.update({ where: { roomId: room.id }, data: tenantData });

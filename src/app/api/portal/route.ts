@@ -9,6 +9,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/prisma";
 import { DEMO_OWNER_ID } from "@/lib/auth/config";
+import { ensureSchema } from "@/lib/server/schema";
 import { toClientAnnouncement, toClientInvoice, toClientRoom } from "@/lib/server/mappers";
 import { deriveRoomStatus } from "@/lib/room-status";
 
@@ -16,6 +17,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
+    // Self-heal skema — portal publik TIDAK melewati getAuthUser (pintu
+    // ensureSchema bawaan), jadi kolom baru (mis. tenants.ktpImage) dijamin
+    // ada sebelum query pertama. Memoized per proses — nyaris tanpa biaya.
+    await ensureSchema().catch(() => undefined);
     // Publik (magic token) — TANPA ensureSeed: data harus sudah ada milik owner
     const token = request.nextUrl.searchParams.get("token")?.trim();
     if (!token) {

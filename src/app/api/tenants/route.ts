@@ -29,6 +29,22 @@ export const dynamic = "force-dynamic";
 
 const DAY_MS = 86_400_000;
 
+/** Batas ukuran string gambar KTP (dataURL base64) — foto terkompresi 1024px
+ *  JPEG ≈ 80–300 ribu karakter; 1,5 juta = aman dgn margin besar. */
+const KTP_IMAGE_MAX_CHARS = 1_500_000;
+
+/** Sanitasi gambar KTP dari body request — terima dataURL image/ ATAU URL
+ *  https. "" = hapus (→ null). Selain itu ditolak (null penanda invalid). */
+function sanitizeKtpImage(raw: unknown): string | null | "invalid" {
+  if (typeof raw !== "string") return "invalid";
+  const v = raw.trim();
+  if (!v) return null; // hapus foto
+  if (v.length > KTP_IMAGE_MAX_CHARS) return "invalid";
+  if (/^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(v)) return v;
+  if (/^https:\/\/[^\s]+$/i.test(v) || /^\/[^\s]*$/.test(v)) return v; // URL storage / path publik
+  return "invalid";
+}
+
 /** "8123456789" → "+62 812-3456-7890" — format tampilan konsisten dgn dataset */
 function formatPhoneDisplay(digits: string): string {
   if (digits.length <= 4) return `+62 ${digits}`;
@@ -60,6 +76,8 @@ interface CheckinBody {
   deposit?: unknown;
   addons?: unknown; // string[]
   totalPerBulan?: unknown;
+  // ── Foto dokumen KTP (dataURL terkompresi / URL) — persist ke tenants.ktpImage
+  ktpImage?: unknown;
   // ── Sewa harian (siklus Harian)
   tanggalCheckout?: unknown; // "yyyy-mm-dd"
   durasiHari?: unknown; // jumlah malam (verifikasi dari klien, dihitung ulang server)
@@ -158,6 +176,14 @@ export async function POST(request: NextRequest) {
         : [];
 
     // 1) Penghuni + token portal unik — terikat properti kamar (isolasi cabang)
+    // Foto KTP (bila diunggah di form check-in) langsung tersimpan permanen.
+    const ktpImage = body.ktpImage !== undefined ? sanitizeKtpImage(body.ktpImage) : null;
+    if (ktpImage === "invalid") {
+      return NextResponse.json(
+        { error: "Format foto KTP tidak didukung — gunakan JPG/PNG." },
+        { status: 400 },
+      );
+    }
     const tenant = await db.tenant.create({
       data: {
         roomId: room.id,
@@ -170,6 +196,7 @@ export async function POST(request: NextRequest) {
           typeof body.emergencyPhone === "string" && body.emergencyPhone.trim()
             ? body.emergencyPhone.trim()
             : null,
+        ...(ktpImage ? { ktpImage } : {}),
         portalToken: newPortalToken(room.id),
       },
     });
@@ -187,6 +214,7 @@ export async function POST(request: NextRequest) {
         nextBillingDate: nextBilling,
         deposit,
         depositHeld: true,
+        depositStatus: "ditahan", // deposit wajib ditahan selama masa sewa
       },
       include: { tenant: true, invoices: { orderBy: { periodKey: "desc" } } },
     });
@@ -341,6 +369,9 @@ export async function PATCH(request: NextRequest) {
       roomId?: unknown;
       contractEnd?: unknown; // label "30 Mar 2026"
       deposit?: unknown;
+      // Status deposit eksplisit — "ditahan" | "dikembalikan" | "dipotong".
+      // Di-set bersama depositHeld (held = "ditahan") agar fitur lama tetap benar.
+      depositStatus?: unknown;
       // true HANYA dari aksi "Perpanjang Sewa" (dialog durasi) — pembayaran
       // periode baru → pemasukan dicatat ke Buku Kas. Konfirmasi "Perpanjang
       // Masa Kontrak" pasca-Tandai Lunas TIDAK mengirim flag ini (pemasukan
@@ -356,6 +387,8 @@ export async function PATCH(request: NextRequest) {
       addressKtp?: unknown;
       notes?: unknown;
       customFields?: unknown; // [{ label, value }]
+      // ── Foto dokumen KTP (dataURL terkompresi / URL) — "" = hapus foto ──
+      ktpImage?: unknown;
     };
     const roomId = typeof body.roomId === "string" ? body.roomId : "";
     const room = await db.room.findFirst({
@@ -400,6 +433,19 @@ export async function PATCH(request: NextRequest) {
     }
     if (Number.isFinite(Number(body.deposit))) data.deposit = Math.max(0, Math.round(Number(body.deposit)));
 
+    // ── Status deposit (Ditahan / Dikembalikan / Dipotong) — sinkron dua arah
+    // dgn depositHeld boolean (fitur lama): "ditahan" → held true, selain itu
+    // false. "dipotong" berarti deposit dilunasi sebagian/semua saat checkout
+    // (nominalnya tetap tersimpan utk arsip & perhitungan refund).
+    if (
+      body.depositStatus === "ditahan" ||
+      body.depositStatus === "dikembalikan" ||
+      body.depositStatus === "dipotong"
+    ) {
+      data.depositStatus = body.depositStatus;
+      data.depositHeld = body.depositStatus === "ditahan";
+    }
+
     // ── Profil penyewa — partial update: hanya kolom yang dikirim yang berubah
     const tenantData: Prisma.TenantUpdateInput = {};
     if (typeof body.name === "string") {
@@ -429,6 +475,17 @@ export async function PATCH(request: NextRequest) {
     if (typeof body.addressKtp === "string") tenantData.addressKtp = body.addressKtp.trim().slice(0, 400) || null;
     if (typeof body.notes === "string") tenantData.notes = body.notes.trim().slice(0, 1000) || null;
     if (body.customFields !== undefined) tenantData.customFields = sanitizeCustomFields(body.customFields);
+    // Foto KTP: string valid → simpan; "" → hapus (null); invalid → tolak 400.
+    if (body.ktpImage !== undefined) {
+      const ktp = sanitizeKtpImage(body.ktpImage);
+      if (ktp === "invalid") {
+        return NextResponse.json(
+          { error: "Format foto KTP tidak didukung — gunakan JPG/PNG (≤2 MB)." },
+          { status: 400 },
+        );
+      }
+      tenantData.ktpImage = ktp;
+    }
 
     if (Object.keys(data).length === 0 && Object.keys(tenantData).length === 0) {
       return NextResponse.json({ error: "Tidak ada perubahan yang dikirim." }, { status: 400 });
@@ -559,6 +616,7 @@ export async function DELETE(request: NextRequest) {
         nextBillingDate: null,
         deposit: 0,
         depositHeld: false,
+        depositStatus: null,
       },
       include: { tenant: true, invoices: { orderBy: { periodKey: "desc" }, take: 1 } },
     });

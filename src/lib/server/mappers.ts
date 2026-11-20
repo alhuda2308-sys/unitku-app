@@ -77,6 +77,7 @@ function tenantToClient(tenant: Tenant): ClientTenant {
     ...(tenant.maritalStatus ? { maritalStatus: tenant.maritalStatus } : {}),
     ...(tenant.guardianName ? { guardianName: tenant.guardianName } : {}),
     ...(tenant.addressKtp ? { addressKtp: tenant.addressKtp } : {}),
+    ...(tenant.ktpImage ? { ktpImage: tenant.ktpImage } : {}),
     ...(tenant.notes ? { notes: tenant.notes } : {}),
     ...(() => {
       // Kolom kustom JSONB [{ label, value }] — sanitasi defensif bentuk apa pun
@@ -141,6 +142,10 @@ export function toClientRoom(
             endDate: room.contractEnd ? dateToLabel(room.contractEnd) : undefined,
             deposit: room.deposit,
             depositHeld: room.depositHeld,
+            // Status eksplisit (Ditahan/Dikembalikan/Dipotong) — null = data
+            // lama, UI derive dari depositHeld (depositStatusOf).
+            depositStatus: (room.depositStatus ?? undefined) as
+              NonNullable<ClientRoom["contract"]>["depositStatus"],
           }
         : undefined,
   };

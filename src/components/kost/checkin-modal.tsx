@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/select";
 import { formatIDR, diffNights, roomNomor, todayISO, addDaysISO, type Room } from "@/lib/kost-data";
 import { isVillaType, tenantTermFor } from "@/lib/app-settings";
+import { fileToCompressedDataUrl } from "@/lib/image-compress";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { RupiahInput } from "./rupiah-input";
 
@@ -36,6 +38,9 @@ export interface CheckinPayload {
   emergencyName: string;
   emergencyPhone: string;
   ktpFileName?: string;
+  /** Foto KTP terkompresi (dataURL ≤1024px JPEG) — persist ke tenants.ktpImage
+   *  SEJAK check-in (sebelumnya blob URL yang hilang saat refresh). */
+  ktpImage?: string;
   tanggalMasuk: string; // ISO yyyy-mm-dd — check-in (sewa harian) / tanggal masuk (kontrak)
   siklus: BillingCycle;
   hargaSewa: number; // per bulan (kontrak) / per hari (Harian)
@@ -90,6 +95,7 @@ export function CheckinModal({
   propertyType,
 }: CheckinModalProps) {
   const [ktpFile, setKtpFile] = useState<{ name: string; url: string } | null>(null);
+  const [ktpBusy, setKtpBusy] = useState(false);
   const [tanggalMasuk, setTanggalMasuk] = useState(todayISO);
   const [tanggalCheckout, setTanggalCheckout] = useState(() => addDaysISO(todayISO(), 1));
   const [siklus, setSiklus] = useState<BillingCycle>(isVillaType(propertyType) ? "Harian" : "Bulanan");
@@ -135,10 +141,23 @@ export function CheckinModal({
     hargaSewa > 0 &&
     (!isHarian || durasiHari >= 1);
 
-  const pickKtp = (file: File | undefined) => {
+  /** Pilih foto KTP → kompres sisi klien (≤1024px JPEG dataURL) → pratinjau.
+   *  SEBELUMNYA blob URL (URL.createObjectURL) yang hilang saat refresh & tidak
+   *  pernah dikirim ke server — foto KTP 100% kosmetik. Kini dataURL ikut di-
+   *  submit dan tersimpan permanen ke kolom tenants.ktpImage. */
+  const pickKtp = async (file: File | undefined) => {
     if (!file) return;
-    if (ktpFile) URL.revokeObjectURL(ktpFile.url);
-    setKtpFile({ name: file.name, url: URL.createObjectURL(file) });
+    setKtpBusy(true);
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      setKtpFile({ name: file.name, url: dataUrl });
+    } catch {
+      toast.error("Gagal memproses foto KTP", {
+        description: "Coba file JPG/PNG lain atau ambil ulang foto.",
+      });
+    } finally {
+      setKtpBusy(false);
+    }
   };
 
   const submit = () => {
@@ -151,6 +170,7 @@ export function CheckinModal({
       emergencyName: emergencyName.trim(),
       emergencyPhone: emergencyPhone.trim(),
       ktpFileName: ktpFile?.name,
+      ...(ktpFile ? { ktpImage: ktpFile.url } : {}),
       tanggalMasuk,
       siklus,
       hargaSewa,
@@ -161,7 +181,6 @@ export function CheckinModal({
         ? { tanggalCheckout, durasiHari, totalTagihan: totalHarian }
         : {}),
     });
-    if (ktpFile) URL.revokeObjectURL(ktpFile.url);
     onOpenChange(false);
   };
 
@@ -308,10 +327,11 @@ export function CheckinModal({
                   <button
                     type="button"
                     onClick={() => ktpInputRef.current?.click()}
+                    disabled={ktpBusy}
                     className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2.5 text-[12.5px] text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-white hover:text-zinc-700"
                   >
                     <ImagePlus className="size-4 text-zinc-700" strokeWidth={1.75} aria-hidden="true" />
-                    Klik untuk unggah foto KTP (JPG/PNG)
+                    {ktpBusy ? "Memproses foto…" : "Klik untuk unggah foto KTP (JPG/PNG)"}
                   </button>
                 )}
                 <input
@@ -319,7 +339,7 @@ export function CheckinModal({
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={(e) => pickKtp(e.target.files?.[0])}
+                  onChange={(e) => void pickKtp(e.target.files?.[0])}
                   aria-label="Unggah foto KTP"
                 />
               </div>

@@ -67,6 +67,11 @@ export interface TenantProfilePayload {
   addressKtp: string;
   notes: string;
   customFields: TenantCustomField[];
+  // ── Kontrak & deposit (baris "Uang Deposit" di Kontrak Sewa) ──
+  deposit?: number; // nominal terbaru (Rp) — undefined = tidak diubah
+  depositStatus?: DepositStatus; // undefined = tidak diubah
+  // ── Foto dokumen KTP (dataURL terkompresi) — undefined = tidak diganti ──
+  ktpImage?: string;
 }
 
 /** Opsi Status Perkawinan pada form Edit Data Penghuni */
@@ -95,6 +100,9 @@ export interface Tenant {
   notes?: string; // Catatan Tambahan
   /** Kolom kustom fleksibel — pasangan label:isi buatan pengguna */
   customFields?: TenantCustomField[];
+  /** Foto dokumen KTP — dataURL terkompresi / URL storage. Diisi via Portal
+   *  Penyewa (unggahan penyewa) atau owner (check-in / Edit / Detail). */
+  ktpImage?: string;
 }
 
 export interface Invoice {
@@ -132,7 +140,35 @@ export interface Room {
     endDate?: string;
     deposit: number;
     depositHeld: boolean;
+    /** Status deposit eksplisit — undefined = data lama → derive dari
+     *  depositHeld (lihat depositStatusOf). */
+    depositStatus?: DepositStatus;
   };
+}
+
+// ── Status deposit (Kontrak Sewa) ──────────────────────────────────────────
+
+export type DepositStatus = "ditahan" | "dikembalikan" | "dipotong";
+
+export const DEPOSIT_STATUS_LABELS: Record<DepositStatus, string> = {
+  ditahan: "Ditahan",
+  dikembalikan: "Dikembalikan",
+  dipotong: "Dipotong",
+};
+
+/** Kelas pill chip per status deposit — dipakai Detail Penghuni, Denah Kamar
+ *  & Direktori Penghuni agar tampilan konsisten. */
+export const DEPOSIT_STATUS_PILL: Record<DepositStatus, string> = {
+  ditahan: "border-amber-200 bg-amber-50 text-amber-700",
+  dikembalikan: "border-zinc-200 bg-zinc-100 text-zinc-700",
+  dipotong: "border-rose-200 bg-rose-50 text-rose-700",
+};
+
+/** Status deposit EFEKTIF: nilai eksplisit menang; data lama (tanpa kolom)
+ *  derive dari depositHeld boolean (true → Ditahan, false → Dikembalikan). */
+export function depositStatusOf(contract?: Room["contract"]): DepositStatus {
+  if (contract?.depositStatus) return contract.depositStatus;
+  return contract?.depositHeld ? "ditahan" : "dikembalikan";
 }
 
 export interface Property {

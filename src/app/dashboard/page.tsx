@@ -1787,6 +1787,8 @@ export default function IndoKostPage() {
             phone: p.emergencyPhone.trim() || "—",
           },
           portalToken: newPortalToken(p.roomId),
+          // Foto KTP ikut tersimpan di sesi demo (replika perilaku server)
+          ...(p.ktpImage ? { ktpImage: p.ktpImage } : {}),
         },
         invoice: {
           amount: invoiceTotal,
@@ -1801,6 +1803,7 @@ export default function IndoKostPage() {
           endDate: isHarian ? checkOutLabel : dateToLabel(contractEnd),
           deposit: p.deposit,
           depositHeld: true,
+          depositStatus: "ditahan",
         },
       };
       const invoice: Invoice = {
@@ -1878,6 +1881,8 @@ export default function IndoKostPage() {
         hargaSewa: p.hargaSewa,
         deposit: p.deposit,
         addons: p.addons,
+        // Foto KTP (dataURL terkompresi) — persist ke tenants.ktpImage
+        ...(p.ktpImage ? { ktpImage: p.ktpImage } : {}),
         totalPerBulan: p.totalPerBulan,
         ...(isHarian
           ? {
@@ -1909,19 +1914,34 @@ export default function IndoKostPage() {
 
   // ── Data Penghuni: perpanjang & check-out ──────────────────────────────────
 
-  /** Edit Data Penghuni — simpan profil penyewa (termasuk kolom kustom JSONB).
-   *  Respons PATCH berisi room terbaru (tenant ter-mapping) → UI ter-update
-   *  langsung tanpa reload manual. */
+  /** Edit Data Penghuni — simpan profil penyewa (termasuk kolom kustom JSONB,
+   *  nominal & status deposit, dan foto KTP). Respons PATCH berisi room
+   *  terbaru (tenant ter-mapping) → UI ter-update langsung tanpa reload. */
   const handleEditTenant = (room: Room, payload: TenantProfilePayload) => {
     // MODE DEMO: profil cukup di state lokal — dataset simulasi tidak ada di DB.
     if (instantDemo || isDemoSession || isTrialMode) {
+      // Pisahkan tujuan data: profil + foto KTP → tenant; deposit/status →
+      // contract (replika pemisahan tabel di server: rooms vs tenants).
+      const { deposit, depositStatus, ktpImage, ...profile } = payload;
       updateRooms((prev) =>
         prev.map((r) =>
-          r.id === room.id && r.tenant ? { ...r, tenant: { ...r.tenant, ...payload } } : r,
+          r.id === room.id && r.tenant
+            ? {
+                ...r,
+                tenant: { ...r.tenant, ...profile, ...(ktpImage ? { ktpImage } : {}) },
+                contract: r.contract
+                  ? {
+                      ...r.contract,
+                      ...(deposit !== undefined ? { deposit } : {}),
+                      ...(depositStatus !== undefined ? { depositStatus } : {}),
+                    }
+                  : r.contract,
+              }
+            : r,
         ),
       );
       toast.success(`Data penghuni ${payload.name} diperbarui`, {
-        description: `Kamar ${roomNomor(room)} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
+        description: `Kamar ${roomNomor(room)} · profil, deposit & foto KTP tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar data tersimpan permanen di cloud.`,
       });
       return;
     }
@@ -1930,11 +1950,42 @@ export default function IndoKostPage() {
       .then(({ room: updated }) => {
         updateRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
         toast.success(`Data penghuni ${updated.tenant?.name ?? payload.name} diperbarui`, {
-          description: `Kamar ${roomNomor(room)} · profil lengkap & keterangan kustom tersimpan ke database.`,
+          description: `Kamar ${roomNomor(room)} · profil, deposit & foto KTP tersimpan ke database.`,
         });
       })
       .catch((err: unknown) =>
         toast.error("Gagal memperbarui data penghuni", { description: errMsg(err) }),
+      );
+  };
+
+  /** Unggah/ganti foto KTP oleh owner — kartu "Dokumen Identitas (KTP)" di
+   *  Detail Penghuni. Demo → state lokal; akun riil → PATCH /api/tenants
+   *  (ktpImage saja) → updateRooms dari respons; penyewa langsung melihat
+   *  fotonya di Portal Penyewa (GET /api/portal membawa ktpImage). */
+  const handleUploadTenantKtp = (room: Room, ktpImage: string) => {
+    if (instantDemo || isDemoSession || isTrialMode) {
+      updateRooms((prev) =>
+        prev.map((r) =>
+          r.id === room.id && r.tenant
+            ? { ...r, tenant: { ...r.tenant, ktpImage } }
+            : r,
+        ),
+      );
+      toast.success("Foto KTP tersimpan", {
+        description: `Kamar ${roomNomor(room)} · tersimpan di sesi demo — dapatkan Lisensi Seumur Hidup agar tersimpan permanen di cloud.`,
+      });
+      return;
+    }
+    api
+      .updateTenantKtp(room.id, ktpImage)
+      .then(({ room: updated }) => {
+        updateRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+        toast.success("Foto KTP tersimpan", {
+          description: `Kamar ${roomNomor(room)} · dokumen identitas ${updated.tenant?.name ?? "penyewa"} tersimpan ke database & tampil di Portal Penyewa.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menyimpan foto KTP", { description: errMsg(err) }),
       );
   };
 
@@ -3529,6 +3580,7 @@ export default function IndoKostPage() {
                 onRenew={handleRenew}
                 onCheckout={handleCheckout}
                 onEditTenant={handleEditTenant}
+                onUploadTenantKtp={handleUploadTenantKtp}
                 propertyName={property}
                 propertyType={settings.propertyProfile.tipe}
               />

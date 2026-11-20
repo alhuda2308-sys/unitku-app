@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Bell,
@@ -8,6 +8,8 @@ import {
   Copy,
   DoorOpen,
   Download,
+  IdCard,
+  ImagePlus,
   Landmark,
   Link2Off,
   Megaphone,
@@ -21,8 +23,10 @@ import {
 import { toast } from "@/lib/toast";
 import { BRAND_NAME, BRAND_TAGLINE } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { api } from "@/lib/api-client";
+import { api, portalApi } from "@/lib/api-client";
+import { fileToCompressedDataUrl } from "@/lib/image-compress";
 import { formatIDR, roomNomor, type Room } from "@/lib/kost-data";
 import type { Invoice } from "@/lib/kost-invoices";
 import {
@@ -69,6 +73,9 @@ interface TenantPortalProps {
   onOpenTickets?: () => void;
   /** Membuat tiket owner-side; mengembalikan id tiket (mode pratinjau) */
   onSubmitIssue?: (draft: IssueDraft) => string;
+  /** Foto KTP penyewa SUKSES tersimpan ke database — halaman /portal memakai
+   *  ini utk memperbarui state cloud tanpa menunggu refetch 30 detik. */
+  onKtpUploaded?: (ktpImage: string) => void;
 }
 
 type PayMethod = "qris" | "bank";
@@ -245,6 +252,7 @@ export function TenantPortal({
   onExit,
   onOpenTickets,
   onSubmitIssue,
+  onKtpUploaded,
 }: TenantPortalProps) {
   // Tab pembayaran — default mengikuti ketersediaan QRIS (Scan QRIS bila
   // owner sudah mengunggah, selain itu Transfer Bank); null = belum digeser
@@ -252,6 +260,10 @@ export function TenantPortal({
   const [reportOpen, setReportOpen] = useState(false);
   /** Dismiss sementara per id — banner muncul lagi pada kunjungan berikutnya */
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
+  // ── Kartu KTP penyewa — pratinjau/zoom + unggah (portal riil dgn token)
+  const [ktpZoom, setKtpZoom] = useState(false);
+  const [ktpBusy, setKtpBusy] = useState(false);
+  const ktpInputRef = useRef<HTMLInputElement>(null);
 
   // ── Magic-link resolution: token → SATU kamar & tagihannya ────────────────
   const room = useMemo(() => resolvePortalRoom(token, rooms), [token, rooms]);
@@ -410,6 +422,37 @@ export function TenantPortal({
   const banner = view ? BANNER_META[view.bannerTone] : null;
   const bannerLead = view ? view.bannerText.split(" — ")[0] : "";
   const bannerRest = view ? view.bannerText.split(" — ").slice(1).join(" — ") : "";
+
+  /** Pilih foto KTP → kompres → simpan via POST /api/portal/ktp (magic token).
+   *  Sukses → state halaman diperbarui langsung (onKtpUploaded) sehingga foto
+   *  tampil tanpa menunggu refetch 30 detik. Hanya aktif di portal riil
+   *  (token ada) — pratinjau dashboard tidak mengubah data penyewa. */
+  const pickKtp = async (file: File | undefined) => {
+    if (!file) return;
+    if (!token) {
+      toast.info("Unggah KTP hanya di portal penyewa", {
+        description: "Buka tautan portal (/?token=…) untuk mengunggah foto KTP.",
+      });
+      return;
+    }
+    setKtpBusy(true);
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      await portalApi.uploadKtp(token, dataUrl);
+      onKtpUploaded?.(dataUrl);
+      toast.success("Foto KTP tersimpan", {
+        description: "Dokumen identitas Anda kini terlihat oleh pengelola di aplikasi.",
+        duration: 8000,
+      });
+    } catch (err: unknown) {
+      toast.error("Gagal menyimpan foto KTP", {
+        description:
+          err instanceof Error ? err.message : "Periksa koneksi internet lalu coba lagi.",
+      });
+    } finally {
+      setKtpBusy(false);
+    }
+  };
 
   // ── State 2/3/4 — kamar ter-resolve (kosong / tanpa tagihan / penuh) ───────
   return (
@@ -672,6 +715,75 @@ export function TenantPortal({
             </>
           )}
 
+          {/* ── Dokumen Identitas (KTP) — unggah/lihat ulang foto KTP penyewa ── */}
+          {tenant && (
+            <section
+              aria-label="Dokumen identitas KTP"
+              className="rounded-lg border border-border bg-white p-4"
+            >
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">
+                Dokumen Identitas (KTP)
+              </h2>
+              {tenant.ktpImage ? (
+                <div className="mt-3 space-y-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setKtpZoom(true)}
+                    className="block w-full overflow-hidden rounded-md border border-border bg-white transition-shadow hover:shadow-md"
+                    aria-label="Perbesar foto KTP"
+                  >
+                    <img
+                      src={tenant.ktpImage}
+                      alt={`Foto KTP ${tenant.name}`}
+                      className="h-44 w-full object-cover"
+                    />
+                  </button>
+                  <p className="text-[11.5px] leading-4 text-zinc-500">
+                    Foto KTP Anda sudah tersimpan &amp; terlihat oleh pengelola. Klik foto untuk perbesar.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => ktpInputRef.current?.click()}
+                    disabled={ktpBusy}
+                    className="h-10 w-full border-zinc-200 bg-white text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50 sm:h-9"
+                  >
+                    <ImagePlus className="size-3.5 text-zinc-700" strokeWidth={1.75} />
+                    {ktpBusy ? "Memproses foto…" : "Ganti Foto KTP"}
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2.5">
+                  <div className="flex items-center gap-2.5 rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-3 py-3">
+                    <IdCard className="size-5 shrink-0 text-zinc-400" strokeWidth={1.5} aria-hidden="true" />
+                    <p className="text-[12.5px] leading-snug text-zinc-700">
+                      Belum ada foto KTP terunggah. Unggah di sini agar pengelola
+                      dapat memverifikasi identitas Anda — sekali unggah, tersimpan.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => ktpInputRef.current?.click()}
+                    disabled={ktpBusy}
+                    className="h-10 w-full border-dashed border-zinc-300 bg-white text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                  >
+                    <ImagePlus className="size-3.5" strokeWidth={1.75} />
+                    {ktpBusy ? "Memproses foto…" : "Unggah Foto KTP"}
+                  </Button>
+                </div>
+              )}
+              <input
+                ref={ktpInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => void pickKtp(e.target.files?.[0])}
+                aria-label="Unggah foto KTP"
+              />
+            </section>
+          )}
+
           {/* Fasilitas — hak penyewa (kamar) + fasilitas bersama properti */}
           {tenant && (
             <section aria-label="Fasilitas kamar & properti" className="rounded-lg border border-border bg-white p-4">
@@ -742,6 +854,25 @@ export function TenantPortal({
         onSubmit={handleSubmitIssue}
         roomLabel={`Kamar ${roomNomor(room)}`}
       />
+
+      {/* Zoom foto KTP — klik thumbnail → tampil penuh */}
+      <Dialog open={ktpZoom} onOpenChange={setKtpZoom}>
+        <DialogContent
+          className="max-w-[92vw] border-border bg-white p-2 sm:max-w-[560px]"
+          aria-describedby={undefined}
+        >
+          <DialogTitle className="px-2 pt-1 text-[13.5px] font-bold tracking-tight text-zinc-900">
+            Foto KTP — {tenant?.name ?? ""}
+          </DialogTitle>
+          {tenant?.ktpImage && (
+            <img
+              src={tenant.ktpImage}
+              alt={`Foto KTP ${tenant.name} ukuran penuh`}
+              className="max-h-[70vh] w-full rounded-md object-contain"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
