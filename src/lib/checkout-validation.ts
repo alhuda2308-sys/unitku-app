@@ -119,3 +119,69 @@ export function buildManualOrderWaLink(values: CheckoutFormState): string {
   ].join("\n");
   return `https://wa.me/${SUPPORT_WA_NUMBER}?text=${encodeURIComponent(message)}`;
 }
+
+// ── Mode REFERRAL MITRA — tombol "Pesan via WhatsApp Mitra" ───────────────────
+// Saat pengunjung datang lewat link referral (?ref=…) milik mitra AKTIF yang
+// punya nomor WhatsApp terdaftar, tombol sekunder checkout TIDAK menuju WA
+// Admin pusat, melainkan WA mitra pemilik kode — agar calon pembeli dilayani
+// langsung oleh mitra (komisi & follow-up tetap milik jalur afiliasi mitra).
+
+/** Nomor WA mitra ternormalisasi 62xxxxxxxxxx + valid utk tujuan wa.me.
+ *  Menerima 08… / 62… / +62… / format ber-tanda baca; mengembalikan null bila
+ *  kosong atau bukan nomor ponsel Indonesia yang sah (8–13 digit setelah 62). */
+export function normalizeMitraWaNumber(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = normalizeWaPhone(raw);
+  return /^62[0-9]{8,13}$/.test(digits) ? digits : null;
+}
+
+/** Data mitra pemilik kode referral aktif — dibutuhkan mode tombol mitra */
+export interface MitraReferralInfo {
+  /** Kode referral versi kanonik di DB (ikut dicantumkan di pesan WA) */
+  refCode: string;
+  /** Nomor WA mitra ternormalisasi 62xxxxxxxxxx (hasil normalizeMitraWaNumber) */
+  waPhone: string;
+  /** Nama mitra — opsional, dipakai sapaan pesan & label tombol */
+  name?: string | null;
+}
+
+/**
+ * Link wa.me MITRA dengan draft pesan promo berisi kode referral + data form
+ * (jika sudah diisi). Dipakai tombol "Pesan via WhatsApp Mitra" pada modal
+ * checkout landing & halaman /checkout saat traffic referral aktif — tujuan
+ * chat = nomor WA mitra (BUKAN Admin pusat), sehingga calon pembeli dilayani
+ * langsung oleh mitra pemilik link referral.
+ *
+ * Baris data pembeli (Nama / No. WhatsApp) hanya ditambahkan bila terisi —
+ * href tetap VALID sejak render pertama (form kosong), sehingga anchor tidak
+ * pernah menunjuk pesan rusak; klik sebelum form lengkap tetap dicegah oleh
+ * handler (validasi + toast), konsisten dengan tombol Admin.
+ */
+export function buildMitraOrderWaLink(
+  values: CheckoutFormState,
+  mitra: MitraReferralInfo,
+): string {
+  const phone = normalizeWaPhone(values.phone);
+  const name = values.name.trim();
+  const mitraName = mitra.name?.trim();
+  const greeting = mitraName ? `Halo Kak ${mitraName},` : "Halo Kak,";
+  const lines = [
+    `${greeting} saya tertarik aktivasi Lisensi Seumur Hidup UnitKu (${LICENSE_PRICE_LABEL}) melalui link referral Anda (Kode: ${mitra.refCode}).`,
+  ];
+  if (name.length >= 2) {
+    lines.push("", `Nama: ${name}`);
+    if (phone) lines.push(`No. WhatsApp: ${phone}`);
+  }
+  lines.push("", "Mohon dibantu info cara pembayarannya. Terima kasih!");
+  return `https://wa.me/${mitra.waPhone}?text=${encodeURIComponent(lines.join("\n"))}`;
+}
+
+/**
+ * Label tombol sekunder mode mitra — menyertakan nama mitra bila diketahui
+ * (membangun kepercayaan: pembeli tahu chat ditujukan ke mitra referralnya).
+ * Tanpa nama → label generik "Tanya / Pesan via WhatsApp Mitra".
+ */
+export function mitraButtonLabel(mitraName?: string | null): string {
+  const name = mitraName?.trim();
+  return name ? `Pesan via WhatsApp Mitra (${name})` : "Tanya / Pesan via WhatsApp Mitra";
+}

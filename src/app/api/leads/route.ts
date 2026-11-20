@@ -2,18 +2,27 @@
 // UnitKu — Penyimpanan lead calon pembeli lisensi (server-only, publik)
 //
 // POST /api/leads
-//   Body : { name, email, phone, source? }
+//   Body : { name, email, phone, source?, ref? }
 //   Flow : validasi input (parseBuyerInput — shared dengan /api/checkout)
-//          → upsert license_leads SATU baris per email.
+//          → validasi ref opsional ke DB (resolveActiveAffiliate — hanya
+//            mitra AKTIF) → upsert license_leads SATU baris per No. WhatsApp.
 //
-// Dipanggil tombol "Pesan Manual via WhatsApp Admin" (modal landing & halaman
-// /checkout) SEBELUM membuka wa.me — sehingga Admin tetap memiliki Nama/Email/
-// No. WhatsApp terkirim rapi ke database meski user belum menyelesaikan
-// pembayaran. Juga dipakai /api/auth/register (source REGISTER).
+// ATRIBUSI REFERRAL: bila body.ref berisi kode mitra AKTIF, source lead
+// menjadi "Referral: <kode>" (bukan PESAN_MANUAL) — kolom Sumber Panel Admin
+// menunjukkan mitra pemilik link, termasuk untuk pesanan manual via tombol
+// "Pesan via WhatsApp Mitra" (data komisi manual direkonsiliasi admin).
+// Attribution guard di upsertLicenseLead menjaga atribusi lama:
+// lead yang sudah ber-source "Referral: X" TIDAK diturunkan ke sumber generik.
+//
+// Dipanggil tombol "Pesan Manual via WhatsApp Admin" / "Pesan via WhatsApp
+// Mitra" (modal landing & halaman /checkout) SEBELUM membuka wa.me — sehingga
+// Admin/Mitra tetap memiliki Nama/No. WhatsApp terkirim rapi ke database meski
+// user belum menyelesaikan pembayaran. Juga dipakai /api/auth/register.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse, after, type NextRequest } from "next/server";
 
+import { resolveActiveAffiliate } from "@/lib/affiliate-resolve";
 import { upsertLicenseLead, type LicenseLeadSource } from "@/lib/billing/license";
 import { parseBuyerInput } from "@/lib/checkout-validation";
 import { notifyAdminLeadAlert } from "@/lib/notifications/admin-lead-alert";
@@ -42,8 +51,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── Atribusi referral opsional — body.ref dari tombol manual mode mitra ───
+  // Kode divalidasi ke DB (hanya mitra AKTIF — sama dengan /api/checkout);
+  // sah → source "Referral: <kode>" agar Panel Admin melihat pemilik link.
+  // Fail-safe: kode basi/nonaktif/DB gagal → source generik, TIDAK melempar.
+  const rawRef =
+    typeof body === "object" && body !== null && "ref" in body
+      ? (body as { ref?: unknown }).ref
+      : undefined;
+  const affiliate =
+    typeof rawRef === "string" && rawRef.trim()
+      ? await resolveActiveAffiliate(rawRef).catch(() => null)
+      : null;
+  const effectiveSource: LicenseLeadSource = affiliate
+    ? `Referral: ${affiliate.refCode}`
+    : source;
+
   try {
-    const result = await upsertLicenseLead({ ...parsed.data, source });
+    const result = await upsertLicenseLead({ ...parsed.data, source: effectiveSource });
     // Lead benar-benar baru → notifikasi instan ke HP Admin via after()
     // (respons tetap kilat; kontak lama submit ulang tidak memicu alert)
     if (result.created) {
@@ -52,7 +77,7 @@ export async function POST(request: NextRequest) {
           name: parsed.data.name,
           phone: parsed.data.phone,
           email: parsed.data.email,
-          source,
+          source: effectiveSource,
           registeredAt: new Date(),
         }),
       );

@@ -13,12 +13,20 @@
 //      (placeholder "Nama Anda / Nama Kost") + Nomor WhatsApp ("08123456789"),
 //      validasi ramah (shared: src/lib/checkout-validation.ts).
 //   4. Mikro-badge garansi tepat di atas tombol bayar.
-//   5. Tombol sekunder di bawah tombol bayar: "Pesan Manual via WhatsApp
-//      Admin" — kliknya memvalidasi form, menyimpan lead (POST /api/leads,
-//      fire-and-forget) lalu membuka wa.me Admin dengan pesan promo (anchor
-//      native, imun pop-up blocker). Tombol utama POST /api/checkout membuat
-//      invoice Mayar per-pembeli (lead tersimpan di server SEBELUM redirect);
-//      webhook /api/webhooks/mayar mengaktifkan lisensi.
+//   5. Tombol sekunder di bawah tombol bayar — TARGET DINAMIS:
+//        • Referral mitra AKTIF (cookie `unitku_ref` → /api/affiliate/lookup,
+//          validasi DB) + mitra punya No. WA → "Pesan via WhatsApp Mitra
+//          (Nama)" → wa.me MITRA dgn pesan otomatis berisi kode referral +
+//          data form — calon pembeli dilayani mitra pemilik link (laporan
+//          mitra: jualan tidak lepas ke chat Admin). Lead tetap tersimpan
+//          ber-source "Referral: <kode>" (POST /api/leads).
+//        • Organik / mitra tanpa No. WA / lookup gagal → fallback "Pesan
+//          Manual via WhatsApp Admin (085187813569)" → wa.me Admin.
+//        Keduanya memvalidasi form, menyimpan lead (POST /api/leads,
+//        fire-and-forget) lalu membuka wa.me (anchor native, imun pop-up
+//        blocker). Tombol utama POST /api/checkout membuat invoice Mayar
+//        per-pembeli (lead tersimpan di server SEBELUM redirect); webhook
+//        /api/webhooks/mayar mengaktifkan lisensi.
 //
 // DOCTRINE META PIXEL (akurat, tidak bias):
 //   - Membuka modal BUKAN konversi → tombol CTA hanya menembakkan event
@@ -26,11 +34,11 @@
 //   - fbq('track','InitiateCheckout') ditembakkan TEPAT SEKALI per submit
 //     form dan HANYA pada dua momen sah: (a) tombol bayar utama sukses —
 //     lead sudah tersimpan di license_leads oleh server sebelum redirect ke
-//     halaman pembayaran; ATAU (b) tombol "Pesan Manual via WhatsApp Admin"
-//     diklik dengan form valid. Ref guard mencegah event dobel.
+//     halaman pembayaran; ATAU (b) tombol manual (Admin/Mitra) diklik dengan
+//     form valid. Ref guard mencegah event dobel.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useRef, useState, type FormEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import {
   Landmark,
   Loader2,
@@ -52,11 +60,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   EMPTY_CHECKOUT_FORM,
+  buildMitraOrderWaLink,
+  mitraButtonLabel,
   validateCheckoutBuyer,
   type CheckoutFieldErrors,
   type CheckoutFormState,
+  type MitraReferralInfo,
 } from "@/lib/checkout-validation";
-import { getAffiliateRef } from "@/lib/affiliate";
+import { getAffiliateRef, sanitizeAffiliateRef } from "@/lib/affiliate";
 import {
   LICENSE_AMOUNT_IDR,
   LICENSE_PRICE_LABEL,
@@ -69,6 +80,51 @@ import { toast } from "@/lib/toast";
 const PRICE_LABEL = LICENSE_PRICE_LABEL.startsWith("Rp")
   ? `Rp ${LICENSE_PRICE_LABEL.slice(2).trim()}`
   : LICENSE_PRICE_LABEL;
+
+// ── Lookup mitra referral (client) — DEDUP per halaman ───────────────────────
+// Landing memasang BANYAK instance <BuyCta> (hero, bento, testimoni, final
+// CTA, sticky demo bar). Cache Promise per kode referral di level modul agar
+// SEMUA instance berbagi SATU request jaringan; hasil negatif (found:false /
+// gagal) ikut di-cache sesi ini — tidak ada retry spam saat scroll.
+const mitraLookupCache = new Map<string, Promise<MitraReferralInfo | null>>();
+
+function fetchMitraReferral(refCode: string): Promise<MitraReferralInfo | null> {
+  const cached = mitraLookupCache.get(refCode);
+  if (cached) return cached;
+
+  const promise = fetch(
+    `/api/affiliate/lookup?ref=${encodeURIComponent(refCode)}`,
+    { headers: { Accept: "application/json" } },
+  )
+    .then(async (res) => {
+      if (!res.ok) return null;
+      const data: {
+        found?: boolean;
+        refCode?: string;
+        name?: string;
+        waPhone?: string | null;
+      } = await res.json().catch(() => ({}));
+      // Hanya mitra AKTIF dgn No. WA sah yang mengaktifkan mode mitra —
+      // kode mati (found:false) / tanpa nomor → null → fallback WA Admin.
+      if (
+        data.found &&
+        typeof data.refCode === "string" &&
+        typeof data.waPhone === "string" &&
+        data.waPhone
+      ) {
+        return {
+          refCode: data.refCode,
+          waPhone: data.waPhone,
+          name: typeof data.name === "string" ? data.name : null,
+        } satisfies MitraReferralInfo;
+      }
+      return null;
+    })
+    .catch(() => null);
+
+  mitraLookupCache.set(refCode, promise);
+  return promise;
+}
 
 interface BuyCtaProps {
   className?: string;
@@ -88,6 +144,29 @@ export function BuyCta({
   const [form, setForm] = useState<CheckoutFormState>(EMPTY_CHECKOUT_FORM);
   const [fieldErrors, setFieldErrors] = useState<CheckoutFieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
+
+  /** Kode referral dari cookie `unitku_ref` (dibaca SESUDAH hidrasi —
+   *  di-set middleware saat kunjungan /?ref=…). null = organik. */
+  const [referral, setReferral] = useState<string | null>(null);
+  /** Info mitra pemilik referral AKTIF + No. WA sah (lookup server) — null =
+   *  organik / mitra tanpa nomor / lookup gagal → fallback WA Admin. */
+  const [mitra, setMitra] = useState<MitraReferralInfo | null>(null);
+
+  // Ambil kode referral dari cookie lalu lookup mitra SEKALI per halaman —
+  // selesai umumnya sebelum user sempat membuka modal (fetch < 100 ms),
+  // sehingga tombol sudah mode Mitra tanpa terlihat berkedip.
+  useEffect(() => {
+    const code = sanitizeAffiliateRef(getAffiliateRef());
+    if (!code) return;
+    setReferral(code);
+    let alive = true;
+    void fetchMitraReferral(code).then((info) => {
+      if (alive && info) setMitra(info);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   /** Guard anti-dobel: InitiateCheckout TEPAT SEKALI per submit form.
    *  Ref di-reset di awal tiap percobaan submit baru (klik bayar / klik WA
@@ -130,9 +209,9 @@ export function BuyCta({
     });
   };
 
-  /** Klik tombol sekunder "Pesan Manual via WhatsApp Admin" — simpan lead
-   *  (Nama + No. WhatsApp) dulu (non-blocking), lalu buka WA Admin dengan
-   *  pesan promo. Anchor native → imun pop-up blocker.
+  /** Klik tombol sekunder ("Pesan via WhatsApp Mitra" / "Pesan Manual via
+   *  WhatsApp Admin") — simpan lead (Nama + No. WhatsApp) dulu (non-blocking),
+   *  lalu buka WhatsApp dgn pesan promo. Anchor native → imun pop-up blocker.
    *  Momen sah (b) InitiateCheckout: klik VALID ini = submit form manual →
    *  event ditembakkan tepat sekali untuk percobaan submit ini. */
   const handleManualOrder = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -150,7 +229,9 @@ export function BuyCta({
     fireInitiateCheckoutOnce();
 
     // Simpan lead SEBELUM membuka WhatsApp — fire-and-forget agar anchor
-    // native (imun pop-up blocker) tetap berjalan tanpa jeda.
+    // native (imun pop-up blocker) tetap berjalan tanpa jeda. Kode referral
+    // diteruskan EKSPLISIT bila ada — server memvalidasi ke DB → source lead
+    // "Referral: <kode>" (atribusi mitra tercatat utk pesanan manual).
     void fetch("/api/leads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -158,11 +239,16 @@ export function BuyCta({
         name: form.name.trim(),
         phone: form.phone,
         source: "PESAN_MANUAL",
+        ...(referral ? { ref: referral } : {}),
       }),
     })
       .then(async (res) => {
         if (res.ok) {
-          toast.success("Data kontak tersimpan — membuka WhatsApp Admin…");
+          toast.success(
+            mitra
+              ? "Data kontak tersimpan — membuka WhatsApp Mitra…"
+              : "Data kontak tersimpan — membuka WhatsApp Admin…",
+          );
         } else {
           toast.warning(
             "Gagal menyimpan data ke server — chat WhatsApp tetap dibuka.",
@@ -415,14 +501,19 @@ export function BuyCta({
             </Button>
 
             {/* ── Tombol sekunder — jalan keluar bagi yang ragu ──
-                Simpan lead (Nama + No. WA) lalu buka WA Admin dgn pesan promo */}
+                Target dinamis: WA MITRA (referral aktif + No. WA tersedia)
+                atau WA ADMIN (fallback) — keduanya simpan lead dulu */}
             <Button
               asChild
               variant="outline"
               className="h-auto min-h-11 w-full whitespace-normal border-green-600 px-3 py-2.5 text-[13px] font-bold leading-snug text-green-700 hover:bg-green-50 hover:text-green-800"
             >
               <a
-                href={SUPPORT_WA_MANUAL_PROMO_LINK}
+                href={
+                  mitra
+                    ? buildMitraOrderWaLink(form, mitra)
+                    : SUPPORT_WA_MANUAL_PROMO_LINK
+                }
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={handleManualOrder}
@@ -432,7 +523,9 @@ export function BuyCta({
                   strokeWidth={1.75}
                   aria-hidden="true"
                 />
-                Pesan Manual via WhatsApp Admin ({SUPPORT_WA_DISPLAY})
+                {mitra
+                  ? mitraButtonLabel(mitra.name)
+                  : `Pesan Manual via WhatsApp Admin (${SUPPORT_WA_DISPLAY})`}
               </a>
             </Button>
           </form>

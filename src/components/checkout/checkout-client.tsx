@@ -9,7 +9,7 @@
 //   2. Form ZERO FRICTION — HANYA 2 input (email dihapus sepenuhnya):
 //      Nama Lengkap + Nomor WhatsApp. Validasi SHARED yang sama dengan modal
 //      checkout (src/lib/checkout-validation.ts, cermin validasi server).
-//   3. Dua aksi seimbang (ORGANIK) / SATU aksi penuh (REFERRAL MITRA):
+//   3. Dua aksi seimbang — tombol sekunder TARGET DINAMIS:
 //      - Primary  : "Bayar Otomatis (QRIS / VA / E-Wallet)" → POST /api/checkout
 //                   (Route Handler internal — SUMBER TUNGGAL invoice Mayar):
 //                   server menyimpan lead dulu, membuat invoice per-pembeli
@@ -21,17 +21,18 @@
 //                   param referral (?ref=…&affiliate_ref=…) dan client
 //                   LANGSUNG me-redirect pembeli ke sana — tidak pernah
 //                   terhenti di layar error.
-//      - Sekunder : "Pesan Manual via WhatsApp Admin" → VALIDASI form →
-//                   POST /api/leads (simpan kontak — fire-and-forget) → wa.me
-//                   Admin (anchor native, imun pop-up blocker).
-//                   ⚠ HANYA tampil bila TANPA referral: halaman dibuka dgn
-//                   ?ref= (link mitra) / cookie `unitku_ref` → tombol manual
-//                   DISEMBUNYIKAN dan "Bayar Otomatis" tampil penuh (w-full)
-//                   — mencegah kebocoran komisi mitra ke chat manual:
-//                   transaksi referral WAJIB melewati payment gateway Mayar
-//                   agar extraData.affiliate_ref terkirim (komisi tercatat).
-//                   Kode referral diteruskan EKSPLISIT di body checkout
-//                   (prioritas server di atas cookie).
+//      - Sekunder : selalu tampil, target mengikuti status referral:
+//          • Referral AKTIF + mitra punya No. WA terdaftar →
+//            "Pesan via WhatsApp Mitra (Nama)" → wa.me MITRA (bukan Admin
+//            pusat) dgn pesan otomatis berisi kode referral + data form —
+//            calon pembeli dilayani mitra pemilik link (laporan mitra:
+//            komisi/jualan tidak lepas ke chat Admin). Kode referral tetap
+//            diteruskan eksplisit ke POST /api/leads (source
+//            "Referral: <kode>") dan POST /api/checkout.
+//          • Organik / mitra tanpa No. WA → "Pesan Manual via WhatsApp
+//            Admin (085187813569)" → wa.me Admin.
+//          Keduanya: VALIDASI form → POST /api/leads (simpan kontak —
+//          fire-and-forget) → wa.me (anchor native, imun pop-up blocker).
 //   4. Catatan jaminan di bawah tombol.
 //
 // DOCTRINE META PIXEL (akurat, tidak bias — identik dgn modal checkout):
@@ -39,8 +40,7 @@
 //   - fbq('track','InitiateCheckout') ditembakkan TEPAT SEKALI per klik
 //     tombol bayar dan HANYA pada dua momen sah: (a) invoice /api/checkout
 //     sukses dibuat — pembeli memasuki checkout Mayar; ATAU (b) tombol
-//     "Pesan Manual via WhatsApp Admin" diklik dgn form valid (organik saja —
-//     tombol disembunyikan pada traffic referral).
+//     manual (Admin/Mitra) diklik dgn form valid.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
@@ -64,12 +64,19 @@ import { Label } from "@/components/ui/label";
 import {
   EMPTY_CHECKOUT_FORM,
   buildManualOrderWaLink,
+  buildMitraOrderWaLink,
+  mitraButtonLabel,
   validateCheckoutBuyer,
   type CheckoutFieldErrors,
   type CheckoutFormState,
+  type MitraReferralInfo,
 } from "@/lib/checkout-validation";
 import { sanitizeAffiliateRef } from "@/lib/affiliate";
-import { LICENSE_AMOUNT_IDR, SUPPORT_WA_PURCHASE_LINK } from "@/lib/landing-config";
+import {
+  LICENSE_AMOUNT_IDR,
+  SUPPORT_WA_DISPLAY,
+  SUPPORT_WA_PURCHASE_LINK,
+} from "@/lib/landing-config";
 import { toast } from "@/lib/toast";
 
 /** Harga referensi sebelum diskon (dicoret) — tampilan iklan early adopter */
@@ -86,9 +93,14 @@ const BENEFITS = [
 
 export function CheckoutClient({
   initialRef,
+  mitraWa = null,
 }: {
   /** Kode referral dari ?ref=/ref_code= URL — dibaca Server Component page */
   initialRef?: string | null;
+  /** Info mitra pemilik referral AKTIF (nama + No. WA ternormalisasi 62…) —
+   *  sudah divalidasi & dinormalisasi Server Component page; waPhone "" =
+   *  mitra tidak punya nomor WA sah → tombol jatuh ke fallback WA Admin. */
+  mitraWa?: MitraReferralInfo | null;
 }) {
   const [form, setForm] = useState<CheckoutFormState>(EMPTY_CHECKOUT_FORM);
   const [fieldErrors, setFieldErrors] = useState<CheckoutFieldErrors>({});
@@ -106,11 +118,12 @@ export function CheckoutClient({
     sanitizeAffiliateRef(initialRef),
   );
 
-  /** true = traffic referral mitra → SEMBUNYIKAN tombol "Pesan Manual via
-   *  WhatsApp Admin" (komisi mitra tidak boleh bocor ke chat manual) dan
-   *  tampilkan "Bayar Otomatis" penuh — transaksi wajib via Mayar agar
-   *  extraData.affiliate_ref terkirim ke webhook komisi. */
-  const hasReferral = referral !== null;
+  /** Mode MITRA: referral aktif DAN mitra punya No. WA sah → tombol sekunder
+   *  menuju wa.me MITRA (bukan Admin pusat) — calon pembeli dilayani langsung
+   *  oleh pemilik link referral. Tanpa salah satu syarat → fallback Admin.
+   *  (mitraWa hanya non-null bila referral SUDAH tervalidasi aktif di server,
+   *  jadi cukup cek nomor WA-nya.) */
+  const mitraMode = mitraWa?.waPhone ? mitraWa : null;
 
   /** Guard anti-dobel: InitiateCheckout TEPAT SEKALI per submit form.
    *  Ref di-reset di awal tiap percobaan submit baru, lalu event hanya
@@ -142,16 +155,21 @@ export function CheckoutClient({
     });
   };
 
-  // Link WA manual mengikuti isi form (draft pesan terisi otomatis);
-  // fallback link default selama form belum valid (tak pernah dinavigasi —
-  // klik dicegah handleManualOrder bila form belum lengkap).
+  // Link WA manual mengikuti isi form (draft pesan terisi otomatis).
+  // Mode mitra → buildMitraOrderWaLink valid sejak form kosong (baris data
+  // pembeli menyusul saat terisi); mode Admin → fallback link statis selama
+  // form belum valid (tak pernah dinavigasi — klik dicegah handleManualOrder
+  // bila form belum lengkap).
   const formValid =
     Object.keys(validateCheckoutBuyer(form)).length === 0;
-  const manualWaHref = formValid
-    ? buildManualOrderWaLink(form)
-    : SUPPORT_WA_PURCHASE_LINK;
+  const manualWaHref = mitraMode
+    ? buildMitraOrderWaLink(form, mitraMode)
+    : formValid
+      ? buildManualOrderWaLink(form)
+      : SUPPORT_WA_PURCHASE_LINK;
 
-  /** Klik "Pesan Manual" — simpan lead dulu (non-blocking), lalu buka WA Admin.
+  /** Klik tombol sekunder ("Pesan via WhatsApp Mitra" / "Pesan Manual via
+   *  WhatsApp Admin") — simpan lead dulu (non-blocking), lalu buka WhatsApp.
    *  Momen sah (b) InitiateCheckout: klik VALID ini = submit form manual →
    *  event ditembakkan tepat sekali untuk percobaan submit ini. */
   const handleManualOrder = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -169,7 +187,9 @@ export function CheckoutClient({
     fireInitiateCheckoutOnce();
 
     // Simpan lead SEBELUM membuka WhatsApp — fire-and-forget agar anchor
-    // native (imun pop-up blocker) tetap berjalan tanpa jeda.
+    // native (imun pop-up blocker) tetap berjalan tanpa jeda. Kode referral
+    // diteruskan EKSPLISIT bila ada — server memvalidasi ke DB → source lead
+    // "Referral: <kode>" (atribusi mitra tercatat utk pesanan manual).
     void fetch("/api/leads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -177,11 +197,16 @@ export function CheckoutClient({
         name: form.name.trim(),
         phone: form.phone,
         source: "PESAN_MANUAL",
+        ...(referral ? { ref: referral } : {}),
       }),
     })
       .then(async (res) => {
         if (res.ok) {
-          toast.success("Data kontak tersimpan — membuka WhatsApp Admin…");
+          toast.success(
+            mitraMode
+              ? "Data kontak tersimpan — membuka WhatsApp Mitra…"
+              : "Data kontak tersimpan — membuka WhatsApp Admin…",
+          );
         } else {
           toast.warning(
             "Gagal menyimpan data ke server — chat WhatsApp tetap dibuka.",
@@ -441,15 +466,9 @@ export function CheckoutClient({
                 )}
               </div>
 
-              {/* Aksi: referral → Bayar Otomatis penuh (1 kolom); organik →
-                  dua aksi seimbang (checkout otomatis & manual via WA) */}
-              <div
-                className={
-                  hasReferral
-                    ? "grid grid-cols-1 gap-2.5 pt-1"
-                    : "grid grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2"
-                }
-              >
+              {/* Aksi: dua tombol seimbang — sekunder dinamis (Mitra saat
+                  referral aktif + No. WA tersedia, selain itu Admin) */}
+              <div className="grid grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2">
                 <Button
                   type="button"
                   onClick={() => void handleAutoPay()}
@@ -476,27 +495,27 @@ export function CheckoutClient({
                     </>
                   )}
                 </Button>
-                {!hasReferral && (
-                  <Button
-                    asChild
-                    variant="outline"
-                    className="h-auto min-h-12 whitespace-normal border-green-600 px-3 py-2.5 text-[13px] font-bold leading-snug text-green-700 hover:bg-green-50 hover:text-green-800"
+                <Button
+                  asChild
+                  variant="outline"
+                  className="h-auto min-h-12 whitespace-normal border-green-600 px-3 py-2.5 text-[13px] font-bold leading-snug text-green-700 hover:bg-green-50 hover:text-green-800"
+                >
+                  <a
+                    href={manualWaHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleManualOrder}
                   >
-                    <a
-                      href={manualWaHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={handleManualOrder}
-                    >
-                      <MessageCircle
-                        className="size-4 shrink-0"
-                        strokeWidth={1.75}
-                        aria-hidden="true"
-                      />
-                      Pesan Manual via WhatsApp Admin
-                    </a>
-                  </Button>
-                )}
+                    <MessageCircle
+                      className="size-4 shrink-0"
+                      strokeWidth={1.75}
+                      aria-hidden="true"
+                    />
+                    {mitraMode
+                      ? mitraButtonLabel(mitraMode.name)
+                      : `Pesan Manual via WhatsApp Admin (${SUPPORT_WA_DISPLAY})`}
+                  </a>
+                </Button>
               </div>
 
               {/* Jaminan & keamanan */}

@@ -20,17 +20,19 @@
 //     menyusul HANYA saat tombol bayar diklik (lihat checkout-client.tsx).
 //
 // Alur pembelian (lihat checkout-client.tsx):
-//   Traffic REFERRAL MITRA: tombol "Pesan Manual via WhatsApp Admin"
-//   disembunyikan, "Bayar Otomatis" tampil penuh — transaksi wajib via Mayar
-//   agar komisi mitra tercatat (extraData.affiliate_ref).
+//   Tombol sekunder selalu tampil, targetnya DINAMIS:
+//   - Traffic REFERRAL MITRA dgn No. WA terdaftar → "Pesan via WhatsApp
+//     Mitra (Nama)" → wa.me MITRA (bukan Admin pusat) — pesan otomatis
+//     memuat kode referral + data form; lead tersimpan ber-source
+//     "Referral: <kode>". Komisi manual direkonsiliasi admin.
+//   - Organik / mitra tanpa No. WA → "Pesan Manual via WhatsApp Admin
+//     (085187813569)" → wa.me Admin.
 //   Tombol "Bayar Otomatis" → POST /api/checkout (Route Handler internal):
 //   server menyimpan lead (source "Referral: <kode>" bila mitra aktif),
 //   membuat invoice Mayar per-pembeli dgn extraData.affiliate_ref, lalu
 //   redirect ke URL pembayaran Mayar. Fallback 503: link statis Mayar dgn
-//   query param referral. Tombol "Pesan Manual via WhatsApp Admin" (organik
-//   saja) → POST /api/leads → wa.me Admin.
-//   Pembayaran sukses → webhook /api/webhooks/mayar → lisensi aktif otomatis
-//   + komisi afiliasi Rp150.000 tercatat.
+//   query param referral. Pembayaran sukses → webhook /api/webhooks/mayar →
+//   lisensi aktif otomatis + komisi afiliasi Rp150.000 tercatat.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Metadata } from "next";
@@ -39,6 +41,8 @@ import { CheckoutClient } from "@/components/checkout/checkout-client";
 import { FacebookPixel } from "@/components/checkout/facebook-pixel";
 import { resolveActiveAffiliate } from "@/lib/affiliate-resolve";
 import { getAffiliateRefServer } from "@/lib/affiliate-server";
+import { normalizeMitraWaNumber } from "@/lib/checkout-validation";
+import type { MitraReferralInfo } from "@/lib/checkout-validation";
 
 export const metadata: Metadata = {
   title: "Checkout Lisensi UnitKu - Sekali Bayar",
@@ -69,10 +73,23 @@ export default async function CheckoutPage({ searchParams }: CheckoutPageProps) 
   const resolved = await resolveActiveAffiliate(rawRef);
   const initialRef = resolved?.refCode ?? null;
 
+  // Info mitra utk tombol "Pesan via WhatsApp Mitra" — nomor WA dinormalisasi
+  // SEKALI di server (08…/62…/+62… → 62xxxxxxxxxx); null bila mitra tidak
+  // punya nomor sah → tombol jatuh ke fallback WA Admin di client. TANPA
+  // fetch tambahan di client: render pertama sudah tahu status mitra (tanpa
+  // layout shift), data sensitif (email/saldo/rekening) tidak pernah keluar.
+  const mitraWa: MitraReferralInfo | null = resolved
+    ? {
+        refCode: resolved.refCode,
+        name: resolved.name,
+        waPhone: normalizeMitraWaNumber(resolved.phone) ?? "",
+      }
+    : null;
+
   return (
     <>
       <FacebookPixel />
-      <CheckoutClient initialRef={initialRef} />
+      <CheckoutClient initialRef={initialRef} mitraWa={mitraWa} />
     </>
   );
 }

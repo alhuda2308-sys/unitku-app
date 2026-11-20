@@ -6,6 +6,9 @@
 //   • POST /api/auth/register  → source lead "Referral: <kode>" / "Organik (Web)"
 //   • POST /api/checkout       → source lead "Referral: <kode>" / "BAYAR_OTOMATIS"
 //                                + extraData.affiliate_ref invoice Mayar
+//   • GET /api/affiliate/lookup → WA mitra utk tombol "Pesan via WhatsApp
+//                                Mitra" (modal checkout & halaman /checkout)
+//   • Halaman /checkout (RSC)  → info mitra (nama + WA) via props ke client
 //
 // Pencocokan CASE-INSENSITIVE: link mitra disebar lowercase (?ref=budi2026)
 // tetap cocok dengan refCode campuran di DB ("Budi2026" — input admin lama).
@@ -23,6 +26,10 @@ export interface ResolvedAffiliate {
   name: string;
   /** Kode referral versi kanonik di DB */
   refCode: string;
+  /** Nomor WhatsApp mitra MENTAH dari DB (bisa null — kolom opsional).
+   *  PEMANGGIL wajib menormalisasi dulu (normalizeMitraWaNumber) sebelum
+   *  dipakai sebagai tujuan wa.me — jangan pakai langsung. */
+  phone: string | null;
 }
 
 /**
@@ -40,10 +47,15 @@ export async function resolveActiveAffiliate(
     // case; ambil varian AKTIF bila ada duplikat case di data lama.
     const matches = await db.affiliate.findMany({
       where: { refCode: { equals: code, mode: "insensitive" } },
-      select: { name: true, refCode: true, isActive: true },
+      select: { name: true, refCode: true, isActive: true, phone: true },
     });
     const active = matches.find((m) => m.isActive);
-    if (active) return { name: active.name, refCode: active.refCode };
+    if (active)
+      return {
+        name: active.name,
+        refCode: active.refCode,
+        phone: active.phone ?? null,
+      };
     if (matches.length > 0) return null; // hanya varian nonaktif → organik
   } catch (error) {
     // Fallback provider DB tanpa mode "insensitive": exact → lowercase
@@ -57,10 +69,14 @@ export async function resolveActiveAffiliate(
       try {
         const mitra = await db.affiliate.findUnique({
           where: { refCode: candidate },
-          select: { name: true, refCode: true, isActive: true },
+          select: { name: true, refCode: true, isActive: true, phone: true },
         });
         if (mitra && mitra.isActive) {
-          return { name: mitra.name, refCode: mitra.refCode };
+          return {
+            name: mitra.name,
+            refCode: mitra.refCode,
+            phone: mitra.phone ?? null,
+          };
         }
         if (mitra && !mitra.isActive) return null; // mitra nonaktif → organik
       } catch {
