@@ -1,17 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
 import {
   BadgeCheck,
   CalendarClock,
-  IdCard,
-  ImagePlus,
   MessageCircle,
   PencilLine,
   PhoneCall,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
@@ -33,11 +29,10 @@ import {
   waLink,
   type Room,
 } from "@/lib/kost-data";
-import { fileToCompressedDataUrl } from "@/lib/image-compress";
-import { toast } from "@/lib/toast";
 import { billingDueOf, contractDaysLeft, contractEndOf } from "@/lib/room-status";
 import { INVOICE_STATUS_META, type Invoice } from "@/lib/kost-invoices";
 import { cn } from "@/lib/utils";
+import { KtpDocumentCard } from "./ktp-document-card";
 import { PortalAccessCard } from "./portal-access-card";
 
 interface TenantDetailDrawerProps {
@@ -82,26 +77,6 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 
 export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onCheckout, invoices, propertyName, onEdit, onUploadKtp }: TenantDetailDrawerProps) {
   const history = room ? invoices.filter((i) => i.roomId === room.id) : [];
-  // Zoom KTP — pola foto tiket (maintenance-panel): klik thumbnail → Dialog
-  const [ktpZoom, setKtpZoom] = useState(false);
-  const [ktpBusy, setKtpBusy] = useState(false);
-  const ktpInputRef = useRef<HTMLInputElement>(null);
-
-  /** Pilih foto KTP baru → kompres → simpan via handler parent (API) */
-  const pickKtp = async (file: File | undefined) => {
-    if (!file || !room) return;
-    setKtpBusy(true);
-    try {
-      const dataUrl = await fileToCompressedDataUrl(file);
-      await onUploadKtp?.(room, dataUrl);
-    } catch {
-      toast.error("Gagal memproses foto", {
-        description: "Coba file JPG/PNG lain atau ambil ulang foto KTP.",
-      });
-    } finally {
-      setKtpBusy(false);
-    }
-  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -301,71 +276,10 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
                 </div>
               </SectionCard>
 
-              {/* Dokumen identitas (KTP) — pratinjau + zoom + unggah manual owner */}
-              <SectionCard title="Dokumen Identitas (KTP)">
-                {room.tenant.ktpImage ? (
-                  <div className="space-y-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setKtpZoom(true)}
-                      className="block w-full overflow-hidden rounded-md border border-border bg-white transition-shadow hover:shadow-md"
-                      aria-label="Perbesar foto KTP"
-                    >
-                      <img
-                        src={room.tenant.ktpImage}
-                        alt={`Foto KTP ${room.tenant.name}`}
-                        className="h-44 w-full object-cover"
-                      />
-                    </button>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[11.5px] leading-4 text-zinc-500">
-                        Klik foto untuk perbesar.
-                      </p>
-                      <div className="flex shrink-0 gap-1.5">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => ktpInputRef.current?.click()}
-                          disabled={ktpBusy}
-                          className="h-7 border-zinc-200 bg-white px-2 text-xs font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
-                        >
-                          <ImagePlus className="size-3" strokeWidth={1.75} aria-hidden="true" />
-                          {ktpBusy ? "Memproses…" : "Ganti Foto"}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2.5">
-                    <div className="flex items-center gap-2.5 rounded-md border border-dashed border-zinc-300 bg-zinc-50 px-3 py-3">
-                      <IdCard className="size-5 shrink-0 text-zinc-400" strokeWidth={1.5} aria-hidden="true" />
-                      <p className="text-[12.5px] leading-snug text-zinc-700">
-                        Belum ada foto KTP — unggah manual di sini atau minta penyewa
-                        unggah lewat Portal Penyewa.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => ktpInputRef.current?.click()}
-                      disabled={ktpBusy}
-                      className="h-8 w-full border-dashed border-zinc-300 bg-white text-[12.5px] font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
-                    >
-                      <ImagePlus className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
-                      {ktpBusy ? "Memproses foto…" : "Unggah Foto KTP"}
-                    </Button>
-                  </div>
-                )}
-                <input
-                  ref={ktpInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => void pickKtp(e.target.files?.[0])}
-                  aria-label="Unggah foto KTP"
-                />
-              </SectionCard>
+              {/* Dokumen identitas (KTP) — kartu BERSAMA semua tampilan detail
+                  (menu Penghuni & klik kamar di Denah): pratinjau + zoom +
+                  unggah/ganti manual oleh owner (tenants.ktpImage). */}
+              <KtpDocumentCard room={room} onUpload={onUploadKtp} />
 
               {/* Magic token link & QR portal penyewa */}
               <PortalAccessCard room={room} propertyName={propertyName} />
@@ -462,25 +376,6 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
           </>
         )}
       </SheetContent>
-
-      {/* Zoom foto KTP — klik thumbnail/kartu KTP → tampil penuh */}
-      <Dialog open={ktpZoom} onOpenChange={setKtpZoom}>
-        <DialogContent
-          className="max-w-[92vw] border-border bg-white p-2 sm:max-w-[560px]"
-          aria-describedby={undefined}
-        >
-          <DialogTitle className="px-2 pt-1 text-[13.5px] font-bold tracking-tight text-zinc-900">
-            Foto KTP — {room?.tenant?.name ?? ""}
-          </DialogTitle>
-          {room?.tenant?.ktpImage && (
-            <img
-              src={room.tenant.ktpImage}
-              alt={`Foto KTP ${room.tenant.name} ukuran penuh`}
-              className="max-h-[70vh] w-full rounded-md object-contain"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </Sheet>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { BadgeCheck, DoorOpen, Megaphone, MessageCircle, PhoneCall } from "lucide-react";
+import { BadgeCheck, DoorOpen, Megaphone, MessageCircle, PencilLine, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { adCtaLabel, adPropertyScope } from "@/lib/ad-generator";
 import { billingDueOf } from "@/lib/room-status";
 import { FacilityBadge } from "./facility-badge";
+import { KtpDocumentCard } from "./ktp-document-card";
 import { PortalAccessCard } from "./portal-access-card";
 
 interface RoomDrawerProps {
@@ -42,6 +43,13 @@ interface RoomDrawerProps {
   canManage?: boolean;
   /** Tipe properti aktif — label CTA iklan adaptif (Kamar/Kontrakan/Unit) */
   propertyType?: string;
+  /** Buka dialog "Edit Data Penghuni" — dipakai tombol pensil di baris Uang
+   *  Deposit (revisi nominal/status cepat — paritas dgn Detail Penghuni di
+   *  menu Penghuni; hanya tampil utk peran owner/canManage). */
+  onEdit?: (room: Room) => void;
+  /** Unggah/ganti foto KTP oleh owner dari kartu "Dokumen Identitas (KTP)"
+   *  — tersimpan ke tenants.ktpImage lalu UI ter-update dari respons. */
+  onUploadKtp?: (room: Room, ktpImage: string) => Promise<void> | void;
 }
 
 function SectionCard({
@@ -99,6 +107,8 @@ export function RoomDrawer({
   canManage = true,
   propertyName,
   propertyType,
+  onEdit,
+  onUploadKtp,
 }: RoomDrawerProps) {
   // Cabang UI mengikuti KEHADIRAN PENYEWA (bukan status) — data anomali
   // (status ≠ "kosong" tanpa tenant) tidak boleh menghancurkan drawer.
@@ -312,10 +322,10 @@ export function RoomDrawer({
                     )}
                   </SectionCard>
 
-                  {/* Contract — room.contract opsional (penyewa lama/kamar
-                      tanpa kontrak tercatat) — tanpa guard drawer crash saat
-                      membuka detail kamar. */}
-                  <SectionCard title="Kontrak Sewa">
+                  {/* Kontrak & deposit — judul & isi SELARAS dgn kartu "Kontrak
+                      & Deposit" drawer Detail Penghuni (menu Penghuni) agar
+                      kedua jalur detail identik. */}
+                  <SectionCard title="Kontrak & Deposit">
                     <div className="space-y-3">
                       <InfoRow label="Durasi Sewa">{room.contract?.duration ?? "—"}</InfoRow>
                       <InfoRow label="Tagihan Berikutnya">
@@ -354,10 +364,30 @@ export function RoomDrawer({
                           >
                             {DEPOSIT_STATUS_LABELS[depositStatusOf(room.contract)]}
                           </span>
+                          {canManage && onEdit && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onOpenChange(false);
+                                onEdit(room);
+                              }}
+                              className="inline-flex h-6 items-center gap-1 rounded-md border border-zinc-200 bg-white px-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50"
+                              aria-label="Edit nominal & status deposit"
+                              title="Edit nominal & status deposit"
+                            >
+                              <PencilLine className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                              Edit
+                            </button>
+                          )}
                         </span>
                       </InfoRow>
                     </div>
                   </SectionCard>
+
+                  {/* Dokumen identitas (KTP) — kartu BERSAMA semua tampilan
+                      detail: tepat di bawah "Kontrak & Deposit", di atas
+                      "Akses Portal Penyewa" (pratinjau + zoom + unggah owner). */}
+                  <KtpDocumentCard room={room} canManage={canManage} onUpload={onUploadKtp} />
 
                   {/* Fasilitas kamar — badge pill flex-wrap */}
                   {(room.facilities?.length ?? 0) > 0 && (

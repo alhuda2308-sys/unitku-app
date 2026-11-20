@@ -52,6 +52,7 @@ import { DemoConvertBar } from "@/components/landing/demo-convert-bar";
 import { MetricStrip } from "@/components/kost/metric-strip";
 import { RoomMatrix, type TabValue } from "@/components/kost/room-matrix";
 import { RoomDrawer } from "@/components/kost/room-drawer";
+import { TenantEditDialog } from "@/components/kost/tenant-edit-dialog";
 import { TagihanView } from "@/components/kost/tagihan-view";
 import { MaintenancePanel } from "@/components/kost/maintenance-panel";
 import { AnnouncementPanel } from "@/components/kost/announcement-panel";
@@ -337,6 +338,9 @@ export default function IndoKostPage() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  /** Dialog "Edit Data Penghuni" jalur Denah — dibuka dari tombol pensil di
+   *  baris Uang Deposit RoomDrawer (paritas dgn jalur menu Penghuni). */
+  const [drawerEditRoomId, setDrawerEditRoomId] = useState<string | null>(null);
   /** Generator Iklan Sosmed — kamar kosong yang sedang dibuatkan iklan */
   const [adRoomId, setAdRoomId] = useState<string | null>(null);
   /** Aksi cepat "Perpanjang Sewa" (kebab kartu Denah Kamar) — kamar terisi
@@ -534,6 +538,11 @@ export default function IndoKostPage() {
   const selectedRoom = useMemo(
     () => effectiveRooms.find((r) => r.id === selectedRoomId) ?? null,
     [effectiveRooms, selectedRoomId]
+  );
+
+  const drawerEditRoom = useMemo(
+    () => effectiveRooms.find((r) => r.id === drawerEditRoomId) ?? null,
+    [effectiveRooms, drawerEditRoomId]
   );
 
   const adRoom = useMemo(
@@ -3815,6 +3824,21 @@ export default function IndoKostPage() {
         propertyName={property}
         canManage={canManageRooms}
         propertyType={settings.propertyProfile.tipe}
+        // Tombol pensil baris Uang Deposit & kartu KTP — paritas dgn Detail
+        // Penghuni (menu Penghuni); peran read-only (Penjaga) tak melihatnya.
+        onEdit={(room) => setDrawerEditRoomId(room.id)}
+        onUploadKtp={handleUploadTenantKtp}
+      />
+
+      {/* Edit Data Penghuni — jalur Denah Kamar (dibuka dr tombol deposit) */}
+      <TenantEditDialog
+        key={`rd-edit-${drawerEditRoomId ?? "none"}`}
+        room={drawerEditRoom}
+        open={drawerEditRoomId !== null && drawerEditRoom?.tenant != null}
+        onOpenChange={(o) => {
+          if (!o) setDrawerEditRoomId(null);
+        }}
+        onSubmit={(room, payload) => handleEditTenant(room, payload)}
       />
 
       {/* Generator Iklan Kamar Siap Copas ke Sosmed — kamar kosong */}
