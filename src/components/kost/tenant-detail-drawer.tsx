@@ -51,6 +51,9 @@ interface TenantDetailDrawerProps {
   /** Unggah/ganti foto KTP oleh owner — tersimpan ke tenants.ktpImage lalu
    *  UI ter-update dari respons (updateRooms). */
   onUploadKtp?: (room: Room, ktpImage: string) => Promise<void> | void;
+  /** Hapus foto KTP oleh owner (tombol "Hapus" di kartu KTP) — ktpImage
+   *  dikosongkan di database, kartu kembali ke keadaan kosong. */
+  onDeleteKtp?: (room: Room) => Promise<void> | void;
 }
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -75,7 +78,7 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onCheckout, invoices, propertyName, onEdit, onUploadKtp }: TenantDetailDrawerProps) {
+export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onCheckout, invoices, propertyName, onEdit, onUploadKtp, onDeleteKtp }: TenantDetailDrawerProps) {
   const history = room ? invoices.filter((i) => i.roomId === room.id) : [];
 
   return (
@@ -279,7 +282,7 @@ export function TenantDetailDrawer({ room, open, onOpenChange, onRenew, onChecko
               {/* Dokumen identitas (KTP) — kartu BERSAMA semua tampilan detail
                   (menu Penghuni & klik kamar di Denah): pratinjau + zoom +
                   unggah/ganti manual oleh owner (tenants.ktpImage). */}
-              <KtpDocumentCard room={room} onUpload={onUploadKtp} />
+              <KtpDocumentCard room={room} onUpload={onUploadKtp} onDelete={onDeleteKtp} />
 
               {/* Magic token link & QR portal penyewa */}
               <PortalAccessCard room={room} propertyName={propertyName} />

@@ -50,6 +50,9 @@ interface RoomDrawerProps {
   /** Unggah/ganti foto KTP oleh owner dari kartu "Dokumen Identitas (KTP)"
    *  — tersimpan ke tenants.ktpImage lalu UI ter-update dari respons. */
   onUploadKtp?: (room: Room, ktpImage: string) => Promise<void> | void;
+  /** Hapus foto KTP oleh owner (tombol "Hapus" di kartu KTP) — ktpImage
+   *  dikosongkan di database, UI kembali ke keadaan tanpa foto. */
+  onDeleteKtp?: (room: Room) => Promise<void> | void;
 }
 
 function SectionCard({
@@ -109,6 +112,7 @@ export function RoomDrawer({
   propertyType,
   onEdit,
   onUploadKtp,
+  onDeleteKtp,
 }: RoomDrawerProps) {
   // Cabang UI mengikuti KEHADIRAN PENYEWA (bukan status) — data anomali
   // (status ≠ "kosong" tanpa tenant) tidak boleh menghancurkan drawer.
@@ -387,7 +391,7 @@ export function RoomDrawer({
                   {/* Dokumen identitas (KTP) — kartu BERSAMA semua tampilan
                       detail: tepat di bawah "Kontrak & Deposit", di atas
                       "Akses Portal Penyewa" (pratinjau + zoom + unggah owner). */}
-                  <KtpDocumentCard room={room} canManage={canManage} onUpload={onUploadKtp} />
+                  <KtpDocumentCard room={room} canManage={canManage} onUpload={onUploadKtp} onDelete={onDeleteKtp} />
 
                   {/* Fasilitas kamar — badge pill flex-wrap */}
                   {(room.facilities?.length ?? 0) > 0 && (

@@ -52,6 +52,8 @@ interface PenghuniViewProps {
   onEditTenant: (room: Room, payload: TenantProfilePayload) => void;
   /** Unggah/ganti foto KTP oleh owner dari kartu KTP di Detail Penghuni */
   onUploadTenantKtp: (room: Room, ktpImage: string) => void;
+  /** Hapus foto KTP oleh owner dari kartu KTP di Detail Penghuni */
+  onDeleteTenantKtp?: (room: Room) => void;
   /** Nama properti — tampil pada QR & tautan portal penyewa */
   propertyName: string;
   /** Tipe properti aktif — Villa/Homestay → sebutan "Tamu / Penyewa" */
@@ -272,7 +274,7 @@ function MobileTenantCard({
   );
 }
 
-export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, onCheckout, onEditTenant, onUploadTenantKtp, propertyName, propertyType }: PenghuniViewProps) {
+export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, onCheckout, onEditTenant, onUploadTenantKtp, onDeleteTenantKtp, propertyName, propertyType }: PenghuniViewProps) {
   const [tab, setTab] = useState<DirTab>("semua");
   const [detailRoomId, setDetailRoomId] = useState<string | null>(null);
   const [renewRoomId, setRenewRoomId] = useState<string | null>(null);
@@ -573,6 +575,7 @@ export function PenghuniView({ rooms, invoices, query, onQueryChange, onRenew, o
         // Ikon pensil di baris "Uang Deposit" → langsung buka Edit Penghuni
         onEdit={(room) => setEditRoomId(room.id)}
         onUploadKtp={(room, ktpImage) => onUploadTenantKtp(room, ktpImage)}
+        onDeleteKtp={(room) => onDeleteTenantKtp?.(room)}
       />
       <RenewDialog
         key={`renew-${renewRoomId ?? "none"}-${renewRoomId !== null && renewRoom?.tenant != null}`}

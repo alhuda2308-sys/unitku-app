@@ -1998,6 +1998,38 @@ export default function IndoKostPage() {
       );
   };
 
+  /** Hapus foto KTP oleh owner — tombol "Hapus" (kartu "Dokumen Identitas
+   *  (KTP)", konfirmasi window.confirm ada di kartu). Demo → state lokal;
+   *  akun riil → PATCH /api/tenants dgn ktpImage "" (server → null) →
+   *  updateRooms dari respons — kartu langsung kembali ke keadaan kosong &
+   *  foto hilang dari Portal Penyewa tanpa reload. */
+  const handleDeleteTenantKtp = (room: Room) => {
+    if (instantDemo || isDemoSession || isTrialMode) {
+      updateRooms((prev) =>
+        prev.map((r) =>
+          r.id === room.id && r.tenant
+            ? { ...r, tenant: { ...r.tenant, ktpImage: undefined } }
+            : r,
+        ),
+      );
+      toast.success("Foto KTP dihapus", {
+        description: `Kamar ${roomNomor(room)} · dihapus di sesi demo — dapatkan Lisensi Seumur Hidup untuk pengelolaan dokumen permanen di cloud.`,
+      });
+      return;
+    }
+    api
+      .updateTenantKtp(room.id, "") // "" = hapus foto → tenants.ktpImage null
+      .then(({ room: updated }) => {
+        updateRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+        toast.success("Foto KTP dihapus", {
+          description: `Kamar ${roomNomor(room)} · dokumen identitas ${updated.tenant?.name ?? "penyewa"} dihapus dari database & Portal Penyewa.`,
+        });
+      })
+      .catch((err: unknown) =>
+        toast.error("Gagal menghapus foto KTP", { description: errMsg(err) }),
+      );
+  };
+
   /** durationLabel: "+6 bulan" / "+15 hari" (durasi kustom atur bebas) /
    *  "hingga {tgl}" (tanggal akhir manual) — hanya utk teks toast. */
   const handleRenew = (room: Room, newEndDate: string, durationLabel: string) => {
@@ -3590,6 +3622,7 @@ export default function IndoKostPage() {
                 onCheckout={handleCheckout}
                 onEditTenant={handleEditTenant}
                 onUploadTenantKtp={handleUploadTenantKtp}
+                onDeleteTenantKtp={handleDeleteTenantKtp}
                 propertyName={property}
                 propertyType={settings.propertyProfile.tipe}
               />
@@ -3828,6 +3861,7 @@ export default function IndoKostPage() {
         // Penghuni (menu Penghuni); peran read-only (Penjaga) tak melihatnya.
         onEdit={(room) => setDrawerEditRoomId(room.id)}
         onUploadKtp={handleUploadTenantKtp}
+        onDeleteKtp={handleDeleteTenantKtp}
       />
 
       {/* Edit Data Penghuni — jalur Denah Kamar (dibuka dr tombol deposit) */}

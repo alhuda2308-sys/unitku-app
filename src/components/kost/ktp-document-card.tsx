@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { IdCard, ImagePlus } from "lucide-react";
+import { IdCard, ImagePlus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { fileToCompressedDataUrl } from "@/lib/image-compress";
@@ -14,6 +14,9 @@ interface KtpDocumentCardProps {
   /** Owner memilih foto KTP baru (sudah terkompresi dataURL) — parent yang
    *  menyimpan ke API (PATCH /api/tenants) lalu memperbarui rooms. */
   onUpload?: (room: Room, ktpImage: string) => Promise<void> | void;
+  /** Owner menghapus foto KTP — parent mengosongkan tenants.ktpImage
+   *  (PATCH ktpImage "" → null di database) lalu memperbarui rooms. */
+  onDelete?: (room: Room) => Promise<void> | void;
   /** false = peran read-only (Penjaga) — kartu hanya pratinjau & zoom */
   canManage?: boolean;
   /** Kelas tambahan kartu (mis. margin) */
@@ -23,11 +26,12 @@ interface KtpDocumentCardProps {
 /**
  * Kartu "Dokumen Identitas (KTP)" — SATU komponen untuk SEMUA tampilan detail
  * penghuni (drawer Detail Penghuni di menu Penghuni & drawer klik kamar di
- * Denah): pratinjau foto (klik untuk zoom), tombol unggah/ganti foto oleh
- * owner, dan pesan kosong yang mengarahkan ke unggahan manual/Portal Penyewa.
- * Foto tersimpan di tenants.ktpImage dan ikut terlihat penyewa di portal.
+ * Denah): pratinjau foto (klik untuk zoom), tombol unggah/ganti/hapus foto
+ * oleh owner, dan pesan kosong yang mengarahkan ke unggahan manual/Portal
+ * Penyewa. Foto tersimpan di tenants.ktpImage dan ikut terlihat penyewa di
+ * portal.
  */
-export function KtpDocumentCard({ room, onUpload, canManage = true, className }: KtpDocumentCardProps) {
+export function KtpDocumentCard({ room, onUpload, onDelete, canManage = true, className }: KtpDocumentCardProps) {
   // Zoom KTP — pola foto tiket (maintenance-panel): klik thumbnail → Dialog
   const [zoom, setZoom] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,6 +52,24 @@ export function KtpDocumentCard({ room, onUpload, canManage = true, className }:
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Hapus foto KTP — konfirmasi dulu (window.confirm) agar tak sengaja
+   *  tertekan; parent yang mengosongkan tenants.ktpImage via API. */
+  const confirmRemove = () => {
+    if (!room.tenant || !onDelete) return;
+    const ok = window.confirm(
+      `Hapus foto KTP ${room.tenant.name}? Kartu kembali kosong dan penyewa perlu mengunggah ulang.`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    void (async () => {
+      try {
+        await onDelete(room);
+      } finally {
+        setBusy(false);
+      }
+    })();
   };
 
   return (
@@ -74,18 +96,36 @@ export function KtpDocumentCard({ room, onUpload, canManage = true, className }:
               <p className="text-[11.5px] leading-4 text-zinc-500">
                 Klik foto untuk perbesar.
               </p>
-              {canManage && onUpload && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => inputRef.current?.click()}
-                  disabled={busy}
-                  className="h-7 shrink-0 border-zinc-200 bg-white px-2 text-xs font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
-                >
-                  <ImagePlus className="size-3" strokeWidth={1.75} aria-hidden="true" />
-                  {busy ? "Memproses…" : "Ganti Foto"}
-                </Button>
+              {canManage && (onUpload || onDelete) && (
+                <div className="flex shrink-0 gap-1.5">
+                  {onDelete && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={confirmRemove}
+                      disabled={busy}
+                      className="h-7 border-rose-200 bg-white px-2 text-xs font-medium text-rose-600 shadow-none hover:bg-rose-50 hover:text-rose-700"
+                      aria-label="Hapus foto KTP"
+                    >
+                      <Trash2 className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                      {busy ? "Menghapus…" : "Hapus"}
+                    </Button>
+                  )}
+                  {onUpload && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => inputRef.current?.click()}
+                      disabled={busy}
+                      className="h-7 border-zinc-200 bg-white px-2 text-xs font-medium text-zinc-700 shadow-none hover:bg-zinc-50"
+                    >
+                      <ImagePlus className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                      {busy ? "Memproses…" : "Ganti Foto"}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           </div>
